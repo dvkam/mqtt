@@ -1,4 +1,4 @@
-import { connect, createTcpClient } from 'mqtt';
+import { connect, createTcpClient, createWebSocketClient } from 'mqtt';
 import { connectPortable, type PacketTransport } from 'mqtt/portable';
 
 export async function checkDeclarations(transport: PacketTransport) {
@@ -18,4 +18,11 @@ export async function checkTcpDeclarations(signal: AbortSignal) {
   const connected = await tcp.connect();
   await connected.ping();
   await connected.disconnect();
+}
+
+export async function checkWebSocketDeclarations(signal: AbortSignal) {
+  const factory = createWebSocketClient({ url: new URL('wss://localhost/mqtt'), clientId: 'consumer', signal });
+  const client = await factory.connect();
+  await client.ping();
+  await client.disconnect();
 }

@@ -57,7 +57,7 @@ jobs:
         run: |
           consumer="$RUNNER_TEMP/mqtt-consumer"
           mkdir "$consumer"
-          cp test/packed/{consumer.ts,tsconfig.json,browser.mjs,broker.mjs} "$consumer/"
+          cp test/packed/{consumer.ts,tsconfig.json,browser.mjs,broker.mjs,websocket-browser.mjs} "$consumer/"
           printf '{"private":true,"type":"module"}\n' > "$consumer/package.json"
           npm install --prefix "$consumer" --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/mqtt-artifact/*.tgz @types/node@26.6.6
           pnpm exec tsc -p "$consumer/tsconfig.json"
@@ -75,9 +75,45 @@ jobs:
       - name: Bundle the portable browser import
         if: github.event_name != 'schedule'
         run: node test/packed/browser-build.mjs "$RUNNER_TEMP/mqtt-consumer" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Check the packed WebSocket browser graph
+        run: node test/packed/websocket-check.mjs "$RUNNER_TEMP/mqtt-consumer" --bundle-only
       - name: Install scheduled browser test engines
         if: github.event_name == 'schedule'
         run: pnpm exec playwright install --with-deps chromium firefox webkit
       - name: Run the scheduled browser matrix
         if: github.event_name == 'schedule'
         run: node test/packed/browser-build.mjs "$RUNNER_TEMP/mqtt-consumer" chromium firefox webkit | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Compare packed native WebSocket in Node and Chromium
+        if: github.event_name == 'schedule'
+        run: timeout 30 node test/packed/websocket-check.mjs "$RUNNER_TEMP/mqtt-consumer"
+
+      - name: Run packed MQTT 5 sessions over WS and WSS
+        run: |
+          sudo install -d -m 0755 -o "$USER" /etc/mosquitto/certs
+          if [[ "$GITHUB_EVENT_NAME" == schedule ]]; then
+            sudo apt-get install -y libnss3-tools
+            export MQTT_TEST_CHROMIUM=1
+          fi
+          MQTT_BROKER_DIR=/etc/mosquitto/certs MQTT_BROKER_CONF=/etc/mosquitto/mqtt-ws-ci.conf bash test/packed/mosquitto-ws.sh "$RUNNER_TEMP/mqtt-consumer"
+
+  lts-consumers:
+    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: pnpm/action-setup@v6
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm build
+      - name: Verify the packed entry points
+        run: |
+          consumer=$(mktemp -d)
+          pnpm pack --pack-destination "$consumer"
+          npm install --prefix "$consumer" --engine-strict --ignore-scripts --no-audit --no-fund "$consumer"/*.tgz
+          (cd "$consumer" && node --input-type=module -e 'import { createTcpClient, createWebSocketClient } from "mqtt"; import { openMqttWebSocket } from "mqtt/websocket"; if (![createTcpClient, createWebSocketClient, openMqttWebSocket].every(value => typeof value === "function")) process.exit(1);')
