@@ -49,7 +49,7 @@
     "mqtt-packet": "^7.1.1",
     "number-allocator": "^1.0.10",
     "pino": "^7.6.3",
-    "ws": "^8.4.2"
+    "ws": "8.22.1"
   },
   "devDependencies": {
     "@types/duplexify": "^3.6.1",
