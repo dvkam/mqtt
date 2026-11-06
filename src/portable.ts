@@ -17,8 +17,6 @@ interface PortableOptions {
 
 type Acknowledgment = Extract<Packet, { cmd: 'connack' | 'suback' | 'pingresp' }>;
 
-class OperationTimeout extends Error {}
-
 class PortableClient {
   private pendingAck?: (packet: Acknowledgment) => void;
   private readonly pendingOperations = new Set<(error: Error) => void>();
@@ -74,13 +72,7 @@ class PortableClient {
 
   async ping(): Promise<void> {
     if (this.closing) throw new Error('Client is closing');
-    try {
-      await this.exchange({ cmd: 'pingreq' }, (ack) => ack.cmd === 'pingresp');
-    } catch (error) {
-      // PINGRESP has no identifier. A late reply must never satisfy a new ping.
-      if (error instanceof OperationTimeout) await this.abort(error).catch(() => {});
-      throw error;
-    }
+    await this.exchange({ cmd: 'pingreq' }, (ack) => ack.cmd === 'pingresp');
   }
 
   disconnect(): Promise<void> {
@@ -105,6 +97,7 @@ class PortableClient {
   }
 
   private async exchange(packet: Packet, matches: (ack: Acknowledgment) => boolean): Promise<void> {
+    if (this.failure) throw this.failure;
     if (this.pendingAck) throw new Error('Another acknowledgment is pending');
     const ack = new Promise<Acknowledgment>((resolve) => {
       this.pendingAck = (reply) => {
@@ -119,6 +112,12 @@ class PortableClient {
       if (reply.cmd === 'pingresp') return;
       const code = reply.cmd === 'connack' ? reply.reasonCode : reply.granted[0];
       if (code !== 0) throw Object.assign(new Error('MQTT acknowledgment refused'), { code });
+    } catch (error) {
+      // Retire before freeing the acknowledgment slot. PINGRESP has no request ID.
+      if (packet.cmd === 'pingreq' && !this.failure) {
+        await this.abort(error instanceof Error ? error : new Error('MQTT ping failed')).catch(() => {});
+      }
+      throw error;
     } finally {
       this.pendingAck = undefined;
     }
@@ -131,7 +130,7 @@ class PortableClient {
     const interrupted = new Promise<never>((_, reject) => {
       rejectOnClose = reject;
       this.pendingOperations.add(reject);
-      timer = setTimeout(() => reject(new OperationTimeout('MQTT operation timed out')), this.options.timeoutMs ?? 3000);
+      timer = setTimeout(() => reject(new Error('MQTT operation timed out')), this.options.timeoutMs ?? 3000);
     });
     try {
       return await Promise.race([interrupted, operation()]);
