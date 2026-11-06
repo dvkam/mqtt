@@ -1,15 +1,18 @@
 import { Duplex } from 'node:stream';
 import { once } from 'node:events';
 import { generate, parser, type Packet } from 'mqtt-packet';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { connect } from '../src/index.js';
 
 function peer(version: 4 | 5, reply?: Packet) {
   const packets: Packet[] = [];
+  let blocked = false;
   const decoder = parser({ protocolVersion: version });
   const stream = new Duplex({
+    writableHighWaterMark: 1,
     read() {},
     write(chunk, _encoding, callback) {
+      if (blocked) return;
       decoder.parse(chunk);
       callback();
     },
@@ -28,7 +31,7 @@ function peer(version: 4 | 5, reply?: Packet) {
     connectTimeout: 100,
     customStreamFactory: () => stream,
   };
-  return { options, packets, stream };
+  return { options, packets, stream, block: () => (blocked = true) };
 }
 
 test.each([4, 5] as const)('writes one CONNECT, a QoS 0 publish, and DISCONNECT at protocol level %i', async (version) => {
@@ -68,6 +71,33 @@ test('rejects when CONNACK never arrives and closes the transport', async () => 
     await expect(connect(options)).rejects.toThrow('connack packet timeout');
     expect(stream.destroyed).toBe(true);
   } finally {
+    stream.destroy();
+  }
+});
+
+test('legacy publish rejects when a blocked transport closes before drain', async () => {
+  const { options, stream, block } = peer(5, { cmd: 'connack', sessionPresent: false, reasonCode: 0 });
+  const client = await connect(options);
+  block();
+  const published = client.publish({ topic: 'baseline/topic', payload: 'hello' });
+  stream.destroy();
+  await expect(published).rejects.toThrow('Transport closed before drain');
+  expect(stream.listenerCount('drain')).toBe(0);
+}, 500);
+
+test('never serializes CONNECT credentials or PUBLISH payloads for logging', async () => {
+  const { options, stream } = peer(5, { cmd: 'connack', sessionPresent: false, reasonCode: 0 });
+  const stringify = vi.spyOn(JSON, 'stringify');
+  try {
+    const client = await connect({ ...options, username: 'test-secret', password: Buffer.from('test-password') });
+    await client.publish({ topic: 'baseline/topic', payload: 'test-payload' });
+    await client.disconnect();
+    const serializedPackets = stringify.mock.calls
+      .map(([value]) => value)
+      .filter((value) => typeof value === 'object' && value !== null && 'cmd' in value);
+    expect(serializedPackets).toEqual([]);
+  } finally {
+    stringify.mockRestore();
     stream.destroy();
   }
 });

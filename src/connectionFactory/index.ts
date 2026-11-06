@@ -5,7 +5,6 @@ import { URL } from 'url';
 import { ConnectOptions } from '../interface/connectOptions.js';
 import { buildWebSocketStream } from './buildWebSocketStream.js';
 import { WebSocketOptions } from './interfaces/webSocketOptions.js';
-import { logger } from '../util/logger.js';
 
 export function connectionFactory(options: ConnectOptions): Duplex {
   const brokerUrl: URL = options.brokerUrl as URL;
@@ -16,7 +15,6 @@ export function connectionFactory(options: ConnectOptions): Duplex {
       const port: number = parseInt(brokerUrl.port) || 1883;
       const host: string = brokerUrl.hostname || brokerUrl.host || 'localhost';
 
-      // logger.info('port %d and host %s', port, host)
       return net.createConnection(port, host);
     }
     case 'tls:': /* fall through */
@@ -24,8 +22,6 @@ export function connectionFactory(options: ConnectOptions): Duplex {
       const port: number = parseInt(brokerUrl.port) || 8883;
       const host: string = brokerUrl.hostname || brokerUrl.host || 'localhost';
       const servername: string = brokerUrl.host;
-
-      logger.info(`port ${port} host ${host} servername ${servername}`);
 
       const connection: tls.TLSSocket = tls.connect({
         port: port,

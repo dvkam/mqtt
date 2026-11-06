@@ -8,7 +8,6 @@
 import { MqttClient } from './client.js';
 import { ConnectOptions } from './interface/connectOptions.js';
 import { protocols } from './util/constants.js';
-import { logger } from './util/logger.js';
 
 import { URL } from 'url';
 
@@ -20,7 +19,6 @@ import { URL } from 'url';
  *   3) Return the client to the user.
  */
 async function connect(options: ConnectOptions) {
-  logger.info(`validating options...`);
   if (typeof options.brokerUrl === 'string') {
     options.brokerUrl = new URL(options.brokerUrl);
   }
@@ -39,16 +37,12 @@ async function connect(options: ConnectOptions) {
     throw validationErr;
   }
 
-  logger.trace('creating new client...');
   const client = new MqttClient(options);
-  const connackPacket = await client.connect();
-  logger.trace(`connack packet: ${JSON.stringify(connackPacket)}`);
-  logger.trace('returning client...');
+  await client.connect();
   return client;
 }
 
 function _validateProtocol(opts: ConnectOptions): Error | undefined {
-  logger.info(`validating protocol options...`);
   if (opts.tlsOptions && 'cert' in opts.tlsOptions && 'key' in opts.tlsOptions) {
     const urlProtocol = (opts.brokerUrl as URL).protocol;
     if (urlProtocol) {
@@ -66,7 +60,6 @@ function _validateProtocol(opts: ConnectOptions): Error | undefined {
 }
 
 function formatSecureProtocolError(protocol: string): Error {
-  logger.info('secure protocol error! formatting secure protocol error... ');
   let secureProtocol: string;
   switch (protocol) {
     case 'mqtt':
