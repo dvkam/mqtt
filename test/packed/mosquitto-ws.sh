@@ -29,7 +29,12 @@ keyfile $broker_dir/server.key
 cafile $broker_dir/ca.pem
 require_certificate true
 CONF
-"${MOSQUITTO_BIN:-mosquitto}" -c "$broker_dir/broker.conf" &
+broker_conf="$broker_dir/broker.conf"
+if [[ -n ${MQTT_BROKER_CONF:-} ]]; then
+  sudo install -m 0644 "$broker_conf" "$MQTT_BROKER_CONF"
+  broker_conf=$MQTT_BROKER_CONF
+fi
+"${MOSQUITTO_BIN:-mosquitto}" -c "$broker_conf" &
 broker=$!
 trap 'kill "$broker" ${gateway:+"$gateway"} 2>/dev/null || true' EXIT
 timeout 10 bash -c 'until ( : > /dev/tcp/127.0.0.1/18885 ) 2>/dev/null; do sleep 0.1; done'
