@@ -1,10 +1,14 @@
 import { generate, parser } from 'mqtt-packet';
-import WebSocket, { type ClientOptions } from 'ws';
+import type { Agent } from 'node:http';
+import type { SecureContextOptions } from 'node:tls';
+import WebSocket from 'ws';
 import { connectPortable, type PacketTransport } from './portable.js';
 
 type WebSocketClientOptions = Parameters<typeof connectPortable>[1] &
-  Pick<ClientOptions, 'agent' | 'ca' | 'cert' | 'key' | 'headers'> & {
+  Pick<SecureContextOptions, 'ca' | 'cert' | 'key'> & {
     url: string | URL;
+    agent?: Agent;
+    headers?: Record<string, string>;
     signal?: AbortSignal;
     maxBufferedBytes?: number;
   };
