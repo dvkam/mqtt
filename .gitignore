@@ -45,3 +45,4 @@ dist/**/*
 
 # dist
 dist
+/.type-fixtures/

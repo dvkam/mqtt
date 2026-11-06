@@ -1,0 +1,3 @@
+*.ts text eol=lf
+*.config.mjs text eol=lf
+test/types/**/*.json text eol=lf

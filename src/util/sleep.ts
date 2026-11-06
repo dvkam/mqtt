@@ -3,7 +3,7 @@ export function sleep(time?: number): {
   cancel: () => void;
 } {
   let outerReject: (reason?: any) => void;
-  let timer: number;
+  let timer: ReturnType<typeof setTimeout>;
   const promise = new Promise<void>((resolve, reject) => {
     outerReject = reject;
     timer = setTimeout(resolve, time);

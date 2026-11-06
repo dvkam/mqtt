@@ -1,5 +1,4 @@
 import {
-  IPacket,
   IConnackPacket,
   IConnectPacket,
   IDisconnectPacket,
@@ -14,20 +13,16 @@ import { Duplex } from 'node:stream';
 import { Socket } from 'node:net';
 import { EventEmitter } from 'node:events';
 import { connectionFactory } from './connectionFactory/index.js';
-import eos from 'end-of-stream';
 import { defaultConnectOptions } from './util/constants.js';
-import { ReasonCodeErrors } from './util/reasonCodes.js';
+import { ReasonCodes } from './util/reasonCodes.js';
+import { ReturnCodes } from './util/returnCodes.js';
 import { logger } from './util/logger.js';
 import { defaultClientId } from './util/defaultClientId.js';
-import { PublishPacket } from './interface/packets.js';
 import { Logger } from 'pino';
-import * as sequencer from './sequencer.js';
+import { MqttPacketSequencer } from './sequencer.js';
 
-function eosPromisified(stream: NodeJS.ReadableStream | NodeJS.WritableStream): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    eos(stream, (err: any) => (err instanceof Error ? reject(err) : resolve()));
-  });
-}
+type PublishPacket = Pick<IPublishPacket, 'topic'> &
+  Partial<Pick<IPublishPacket, 'payload' | 'retain' | 'properties'>> & { qos?: 0 };
 
 export class MqttClient extends EventEmitter {
   _incomingPacketParser: MqttParser;
@@ -36,16 +31,9 @@ export class MqttClient extends EventEmitter {
   connecting: boolean;
   connected: boolean;
   errored: boolean;
-  _eos: Promise<void> | undefined;
   conn: Duplex | Socket;
   _clientLogger: Logger;
-  /**
-   * Use packet ID as key if there is one (e.g., SUBACK)
-   * Use packet type as key if there is no packet ID (e.g., CONNACK)
-   */
-  // TODO: This should be removed after we remove CONNECT into the sequencer
-  _inflightPackets: Map<string | number, (err: Error | null, packet: IPacket) => void>;
-  private _packetSequencer = new sequencer.MqttPacketSequencer(write.bind(null, this));
+  private readonly _packetSequencer = new MqttPacketSequencer((packet) => write(this, packet));
 
   constructor(options: ConnectOptions) {
     super();
@@ -54,7 +42,6 @@ export class MqttClient extends EventEmitter {
     this.connected = false;
     this.errored = false;
     this.disconnecting = false;
-    this._inflightPackets = new Map();
 
     // Using this method to clean up the constructor to do options handling
     logger.trace(`populating internal client options object...`);
@@ -113,35 +100,13 @@ export class MqttClient extends EventEmitter {
     this.conn.on('error', this.emit.bind(this, 'clientError'));
 
     this.conn.on('close', () => {
-      this.disconnect({ force: false });
-    });
-    this._eos = eosPromisified(this.conn);
-    this._eos.catch((err: any) => {
-      this.emit('error', err);
+      this.connected = false;
+      this._packetSequencer.cancelConnect(new Error('Connection closed before CONNACK'));
     });
   }
 
   async handleIncomingPacket(packet: Packet): Promise<void> {
-    this._clientLogger.trace(`handleIncomingPacket packet.cmd=${packet.cmd}`);
-    switch (packet.cmd) {
-      case 'connack': {
-        const connackCallback = this._inflightPackets.get('connack');
-        if (connackCallback) {
-          this._inflightPackets.delete('connack');
-          connackCallback(null, packet as IConnackPacket);
-        }
-        break;
-      }
-      case 'puback': {
-        // We should be sending almost every packet into the incoming packet sequencer including publish
-        // When we add publish, we may need another callback function so the sequencer can tell us when a new publish packet comes in.
-        // (We need the sequencer to do this because it has to send puback messages and it needs to do the whole QOS-2 thing when packets come in.)
-        //
-        // Also, another random thought, when we get suback back from the broker, it will include granted QOS values and we'll need to return those.
-        this._packetSequencer.handleIncomingPacket((packet as unknown) as sequencer.Packet);
-        break;
-      }
-    }
+    this._packetSequencer.handleIncomingPacket(packet);
   }
 
   /**
@@ -151,10 +116,8 @@ export class MqttClient extends EventEmitter {
    */
   // TODO: Should this be moved up to the index.ts file, or should it live here?
   public async connect(): Promise<IConnackPacket> {
-    logger.trace('sending connect...');
+    if (this.connecting || this.connected) throw new Error('Client is already connecting or connected');
     this.connecting = true;
-    
-    const connackPromise = this._awaitConnack();
     const packet: IConnectPacket = {
       cmd: 'connect',
       clientId: this._options.clientId as string,
@@ -167,15 +130,16 @@ export class MqttClient extends EventEmitter {
       will: this._options.will,
       properties: this._options.properties,
     };
-    this._packetSequencer.runSequence(packet)
-    logger.trace(`running connect sequence...`);
-    await write(this, packet);
-    logger.trace('waiting for connack...');
-    const connack = await connackPromise;
-    await this._onConnected(connack);
-    this.connecting = false;
-    logger.trace('client connected. returning client...');
-    return connack;
+    try {
+      const connack = await this._packetSequencer.connect(packet, this._options.connectTimeout);
+      this._onConnected(connack);
+      return connack;
+    } catch (error) {
+      this.conn.destroy();
+      throw error;
+    } finally {
+      this.connecting = false;
+    }
   }
 
   /**
@@ -190,35 +154,15 @@ export class MqttClient extends EventEmitter {
     if (!this.connected) {
       throw new Error('client must be connected to publish.');
     }
-    // NumberAllocator's firstVacant method has a Time Complexity of O(1).
-    // Will return the first vacant number, or null if all numbers are occupied.
-    // eslint-disable-next-line @typescript-eslint/ban-types
-    const messageId = this._numberAllocator.alloc();
-    if (messageId === null) {
-      logger.error("All messageId's are allocated.");
-      this.emit(`error in numberAllocator during publish`); // TODO: this is probably not the event name we want to emit
-      return;
-    }
-    const defaultPublishPacket: IPublishPacket = {
-      cmd: 'publish',
-      retain: false,
-      dup: false,
-      messageId,
-      qos: 0,
-      topic: 'default',
-      payload: '',
-    };
-    const publishPacket: IPublishPacket = {
-      ...defaultPublishPacket,
+    if (packet.qos !== undefined && packet.qos !== 0) throw new Error('Only QoS 0 publishing is supported');
+    await write(this, {
       ...packet,
-    };
-
-    try {
-      // TODO: remove this ugly cast
-      await this._packetSequencer.runSequence('publish', (publishPacket as unknown) as sequencer.Message);
-    } finally {
-      this._numberAllocator.free(messageId);
-    }
+      cmd: 'publish',
+      qos: 0,
+      dup: false,
+      retain: packet.retain ?? false,
+      payload: packet.payload ?? '',
+    });
   }
 
   private async _destroyClient(force?: boolean) {
@@ -273,44 +217,27 @@ export class MqttClient extends EventEmitter {
     return this;
   }
 
-  private async _awaitConnack(): Promise<IConnackPacket> {
-    return new Promise((resolve, reject) => {
-      if (this._inflightPackets.has('connack')) {
-        reject(new Error('connack packet callback already exists'));
-        return;
-      }
-      this._inflightPackets.set('connack', (err, packet) => {
-        err ? reject(err) : resolve(packet as IConnackPacket);
-      });
-      let connackTimeout: NodeJS.Timeout | null = setTimeout(() => {
-        this._inflightPackets.delete('connack');
-        clearTimeout(connackTimeout as NodeJS.Timeout);
-        connackTimeout = null;
-        reject(new Error('connack packet timeout'));
-      }, this._options.connectTimeout);
-    });
-  }
+  private _onConnected(packet: IConnackPacket) {
+    const isMqtt5 = this._options.protocolVersion === 5;
+    const code = isMqtt5 ? packet.reasonCode : packet.returnCode;
+    if (typeof code !== 'number') throw new Error('Invalid connack packet');
 
-  private _onConnected(connackPacket: IConnackPacket) {
-    logger.trace(`updating client state on connected...`);
-    const rc = connackPacket.returnCode;
-    if (typeof rc !== 'number') {
-      throw new Error('Invalid connack packet');
+    if (code !== 0) {
+      const messages: Partial<Record<number, string>> = isMqtt5 ? ReasonCodes.connack : ReturnCodes.connack;
+      const message = messages[code]?.replace(/^Connection Refused: /, '') ?? String(code);
+      throw Object.assign(new Error('Connection refused: ' + message), { code });
     }
-    if (rc === 0) {
-      this.connected = true;
-      return;
-    } else if (rc > 0) {
-      const err: any = new Error('Connection refused: ' + ReasonCodeErrors[rc as keyof typeof ReasonCodeErrors]);
-      err.code = rc;
-      this.emit('clientError', err);
-      throw err;
-    }
+
+    this.connected = true;
   }
 
   // TODO: follow up on Aedes to see if there is a better way than breaking the Node Streams contract and accessing _writableState
   // to make sure that the write callback is cleaned up in case of error.
   onError(err?: Error | null | undefined) {
+    if (this.connecting) {
+      this._packetSequencer.cancelConnect(err ?? new Error('Connection failed'));
+      return;
+    }
     this.emit('error', err);
     this.errored = true;
     this.conn.removeAllListeners('error');
@@ -329,6 +256,8 @@ export class MqttClient extends EventEmitter {
       throw new Error('_writableState.buffer is EOL. _writableState should have getBuffer() as a function.');
     }
     const list: any[] = state.getBuffer();
-    list.forEach((req) => {req.callback()});
+    list.forEach((req) => {
+      req.callback();
+    });
   }
 }

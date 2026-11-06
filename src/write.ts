@@ -11,12 +11,10 @@ export async function write(client: MqttClient, packet: mqtt.Packet): Promise<vo
    * If writeToStream returns true, we can immediately continue. Otherwise,
    * either we need to wait for the 'drain' event or the client has errored.
    */
-  if (mqtt.writeToStream(packet, client.conn)) return;
-  // if we get an error while writing to the packet stream in mqtt-packet v8, then the stream will synchronously be set to 'destroyed' immediately, so we can 
+  if (mqtt.writeToStream(packet, client.conn, { protocolVersion: client._options.protocolVersion })) return;
+  // if we get an error while writing to the packet stream in mqtt-packet v8, then the stream will synchronously be set to 'destroyed' immediately, so we can
   // check for errors by checking if the connection is destroyed after writing to stream.
   if (client.conn.destroyed) throw new Error('stream destroyed while attempting to write');
-
-  
 
   /** TODO: if there is an issue, write could potentially stall forever
    * We should look into if we should have a timeout here or if the timeout should be
