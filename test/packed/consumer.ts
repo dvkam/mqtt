@@ -1,4 +1,4 @@
-import { connect } from 'mqtt';
+import { connect, createTcpClient } from 'mqtt';
 import { connectPortable, type PacketTransport } from 'mqtt/portable';
 
 export async function checkDeclarations(transport: PacketTransport) {
@@ -11,4 +11,11 @@ export async function checkDeclarations(transport: PacketTransport) {
   // @ts-expect-error The experimental tracer accepts string payloads.
   await portable.publish('consumer/test', 42);
   await portable.disconnect();
+}
+
+export async function checkTcpDeclarations(signal: AbortSignal) {
+  const tcp = createTcpClient({ host: '127.0.0.1', clientId: 'consumer', signal });
+  const connected = await tcp.connect();
+  await connected.ping();
+  await connected.disconnect();
 }

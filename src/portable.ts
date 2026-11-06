@@ -3,7 +3,8 @@ import type { IConnectPacket, IPublishPacket, Packet } from 'mqtt-packet';
 export interface PacketTransport {
   send(packet: Packet): Promise<void>;
   listen(onPacket: (packet: Packet) => void, onClose: (error: Error) => void): () => void;
-  close(): Promise<void>;
+  /** Forced closure must promptly release pending I/O and settle. */
+  close(force?: boolean): Promise<void>;
 }
 
 interface PortableOptions {
@@ -14,7 +15,9 @@ interface PortableOptions {
   onMessage?: (packet: IPublishPacket) => void;
 }
 
-type Acknowledgment = Extract<Packet, { cmd: 'connack' | 'suback' }>;
+type Acknowledgment = Extract<Packet, { cmd: 'connack' | 'suback' | 'pingresp' }>;
+
+class OperationTimeout extends Error {}
 
 class PortableClient {
   private pendingAck?: (packet: Acknowledgment) => void;
@@ -30,7 +33,7 @@ class PortableClient {
   ) {
     this.unlisten = transport.listen(
       (packet) => {
-        if (packet.cmd === 'connack' || packet.cmd === 'suback') this.pendingAck?.(packet);
+        if (packet.cmd === 'connack' || packet.cmd === 'suback' || packet.cmd === 'pingresp') this.pendingAck?.(packet);
         if (packet.cmd === 'publish' && packet.qos === 0) options.onMessage?.(packet);
       },
       (error) => this.fail(error),
@@ -69,23 +72,36 @@ class PortableClient {
     await this.run(async () => this.transport.send({ cmd: 'publish', topic, payload, qos: 0, dup: false, retain: false }));
   }
 
+  async ping(): Promise<void> {
+    if (this.closing) throw new Error('Client is closing');
+    try {
+      await this.exchange({ cmd: 'pingreq' }, (ack) => ack.cmd === 'pingresp');
+    } catch (error) {
+      // PINGRESP has no identifier. A late reply must never satisfy a new ping.
+      if (error instanceof OperationTimeout) await this.abort(error).catch(() => {});
+      throw error;
+    }
+  }
+
   disconnect(): Promise<void> {
-    this.closing ??= this.end();
+    this.closing ??= Promise.resolve().then(() => this.end());
     return this.closing;
   }
 
   async abort(error: Error): Promise<void> {
     this.fail(error);
-    await this.transport.close();
+    await this.transport.close(true);
   }
 
   private async end(): Promise<void> {
     try {
       await this.run(async () => this.transport.send({ cmd: 'disconnect' }));
-    } finally {
-      this.fail(new Error('Client disconnected'));
-      await this.transport.close();
+    } catch (error) {
+      await this.abort(error instanceof Error ? error : new Error('MQTT disconnect failed')).catch(() => {});
+      throw error;
     }
+    this.fail(new Error('Client disconnected'));
+    await this.transport.close();
   }
 
   private async exchange(packet: Packet, matches: (ack: Acknowledgment) => boolean): Promise<void> {
@@ -100,6 +116,7 @@ class PortableClient {
         const [received] = await Promise.all([ack, this.transport.send(packet)]);
         return received;
       });
+      if (reply.cmd === 'pingresp') return;
       const code = reply.cmd === 'connack' ? reply.reasonCode : reply.granted[0];
       if (code !== 0) throw Object.assign(new Error('MQTT acknowledgment refused'), { code });
     } finally {
@@ -114,7 +131,7 @@ class PortableClient {
     const interrupted = new Promise<never>((_, reject) => {
       rejectOnClose = reject;
       this.pendingOperations.add(reject);
-      timer = setTimeout(() => reject(new Error('MQTT operation timed out')), this.options.timeoutMs ?? 3000);
+      timer = setTimeout(() => reject(new OperationTimeout('MQTT operation timed out')), this.options.timeoutMs ?? 3000);
     });
     try {
       return await Promise.race([interrupted, operation()]);
@@ -143,6 +160,7 @@ export async function connectPortable(transport: PacketTransport, options: Porta
   return {
     subscribe: (topic: string) => client.subscribe(topic),
     publish: (topic: string, payload: string) => client.publish(topic, payload),
+    ping: () => client.ping(),
     disconnect: () => client.disconnect(),
   };
 }
