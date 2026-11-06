@@ -21,3 +21,32 @@ export async function exchange(url) {
     socket.close();
   }
 }
+
+export async function measureQueue(url, open = openMqttWebSocket) {
+  const socket = await open(url);
+  const budget = 128 * 1024;
+  const bytes = new Uint8Array(64 * 1024);
+  const closed = new Promise((resolve) => socket.addEventListener('close', resolve, { once: true }));
+  let admitted = 0;
+  let peak = 0;
+  let timer;
+  try {
+    while (admitted < 512 && socket.bufferedAmount + bytes.byteLength <= budget) {
+      socket.send(bytes);
+      admitted++;
+      peak = Math.max(peak, socket.bufferedAmount);
+    }
+    const nextWouldExceed = socket.bufferedAmount + bytes.byteLength > budget;
+    const beforeClose = performance.now();
+    await Promise.race([
+      closed,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Stalled peer did not close')), 3000);
+      }),
+    ]);
+    return { admitted, peak, budget, nextWouldExceed, closeMs: performance.now() - beforeClose };
+  } finally {
+    clearTimeout(timer);
+    socket.close();
+  }
+}

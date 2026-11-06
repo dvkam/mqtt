@@ -24,6 +24,7 @@ class PortableClient {
   private closing?: Promise<void>;
   private readonly unlisten: () => void;
   private messageId = 0;
+  private active = false;
 
   constructor(
     private readonly transport: PacketTransport,
@@ -31,8 +32,9 @@ class PortableClient {
   ) {
     this.unlisten = transport.listen(
       (packet) => {
+        if (this.failure) return;
         if (packet.cmd === 'connack' || packet.cmd === 'suback' || packet.cmd === 'pingresp') this.pendingAck?.(packet);
-        if (packet.cmd === 'publish' && packet.qos === 0) options.onMessage?.(packet);
+        if (this.active && !this.closing && packet.cmd === 'publish' && packet.qos === 0) options.onMessage?.(packet);
       },
       (error) => this.fail(error),
     );
@@ -53,6 +55,8 @@ class PortableClient {
       },
       (ack) => ack.cmd === 'connack',
     );
+    if (this.failure) throw this.failure;
+    this.active = true;
   }
 
   async subscribe(topic: string): Promise<void> {

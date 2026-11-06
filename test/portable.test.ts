@@ -21,7 +21,7 @@ function peer() {
     },
     async close() {},
   };
-  return { transport, packets, close: (error: Error) => closed(error) };
+  return { transport, packets, receive: (packet: Packet) => receive(packet), close: (error: Error) => closed(error) };
 }
 
 test('completes the MQTT 5 QoS 0 tracer through an injected packet transport', async () => {
@@ -79,4 +79,15 @@ test('retires a ping whose transport write rejects after admitting bytes', async
   await expect(client.ping()).rejects.toBe(writeError);
   await expect(client.ping()).rejects.toBe(writeError);
   expect(packets.map(({ cmd }) => cmd)).toEqual(['connect', 'pingreq']);
+});
+
+test('ignores a queued application frame delivered after transport failure', async () => {
+  const broker = peer();
+  const messages: Packet[] = [];
+  const client = await connectPortable(broker.transport, { clientId: 'late-frame', onMessage: (p) => messages.push(p) });
+  const reason = new Error('transport closed');
+  broker.close(reason);
+  broker.receive({ cmd: 'publish', topic: 'late', payload: 'late', qos: 0, dup: false, retain: false });
+  await expect(client.publish('late', 'reply')).rejects.toBe(reason);
+  expect(messages).toEqual([]);
 });
