@@ -1,6 +1,5 @@
 {
   "categories": { "correctness": "error" },
   "ignorePatterns": ["dist/**", "test/test_*.js", "test/util/**", "test/types/attributes.d.ts"],
-  "rules": { "no-unused-expressions": ["error", { "allowTernary": true }] },
-  "overrides": [{ "files": ["src/sequencer.ts"], "rules": { "no-unused-vars": "off" } }]
+  "rules": { "no-unused-expressions": ["error", { "allowTernary": true }] }
 }
