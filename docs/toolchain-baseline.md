@@ -12,12 +12,26 @@ The comparator used `mqtt@5.16.1`, `vite@8.2.2` and Node 26.13.0 on WSL. The Nod
 
 | Round | Publishes per second | p99 ms |
 |---|---:|---:|
-| 1 | 11,612.63 | 0.3582 |
-| 2 | 17,768.91 | 0.1364 |
-| 3 | 19,695.03 | 0.1166 |
+| 1 | 14,075.13 | 0.2480 |
+| 2 | 16,933.38 | 0.1724 |
+| 3 | 20,355.85 | 0.1087 |
 
-The Vite browser entry exports a function that calls `mqtt.connect(url, { protocolVersion: 5 })`. With a default import, the minified ESM output measured 419,157 bytes and gzip measured 108,960 bytes. The released package's named `connect` import failed to bundle. These results cover a browser build and a TCP wire smoke test. Browser broker behavior and sustained-load comparisons still need independent tests.
+The Vite browser entry exports a function that calls `mqtt.connect(url, { protocolVersion: 5 })`. With a default import, the minified ESM output measured 419,157 bytes and gzip measured 108,960 bytes. The released package's named `connect` import failed to bundle. Chromium 156.0.8078.4 loaded the built ESM and received a successful MQTT 5 CONNACK from the scripted WebSocket peer. Sustained-load comparisons still need independent tests.
+
+To reproduce, run `npm ci` in [the isolated comparator directory](baseline/) and run `node measure.mjs` there with Node 26. Set `CHROMIUM_PATH` to a Chromium executable, or install Playwright's Chromium for the pinned driver. The fixture uses local ephemeral ports. [Raw results](baseline/results.jsonl)
 
 For the same loopback fixture, use provisional budgets of at least 11,000 acknowledged publishes per second and p99 at most 0.4 ms on the same host. Require a smaller equivalent browser artifact in both byte measures. For the first sustained workload, start with a proposed library-owned queue cap of 4 MiB and 1,024 entries. Measure it under saturation before adopting it as a release default. The sequential loopback workload does not measure queue memory.
 
 Refs #1.
+
+## Toolchain verification
+
+Run `pnpm install --frozen-lockfile` with Node 26.13.0 and pnpm 12.16.1. Run `pnpm test`, `pnpm test:types`, `pnpm lint`, and `pnpm format:check` separately from `pnpm build`.
+
+Temporary Vitest probes for a wrong assertion, a test without assertions and a focused test each exited 1. Six topic-filter tests passed. The type fixtures cover packet narrowing, the 7.1 distributive constraint check and attributed ambient imports. A separate consumer compiles against emitted fixture declarations. The ambient declaration fixture stays outside the published package and is checked by TypeScript because the pinned Oxc parser does not parse that beta syntax yet.
+
+The compiler keeps ES2020 output. The browser and consumer runtime matrix has yet to establish support for ES2026 features, so the library does not use them. A WSL source-build sample took 1.67 seconds and 71,592 KiB peak RSS, ending with diagnostics. It is a timing sample of the failing build. Editor integration and the supported consumer compiler range remain open.
+
+The legacy AVA integration files still document intended behavior. They depend on a buildable client and are outside the Vitest suite. The new CI runs the source build as a separate, required step, which still reports the inherited client and sequencer errors.
+
+Refs #2.
