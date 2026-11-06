@@ -86,3 +86,34 @@ jobs:
       - name: Compare packed native WebSocket in Node and Chromium
         if: github.event_name == 'schedule'
         run: timeout 30 node test/packed/websocket-check.mjs "$RUNNER_TEMP/mqtt-consumer"
+
+      - name: Run packed MQTT 5 sessions over WS and WSS
+        run: |
+          sudo install -d -m 0700 -o "$USER" /etc/mosquitto/mqtt-ws-test
+          if [[ "$GITHUB_EVENT_NAME" == schedule ]]; then
+            sudo apt-get install -y libnss3-tools
+            export MQTT_TEST_CHROMIUM=1
+          fi
+          MQTT_BROKER_DIR=/etc/mosquitto/mqtt-ws-test bash test/packed/mosquitto-ws.sh "$RUNNER_TEMP/mqtt-consumer"
+
+  lts-consumers:
+    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: pnpm/action-setup@v6
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm build
+      - name: Verify the packed entry points
+        run: |
+          consumer=$(mktemp -d)
+          pnpm pack --pack-destination "$consumer"
+          npm install --prefix "$consumer" --engine-strict --ignore-scripts --no-audit --no-fund "$consumer"/*.tgz
+          (cd "$consumer" && node --input-type=module -e 'import { createTcpClient, createWebSocketClient } from "mqtt"; import { openMqttWebSocket } from "mqtt/websocket"; if (![createTcpClient, createWebSocketClient, openMqttWebSocket].every(value => typeof value === "function")) process.exit(1);')
