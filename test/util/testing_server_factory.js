@@ -1,11 +1,11 @@
 import test from 'ava';
-import aedes from 'aedes';
+import { Aedes } from 'aedes';
 import { createServer } from 'node:net';
 import { logger } from '../../dist/util/logger.js';
 
 /* ===================== BEGIN before/beforeEach HOOKS ===================== */
 export const serverFactoryMacro = test.macro(async (t, port) => {
-  t.context.broker = aedes();
+  t.context.broker = await Aedes.createBroker();
   t.context.server = createServer(t.context.broker.handle);
 
   await new Promise((resolve) => t.context.server.listen(port, resolve));
