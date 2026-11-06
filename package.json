@@ -33,6 +33,10 @@
     "./portable": {
       "types": "./dist/portable.d.ts",
       "import": "./dist/portable.js"
+    },
+    "./websocket": {
+      "types": "./dist/websocket.d.ts",
+      "import": "./dist/websocket.js"
     }
   },
   "scripts": {

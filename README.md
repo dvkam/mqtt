@@ -14,4 +14,6 @@ The packed CI job installs the tarball in a clean consumer, checks declarations,
 
 The Node entry point exports `createTcpClient({ host, port, clientId, signal })`. Construction performs no I/O. Call `connect()` to start one connection attempt, then use the connected client's `subscribe()`, `publish()`, `ping()` and `disconnect()` methods. Create a new client for a new connection attempt. The signal can cancel TCP setup or the MQTT handshake. The client removes its abort listener when the attempt settles.
 
-`ping()` sends one PINGREQ and waits for PINGRESP. Await pending subscribe or ping calls before starting another acknowledgment exchange. A timed-out ping closes the connection because a late PINGRESP cannot be matched to a particular request.
+`ping()` sends one PINGREQ and waits for PINGRESP. Await pending subscribe or ping calls before starting another acknowledgment exchange. A failed ping closes the connection because a late PINGRESP cannot be matched to a particular request.
+
+The experimental mqtt/websocket subpath opens a native WebSocket in Node 26 or a browser. It requests the mqtt subprotocol and uses ArrayBuffer for binary frames. The signal and timeout cover the opening handshake. The returned socket has native send, buffering and close semantics. This probe tests the transport before MQTT session integration.
