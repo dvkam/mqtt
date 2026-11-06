@@ -19,6 +19,9 @@ const models = [
   ['PingFence', 'PingFenceRetry', 'NoSendAfterFailure'],
   ['WebSocketOpen', 'WebSocketOpen'],
   ['WebSocketOpen', 'WebSocketOpenBroken', 'TerminalOwnership'],
+  ['WebSocketSession', 'WebSocketSession'],
+  ['WebSocketSession', 'WebSocketSessionDeliver', 'NoInvalidDelivery'],
+  ['WebSocketSession', 'WebSocketSessionBudget', 'BoundedBudget'],
 ];
 
 for (const [model, config, invariant] of models) {

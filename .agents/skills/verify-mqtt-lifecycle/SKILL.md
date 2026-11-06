@@ -1,6 +1,6 @@
 ---
 name: verify-mqtt-lifecycle
-description: Check the MQTT ping retirement and native WebSocket opening invariants when reviewing any PR in this repository.
+description: Check the MQTT ping retirement, WebSocket opening and session admission invariants when reviewing any PR in this repository.
 ---
 
 # Verify MQTT lifecycle changes
@@ -14,16 +14,18 @@ Use Java 11 or newer and the official TLA+ TLC 1.7.4 jar from https://github.com
 Run from the repository root:
 
     node verification/check.mjs
-    pnpm test test/portable.test.ts test/tcp-client.test.ts test/websocket.test.ts
+    pnpm test test/portable.test.ts test/tcp-client.test.ts test/websocket.test.ts test/websocket-client.test.ts
 
 The positive models must pass. Each broken configuration must fail on its named invariant. An error parsing the model or starting Java is a blocked run.
 
 ## Coverage
 
-Product code sync commit: 630e9c8f6af9e25f56950ba5e2232ac2db6e49ca.
+Product code sync commit: 1446df4c4d49f82367267600fd3c6ba7455b050f.
 
 - PingFence covers src/portable.ts exchange, run, abort and fail. For one active connection with up to two pings, a timeout or failed write retires the connection before another request can reuse the acknowledgment slot. A reply from the first request cannot complete the second. Reply identity is a model label. MQTT PINGRESP carries no identifier. The model assumes at most one solicited reply per request and excludes unsolicited or duplicate replies.
 - WebSocketOpen covers src/websocket.ts openMqttWebSocket and its open, failure and cleanup callbacks. One opening attempt transfers the socket to the caller or rejects and requests closure. Removing the open listener prevents a late open callback. The model groups abort, error, close, timeout and subprotocol rejection into failure. It assumes callback bodies run to completion.
+
+- WebSocketSession covers src/portable.ts's CONNACK activation and delivery callback, and src/websocketClient.ts's send admission. One attempt can admit up to two abstract queue units. Accept maps to exchange completion with no recorded failure. Deliver maps to the active, non-closing callback guard. Admit maps to the bufferedAmount plus encoded packet size check. Close maps to logical retirement. It groups graceful closing and terminal states for delivery purposes. It does not bound frame overhead, parser allocations, kernel buffers, or total memory.
 
 The bounded models check safety. TCP/OS and browser socket teardown, timing bounds in a suspended page, transport buffering, MQTT sessions and durability need separate checks. WebSocketOpen's counter counts terminal handler effects. It does not measure physical socket closure.
 
@@ -31,5 +33,7 @@ The bounded models check safety. TCP/OS and browser socket teardown, timing boun
 
 - PingFenceBroken allows reuse after failure. TLC finds an old reply that can complete the retry. PingFenceRetry finds the extra send first. The real TypeScript regression reproduced two PINGREQ packets on main by starting a retry three microtasks after the timer callback. It does not assert that the second promise resolved. The test also covers an admitted write that rejects.
 - WebSocketOpenBroken leaves the open listener installed after failure. TLC finds two terminal handler effects. The real TypeScript test fails if openMqttWebSocket keeps its open listener after abort. Check listener removal before dispatching the late event.
+
+- WebSocketSessionDeliver admits application traffic outside the active phase. The real tests reproduce PUBLISH delivery before CONNACK and a captured callback after transport failure. WebSocketSessionBudget omits the admission guard. The real oversized write test fails when that guard is removed. The paused-peer comparison measures multi-write behavior separately.
 
 Record tool version, state counts, mutation result, real-code test result and what remains outside the model in the PR review.
