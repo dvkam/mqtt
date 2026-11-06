@@ -1,52 +1,18 @@
 import assert from 'node:assert/strict';
-import { once } from 'node:events';
-import { createConnection } from 'node:net';
-import { connect } from 'mqtt';
-import { connectPortable } from 'mqtt/portable';
-import { generate, parser } from 'mqtt-packet';
-
-assert.equal(typeof connect, 'function');
-
-const codec = { protocolVersion: 5 };
-const socket = createConnection(Number(process.env.MQTT_TEST_PORT), '127.0.0.1');
-const decoder = parser(codec);
-socket.on('data', (chunk) => decoder.parse(chunk));
-socket.on('error', () => socket.destroy());
-decoder.on('error', () => socket.destroy());
-const closed = once(socket, 'close');
-closed.catch(() => {});
-
-const transport = {
-  send(packet) {
-    return new Promise((resolve, reject) => {
-      socket.write(generate(packet, codec), (error) => (error ? reject(error) : resolve()));
-    });
-  },
-  listen(onPacket, onClose) {
-    const notifyClose = () => onClose(new Error('Socket closed'));
-    decoder.on('packet', onPacket);
-    socket.on('close', notifyClose);
-    return () => {
-      decoder.off('packet', onPacket);
-      socket.off('close', notifyClose);
-    };
-  },
-  async close() {
-    socket.end();
-    await closed;
-  },
-};
+import { createTcpClient } from 'mqtt';
 
 let receive;
+const client = await createTcpClient({
+  host: '127.0.0.1',
+  port: Number(process.env.MQTT_TEST_PORT),
+  clientId: 'packed-ci',
+  onMessage(packet) {
+    receive?.(packet);
+  },
+}).connect();
 try {
-  await once(socket, 'connect', { signal: AbortSignal.timeout(3000) });
-  const client = await connectPortable(transport, {
-    clientId: 'packed-ci',
-    onMessage(packet) {
-      receive?.(packet);
-    },
-  });
   await client.subscribe('ci/echo');
+  await client.ping();
   const samples = [];
   const iterations = Number(process.env.MQTT_TEST_ITERATIONS ?? 1);
   const start = performance.now();
@@ -69,7 +35,6 @@ try {
     }
   }
   const elapsed = performance.now() - start;
-  await client.disconnect();
   samples.sort((a, b) => a - b);
   console.log(
     JSON.stringify({
@@ -79,5 +44,5 @@ try {
     }),
   );
 } finally {
-  socket.destroy();
+  await client.disconnect();
 }
