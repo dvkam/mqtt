@@ -78,3 +78,4 @@ function formatSecureProtocolError(protocol: string): Error {
 }
 
 export { connect };
+export { createTcpClient } from './tcpClient.js';
