@@ -7,20 +7,24 @@
     "sourceMap": true,
     "exactOptionalPropertyTypes": false,
     "strict": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
     "noImplicitReturns": true,
     "noPropertyAccessFromIndexSignature": true,
     "noUncheckedIndexedAccess": true,
+    "noUncheckedSideEffectImports": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "target": "ES2020",
     "module": "NodeNext",
+    "types": ["node"],
     "declaration": true,
     "newLine": "LF",
     "noEmitOnError": true,
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true
+    "skipLibCheck": false
   }
 }
