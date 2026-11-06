@@ -1,19 +1,19 @@
 import { logger } from './util/logger.js';
 import { IConnectPacket, IConnackPacket, Packet, IDisconnectPacket } from 'mqtt-packet';
-import { NumberAllocator } from 'number-allocator'
+import { NumberAllocator } from 'number-allocator';
 import { ReturnCodes } from './util/returnCodes.js';
 import { ReasonCodes } from './util/reasonCodes.js';
-import { ClientOptions } from './interface/clientOptions.js'
+import { ClientOptions } from './interface/clientOptions.js';
 
 type SequenceId = number | 'connect' | 'pingreq' | 'disconnect';
-type InFlightSequenceMap = Map<SequenceId, SequenceMachine>
-type SendPacketFunction = (packet: Packet) => Promise<void>
-type DoneFunction = (finalPacket: Packet | null, err?: Error) => void
+type InFlightSequenceMap = Map<SequenceId, SequenceMachine>;
+type SendPacketFunction = (packet: Packet) => Promise<void>;
+type DoneFunction = (finalPacket: Packet | null, err?: Error) => void;
 type SequenceMachineConstructor = new (
   initialPacket: Packet,
   sendPacketFunction: SendPacketFunction,
-  doneFunction: DoneFunction
-) => SequenceMachine
+  doneFunction: DoneFunction,
+) => SequenceMachine;
 
 const notImplementedErrorMessage = 'Not implemented';
 const operationStartedErrorMessage = 'Operation can only be started once.';
@@ -33,7 +33,7 @@ export class MqttPacketSequencer {
     let sequenceMachineConstructor: SequenceMachineConstructor;
     let sequenceId: SequenceId;
 
-    switch (initialPacket.cmd) {      
+    switch (initialPacket.cmd) {
       /* FALLTHROUGH */
       case 'pingreq':
       case 'subscribe':
@@ -50,7 +50,7 @@ export class MqttPacketSequencer {
         sequenceId = 'disconnect';
         sequenceMachineConstructor = Disconnect as SequenceMachineConstructor;
         break;
-      
+
       default:
         throw new Error('Invalid initial control packet type');
     }
@@ -61,11 +61,12 @@ export class MqttPacketSequencer {
     try {
       await new Promise<void>((resolve, reject) => {
         // You're only going to have an inflight sequence if you are waiting for a response from the server. So every case except QoS 0 Publish, and Disconnect.
-        this._inFlightSequences.set(sequenceId, new sequenceMachineConstructor(
-          initialPacket,
-          this._sendPacketFunction,
-          (err?: Error) => { err ? reject(err) : resolve() }
-        ));
+        this._inFlightSequences.set(
+          sequenceId,
+          new sequenceMachineConstructor(initialPacket, this._sendPacketFunction, (err?: Error) => {
+            err ? reject(err) : resolve();
+          }),
+        );
       });
     } finally {
       this._inFlightSequences.delete(sequenceId);
@@ -112,7 +113,7 @@ abstract class SequenceMachine {
     this._initialPacket = initialPacket;
     this._sendPacketFunction = sendPacketFunction;
     this._done = done;
-    this._clientOptions = clientOptions
+    this._clientOptions = clientOptions;
   }
 
   abstract start(): void;
@@ -125,7 +126,7 @@ enum BasicConnectState {
   AwaitingConnack,
   Done,
   Cancelled,
-  Failed
+  Failed,
 }
 
 class BasicConnect extends SequenceMachine {
@@ -143,7 +144,12 @@ class BasicConnect extends SequenceMachine {
    */
   private _state = BasicConnectState.New;
 
-  constructor(initialPacket: IConnectPacket, clientOptions: ClientOptions, sendPacketFunction: SendPacketFunction, done: DoneFunction) {
+  constructor(
+    initialPacket: IConnectPacket,
+    clientOptions: ClientOptions,
+    sendPacketFunction: SendPacketFunction,
+    done: DoneFunction,
+  ) {
     super(initialPacket, clientOptions, sendPacketFunction, done);
     if (initialPacket.cmd !== 'connect') {
       throw new Error('BasicConnect must have a connect packet as the initial packet.');
@@ -168,7 +174,7 @@ class BasicConnect extends SequenceMachine {
 
   handleIncomingPacket(packet: IConnackPacket) {
     if (packet.cmd !== 'connack') {
-      this._finishWithFailure(new Error(`Expected connack, but received ${packet.cmd}`))
+      this._finishWithFailure(new Error(`Expected connack, but received ${packet.cmd}`));
       return;
     }
     this._clientOptions.protocolVersion === 4 ? this._handleMqtt4Connack(packet) : this._handleMqtt5Connack(packet);
@@ -199,7 +205,7 @@ class BasicConnect extends SequenceMachine {
 
   private _handleMqtt4Connack(packet: IConnackPacket) {
     /* TODO: check server sent a valid packet */
-    const returnCode = packet.returnCode as keyof typeof ReturnCodes.connack
+    const returnCode = packet.returnCode as keyof typeof ReturnCodes.connack;
     const returnCodeMessage = ReturnCodes.connack[returnCode];
     if (returnCodeMessage === undefined) {
       this._finishWithFailure(new Error('Server sent invalid CONNACK return code'));
@@ -214,7 +220,7 @@ class BasicConnect extends SequenceMachine {
 
   private _handleMqtt5Connack(packet: IConnackPacket) {
     /* TODO: check server sent a valid packet */
-    const reasonCode = packet.reasonCode as keyof typeof ReasonCodes.connack
+    const reasonCode = packet.reasonCode as keyof typeof ReasonCodes.connack;
     const reasonCodeMessage = ReasonCodes.connack[reasonCode];
     if (reasonCodeMessage === undefined) {
       this._finishWithFailure(new Error('Server sent invalid CONNACK reason code'));
@@ -231,13 +237,18 @@ class BasicConnect extends SequenceMachine {
 enum ClientDisconnectState {
   New,
   Done,
-  Failed
+  Failed,
 }
 
 class ClientDisconnect extends SequenceMachine {
   private _state = ClientDisconnectState.New;
 
-  constructor(initialPacket: IDisconnectPacket, clientOptions: ClientOptions, sendPacketFunction: SendPacketFunction, done: DoneFunction) {
+  constructor(
+    initialPacket: IDisconnectPacket,
+    clientOptions: ClientOptions,
+    sendPacketFunction: SendPacketFunction,
+    done: DoneFunction,
+  ) {
     super(initialPacket, clientOptions, sendPacketFunction, done);
     if (initialPacket.cmd !== 'disconnect') {
       throw new Error('ClientDisconnect must have a disconnect packet as the initial packet.');

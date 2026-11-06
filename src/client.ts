@@ -138,7 +138,7 @@ export class MqttClient extends EventEmitter {
         // (We need the sequencer to do this because it has to send puback messages and it needs to do the whole QOS-2 thing when packets come in.)
         //
         // Also, another random thought, when we get suback back from the broker, it will include granted QOS values and we'll need to return those.
-        this._packetSequencer.handleIncomingPacket((packet as unknown) as sequencer.Packet);
+        this._packetSequencer.handleIncomingPacket(packet as unknown as sequencer.Packet);
         break;
       }
     }
@@ -153,7 +153,7 @@ export class MqttClient extends EventEmitter {
   public async connect(): Promise<IConnackPacket> {
     logger.trace('sending connect...');
     this.connecting = true;
-    
+
     const connackPromise = this._awaitConnack();
     const packet: IConnectPacket = {
       cmd: 'connect',
@@ -167,7 +167,7 @@ export class MqttClient extends EventEmitter {
       will: this._options.will,
       properties: this._options.properties,
     };
-    this._packetSequencer.runSequence(packet)
+    this._packetSequencer.runSequence(packet);
     logger.trace(`running connect sequence...`);
     await write(this, packet);
     logger.trace('waiting for connack...');
@@ -215,7 +215,7 @@ export class MqttClient extends EventEmitter {
 
     try {
       // TODO: remove this ugly cast
-      await this._packetSequencer.runSequence('publish', (publishPacket as unknown) as sequencer.Message);
+      await this._packetSequencer.runSequence('publish', publishPacket as unknown as sequencer.Message);
     } finally {
       this._numberAllocator.free(messageId);
     }
@@ -329,6 +329,8 @@ export class MqttClient extends EventEmitter {
       throw new Error('_writableState.buffer is EOL. _writableState should have getBuffer() as a function.');
     }
     const list: any[] = state.getBuffer();
-    list.forEach((req) => {req.callback()});
+    list.forEach((req) => {
+      req.callback();
+    });
   }
 }

@@ -30,7 +30,7 @@ async function connect(options: ConnectOptions) {
       `Missing protocol. \
       To provide a protocol, you have two options:\
       - Format the brokerUrl with a protocol, for example: 'mqtt://test.mosquitto.org'.
-      - Pass in the protocol via the protocol option.`
+      - Pass in the protocol via the protocol option.`,
     );
   }
 
@@ -80,7 +80,7 @@ function formatSecureProtocolError(protocol: string): Error {
   }
   return new Error(
     `user provided cert and key , but protocol ${protocol} is insecure. 
-    Use ${secureProtocol} instead.`
+    Use ${secureProtocol} instead.`,
   );
 }
 

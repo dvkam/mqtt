@@ -1,6 +1,6 @@
 // Return Codes are part of the MQTT 3.1.1 specification
 export const ReturnCodes = {
-  'connack': {
+  connack: {
     0x00: 'Connection Accepted',
     0x01: 'Connection Refused: unacceptable protocol version',
     0x02: 'Connection Refused: identifier rejected',
@@ -8,10 +8,10 @@ export const ReturnCodes = {
     0x04: 'Connection Refused: bad user name or password',
     0x05: 'Connection Refused: not authorized',
   },
-  'suback': {
+  suback: {
     0x00: 'Success: Maximum QoS 0',
     0x01: 'Success: Maximum QoS 1',
     0x02: 'Success: Maximum QoS 2',
-    0x80: 'Failure'
-  }
-}
+    0x80: 'Failure',
+  },
+};

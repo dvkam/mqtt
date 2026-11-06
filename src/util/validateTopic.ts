@@ -1,17 +1,17 @@
 /**
  * Validate a topic to see if it's valid or not.
  * Topics can support Multi-level wildcards (‘#’ U+0023) and single-level wildcards (‘+’ U+002B).
- * 
+ *
  * The multi-level wildcard character MUST be specified either on its own or following a topic level separator.
  * In either case it MUST be the last character specified in the Topic Filter.
- * 
+ *
  * The single-level wildcard character MUST occupy an entire level of the filter.
  * For example: "+" is valid, "+/tennis/#" is valid, "sport+" is not valid.
- * 
+ *
  * Topics beginning with $: The Server MUST NOT match Topic Filters starting with a wildcard character with Topic Names
- * 
+ *
  * Topic names and topic filters must not include the null character (Unicode U+0000)
- * 
+ *
  * Topic names and Topic Filters are UTF-8 encoded strings; they must not encode to more than 65,535 bytes.
  *
  * @param {String} topic - A topic
