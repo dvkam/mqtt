@@ -38,6 +38,7 @@ proxy.listen(0, '127.0.0.1');
 await once(proxy, 'listening');
 try {
   const address = 'http://127.0.0.1:' + proxy.address().port;
+  /** @type {[entry: string, args: string[], env: NodeJS.ProcessEnv][]} */
   const cases = [
     [
       resolve(consumer, 'broker.mjs'),
