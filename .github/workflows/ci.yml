@@ -65,7 +65,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y mosquitto
-          mosquitto -c test/packed/mosquitto.conf &
+          sudo install -m 0644 test/packed/mosquitto.conf /etc/mosquitto/mqtt-ci.conf
+          mosquitto -c /etc/mosquitto/mqtt-ci.conf &
           broker=$!
           trap 'kill "$broker" 2>/dev/null || true' EXIT
           timeout 10 bash -c 'until ( : > /dev/tcp/127.0.0.1/18883 ) 2>/dev/null; do sleep 0.2; done'
