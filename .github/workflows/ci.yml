@@ -89,12 +89,12 @@ jobs:
 
       - name: Run packed MQTT 5 sessions over WS and WSS
         run: |
-          sudo install -d -m 0700 -o "$USER" /etc/mosquitto/mqtt-ws-test
+          sudo install -d -m 0755 -o "$USER" /etc/mosquitto/certs
           if [[ "$GITHUB_EVENT_NAME" == schedule ]]; then
             sudo apt-get install -y libnss3-tools
             export MQTT_TEST_CHROMIUM=1
           fi
-          MQTT_BROKER_DIR=/etc/mosquitto/mqtt-ws-test bash test/packed/mosquitto-ws.sh "$RUNNER_TEMP/mqtt-consumer"
+          MQTT_BROKER_DIR=/etc/mosquitto/certs MQTT_BROKER_CONF=/etc/mosquitto/mqtt-ws-ci.conf bash test/packed/mosquitto-ws.sh "$RUNNER_TEMP/mqtt-consumer"
 
   lts-consumers:
     runs-on: ubuntu-26.04
