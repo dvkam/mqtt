@@ -32,6 +32,6 @@ Temporary Vitest probes for a wrong assertion, a test without assertions and a f
 
 The compiler keeps ES2020 output. The browser and consumer runtime matrix has yet to establish support for ES2026 features, so the library does not use them. A WSL source-build sample took 1.67 seconds and 71,592 KiB peak RSS, ending with diagnostics. It is a timing sample of the failing build. Editor integration and the supported consumer compiler range remain open.
 
-The legacy AVA integration files still document intended behavior. They depend on a buildable client and are outside the Vitest suite. The new CI runs the source build as a separate, required step, which still reports the inherited client and sequencer errors.
+The legacy AVA integration files still document intended behavior and remain outside the Vitest suite. The initial toolchain migration exposed the inherited client and sequencer errors. The repair adds Vitest regressions for the handshake and QoS 0 path. CI runs the source build as a separate step.
 
 Refs #2.
