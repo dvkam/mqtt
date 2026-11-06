@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: '37 3 * * 2'
 
 permissions:
   contents: read
@@ -27,3 +29,53 @@ jobs:
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm build
+
+  packed-consumer:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - uses: pnpm/action-setup@v6
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Pack the candidate
+        run: |
+          mkdir -p "$RUNNER_TEMP/mqtt-artifact"
+          pnpm pack --pack-destination "$RUNNER_TEMP/mqtt-artifact"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mqtt-tarball
+          path: ${{ runner.temp }}/mqtt-artifact/*.tgz
+          if-no-files-found: error
+      - name: Install the tarball and check public declarations
+        run: |
+          consumer="$RUNNER_TEMP/mqtt-consumer"
+          mkdir "$consumer"
+          cp test/packed/{consumer.ts,tsconfig.json,browser.mjs,broker.mjs} "$consumer/"
+          printf '{"private":true,"type":"module"}\n' > "$consumer/package.json"
+          npm install --prefix "$consumer" --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/mqtt-artifact/*.tgz @types/node@26.6.6 mqtt-packet@7.1.2
+          pnpm exec tsc -p "$consumer/tsconfig.json"
+      - name: Run the MQTT 5 echo against Mosquitto
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mosquitto
+          mosquitto -c test/packed/mosquitto.conf &
+          broker=$!
+          trap 'kill "$broker" 2>/dev/null || true' EXIT
+          timeout 10 bash -c 'until ( : > /dev/tcp/127.0.0.1/18883 ) 2>/dev/null; do sleep 0.2; done'
+          MQTT_TEST_PORT=18883 MQTT_TEST_ITERATIONS=100 timeout 30 node "$RUNNER_TEMP/mqtt-consumer/broker.mjs" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Bundle the portable browser import
+        if: github.event_name != 'schedule'
+        run: node test/packed/browser-build.mjs "$RUNNER_TEMP/mqtt-consumer" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Install scheduled browser test engines
+        if: github.event_name == 'schedule'
+        run: pnpm exec playwright install --with-deps chromium firefox webkit
+      - name: Run the scheduled browser matrix
+        if: github.event_name == 'schedule'
+        run: node test/packed/browser-build.mjs "$RUNNER_TEMP/mqtt-consumer" chromium firefox webkit | tee -a "$GITHUB_STEP_SUMMARY"
