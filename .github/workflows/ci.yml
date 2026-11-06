@@ -62,7 +62,6 @@ jobs:
           npm install --prefix "$consumer" --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/mqtt-artifact/*.tgz @types/node@26.6.6
           pnpm exec tsc -p "$consumer/tsconfig.json"
           (cd "$consumer" && node --input-type=module -e 'import { connect } from "mqtt"; import { connectPortable } from "mqtt/portable"; if (typeof connect !== "function" || typeof connectPortable !== "function") process.exit(1);')
-          npm install --prefix "$consumer" --ignore-scripts --no-audit --no-fund mqtt-packet@7.1.2
       - name: Run the MQTT 5 echo against Mosquitto
         run: |
           sudo apt-get update
