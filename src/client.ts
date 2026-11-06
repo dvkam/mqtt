@@ -16,9 +16,7 @@ import { connectionFactory } from './connectionFactory/index.js';
 import { defaultConnectOptions } from './util/constants.js';
 import { ReasonCodes } from './util/reasonCodes.js';
 import { ReturnCodes } from './util/returnCodes.js';
-import { logger } from './util/logger.js';
 import { defaultClientId } from './util/defaultClientId.js';
-import { Logger } from 'pino';
 import { MqttPacketSequencer } from './sequencer.js';
 
 type PublishPacket = Pick<IPublishPacket, 'topic'> &
@@ -32,7 +30,6 @@ export class MqttClient extends EventEmitter {
   connected: boolean;
   errored: boolean;
   conn: Duplex | Socket;
-  _clientLogger: Logger;
   private readonly _packetSequencer = new MqttPacketSequencer((packet) => write(this, packet));
 
   constructor(options: ConnectOptions) {
@@ -44,14 +41,11 @@ export class MqttClient extends EventEmitter {
     this.disconnecting = false;
 
     // Using this method to clean up the constructor to do options handling
-    logger.trace(`populating internal client options object...`);
     this._options = {
       clientId: defaultClientId(),
       ...defaultConnectOptions,
       ...options,
     };
-
-    this._clientLogger = logger.child({ id: this._options.clientId });
 
     this.conn = this._options.customStreamFactory
       ? this._options.customStreamFactory(this._options)
@@ -72,24 +66,17 @@ export class MqttClient extends EventEmitter {
     // We could look at maybe pushing errors in different directions depending on how we should
     // respond to the different errors.
     this._incomingPacketParser.on('error', (err: any) => {
-      this._clientLogger.error(`error in incomingPacketParser.`);
       this.emit('clientError', err);
     });
 
-    this.once('connected', () => {
-      this._clientLogger.trace(`client is connected.`);
-    });
     this.on('close', () => {
-      this._clientLogger.trace(`client is closed.`);
       this.connected = false;
     });
 
     this.conn.on('readable', () => {
-      this._clientLogger.trace(`data available to be read from the 'conn' stream...`);
       let data = this.conn.read();
 
       while (data) {
-        this._clientLogger.trace(`process the data..`);
         // process the data
         this._incomingPacketParser.parse(data);
         data = this.conn.read();
@@ -166,24 +153,15 @@ export class MqttClient extends EventEmitter {
   }
 
   private async _destroyClient(force?: boolean) {
-    this._clientLogger.trace(`destroying client...`);
     this.conn.removeAllListeners('error');
     this.conn.removeAllListeners('close');
     this.conn.on('close', () => {});
     this.conn.on('error', () => {});
 
     if (force) {
-      this._clientLogger.trace(`force destroying the underlying connection stream...`);
       this.conn.destroy();
     } else {
-      this._clientLogger.trace(`gracefully ending the underlying connection stream...`);
-      this.conn.end(() => {
-        this._clientLogger.trace('END all data has been flushed from stream.');
-      });
-      // once the stream.end() method has been called, and all the data has been flushed to the underlying system, the 'finish' event is emitted.
-      this.conn.once('finish', () => {
-        this._clientLogger.trace('all data has been flushed from stream.');
-      });
+      this.conn.end();
     }
     return this;
   }
@@ -191,20 +169,17 @@ export class MqttClient extends EventEmitter {
   public async disconnect({ force, options = {} }: { force?: boolean; options?: any } = {}): Promise<MqttClient> {
     // if client is already disconnecting, do nothing.
     if (this.disconnecting) {
-      this._clientLogger.trace(`client already disconnecting.`);
       return this;
     }
 
     //
     this.disconnecting = true;
 
-    this._clientLogger.trace('disconnecting client...');
     const packet: IDisconnectPacket = {
       cmd: 'disconnect',
       reasonCode: options.reasonCode,
       properties: options.properties,
     };
-    this._clientLogger.trace('writing disconnect...');
     // close the network connection
     // ensure NO control packets are sent on the network connection.
     // disconnect packet is the final control packet sent from the client to the server. It indicates the client is disconnecting cleanly.

@@ -1,17 +1,4 @@
 import { pino } from 'pino';
 
-export const logger = pino({
-  name: 'mqtt',
-  level: 'trace',
-  customLevels: {
-    test: 35,
-  },
-  transport: {
-    target: 'pino-pretty',
-    options: {
-      colorize: true,
-      ignore: 'time,hostname',
-      translateTime: 'yyy-dd-mm, h:MM:ss TT',
-    },
-  },
-});
+// Used by the legacy sample scripts. The client does not import this logger.
+export const logger = pino({ name: 'mqtt', level: 'silent', customLevels: { test: 35 } });
