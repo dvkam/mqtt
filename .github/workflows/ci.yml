@@ -57,7 +57,7 @@ jobs:
         run: |
           consumer="$RUNNER_TEMP/mqtt-consumer"
           mkdir "$consumer"
-          cp test/packed/{consumer.ts,tsconfig.json,browser.mjs,broker.mjs} "$consumer/"
+          cp test/packed/{consumer.ts,tsconfig.json,browser.mjs,broker.mjs,websocket-browser.mjs} "$consumer/"
           printf '{"private":true,"type":"module"}\n' > "$consumer/package.json"
           npm install --prefix "$consumer" --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/mqtt-artifact/*.tgz @types/node@26.6.6
           pnpm exec tsc -p "$consumer/tsconfig.json"
@@ -75,9 +75,14 @@ jobs:
       - name: Bundle the portable browser import
         if: github.event_name != 'schedule'
         run: node test/packed/browser-build.mjs "$RUNNER_TEMP/mqtt-consumer" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Check the packed WebSocket browser graph
+        run: node test/packed/websocket-check.mjs "$RUNNER_TEMP/mqtt-consumer" --bundle-only
       - name: Install scheduled browser test engines
         if: github.event_name == 'schedule'
         run: pnpm exec playwright install --with-deps chromium firefox webkit
       - name: Run the scheduled browser matrix
         if: github.event_name == 'schedule'
         run: node test/packed/browser-build.mjs "$RUNNER_TEMP/mqtt-consumer" chromium firefox webkit | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Compare packed native WebSocket in Node and Chromium
+        if: github.event_name == 'schedule'
+        run: timeout 30 node test/packed/websocket-check.mjs "$RUNNER_TEMP/mqtt-consumer"
