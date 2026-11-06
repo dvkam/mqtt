@@ -28,7 +28,7 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "test:types": "tsc -p test/types/tsconfig.json",
+    "test:types": "tsc -p test/types/tsconfig.json && tsc -p test/types/consumer/tsconfig.json",
     "lint": "oxlint --deny-warnings src test vitest.config.ts",
     "format": "oxfmt src test vitest.config.ts",
     "format:check": "oxfmt --check src test vitest.config.ts"

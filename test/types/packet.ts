@@ -1,6 +1,13 @@
 import type { Packet } from 'mqtt-packet';
 
 type PacketOf<Kind extends Packet['cmd']> = Extract<Packet, { cmd: Kind }>;
+type MatchCommand<Kind extends Packet['cmd'], Expected extends Kind> = { kind: Kind; expected: Expected };
+
+type InvalidMatch<Kind extends Packet['cmd'], Expected extends Kind> = Kind extends Expected
+  ? never
+  : // @ts-expect-error Expected may be absent from a distributed branch.
+    MatchCommand<Kind, Expected>;
+void (undefined as unknown as InvalidMatch<'publish' | 'puback', 'publish'>);
 
 export function publishTopic(packet: PacketOf<'publish' | 'puback'>): string | undefined {
   if (packet.cmd === 'publish') return packet.topic;
@@ -10,5 +17,5 @@ export function publishTopic(packet: PacketOf<'publish' | 'puback'>): string | u
 }
 
 // @ts-expect-error PUBLISH requires a topic.
-const invalidPublish: PacketOf<'publish'> = { cmd: 'publish', payload: 'message' };
+const invalidPublish: PacketOf<'publish'> = { cmd: 'publish', payload: 'message', qos: 0, dup: false, retain: false };
 void invalidPublish;
