@@ -91,6 +91,8 @@ See the [browser client profile](docs/browser-client.md) and [byte transport con
 
 The browser path uses the in-repository portable codec. The Node adapters still use `mqtt-packet`. Their convergence and the remaining protocol profile are tracked in [#8](https://github.com/dvkam/mqtt/issues/8) and [#37](https://github.com/dvkam/mqtt/issues/37).
 
+The [public type guide](docs/public-types.md) lists named options, factories, sessions and platform message types.
+
 ## Development and evidence
 
 Read the [contribution guide](.github/contributing.md). CI runs tests, strict compiler checks, type-aware lint, formatting and builds on Ubuntu and Windows. The packed-consumer job installs the actual tarball, checks declarations and browser bundles, and exercises MQTT 5 against Mosquitto over TCP and WS/WSS with certificate and proxy cases. Scheduled runs add browser runtime tests across Chromium, Firefox and WebKit. Wider browser and fault coverage remains work under [#23](https://github.com/dvkam/mqtt/issues/23).

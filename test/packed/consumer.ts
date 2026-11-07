@@ -1,6 +1,16 @@
 import { connect, createTcpClient, createWebSocketClient } from 'mqtt';
 export type { ConnectOptions, LegacyAckCompletion, LegacyAckHandler, PacketIdentifier, PacketLookup, PacketStore } from 'mqtt';
+export type { ClientFactory, ClientSession, NodeMessage, TcpClientOptions, WebSocketClientOptions } from 'mqtt';
+export type { BrowserClientOptions, ClientFactory as BrowserFactory, ClientSession as BrowserClientSession } from 'mqtt/browser';
 import { connectPortable, type PacketTransport } from 'mqtt/portable';
+
+type RequireTrue<Value extends true> = Value;
+type RequireFalse<Value extends false> = Value;
+type IsAny<Value> = 0 extends 1 & Value ? true : false;
+type Received = Parameters<NonNullable<import('mqtt').TcpClientOptions['onMessage']>>[0];
+export type PackedPayloadIsSpecific = RequireFalse<IsAny<Received['payload']>>;
+export type PackedPayloadIsBuffer = RequireTrue<Received['payload'] extends Buffer ? true : false>;
+export type PackedQosIsZero = RequireTrue<Received['qos'] extends 0 ? true : false>;
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
 export async function checkDeclarations(transport: PacketTransport) {
@@ -23,7 +33,8 @@ export async function checkTcpDeclarations(signal: AbortSignal) {
     signal,
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
     onMessage(packet) {
-      packet.payload.toString();
+      const payload: Buffer = packet.payload;
+      payload[0] = packet.qos;
     },
   });
   const connected = await tcp.connect();
@@ -39,7 +50,8 @@ export async function checkWebSocketDeclarations(signal: AbortSignal) {
     signal,
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
     onMessage(packet) {
-      packet.payload.toString();
+      const payload: Buffer = packet.payload;
+      payload[0] = packet.qos;
     },
   });
   const client = await factory.connect();

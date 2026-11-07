@@ -20,9 +20,9 @@ The positive models must pass. Each broken configuration must fail on its named 
 
 ## Coverage
 
-Product code sync commit: 9e63dbf66a94c79e741d1da6ad599244ce8f671f.
+Product code sync commit: b8a47be675311bb8ae6de03710e5a736eda5b16f.
 
-The explicit constructor fields and generic receive-payload types preserve the runtime transitions checked by the original session models. Node factory option extraction explicitly specializes IPublishPacket to retain its original payload declarations.
+The explicit constructor fields and generic receive-payload types preserve the runtime transitions checked by the original session models. Node factories use named PortableOptions<NodeMessage>. Their listener checks the decoded QoS 0 Buffer contract before forwarding a publication to the existing lifecycle.
 
 - PingFence covers src/portable.ts exchange, run, abort and fail. For one active connection with up to two pings, a timeout or failed write retires the connection before another request can reuse the acknowledgment slot. A reply from the first request cannot complete the second. Reply identity is a model label. MQTT PINGRESP carries no identifier. The model assumes at most one solicited reply per request and excludes unsolicited or duplicate replies.
 - WebSocketOpen covers src/websocket.ts openMqttWebSocket and its open, failure and cleanup callbacks. One opening attempt transfers the socket to the caller or rejects and requests closure. Removing the open listener prevents a late open callback. The model groups abort, error, close, timeout and subprotocol rejection into failure. It assumes callback bodies run to completion.
@@ -39,7 +39,7 @@ CodecFrames sync commit: 9e63dbf66a94c79e741d1da6ad599244ce8f671f.
 
 - CodecFrames covers PacketDecoder.push in src/codec.ts. Declare maps to the validated size check followed by frame allocation. Copy maps to copying a bounded input slice and increasing offset. Emit maps to the offset/frame-length equality check. Reject maps to the catch block clearing frame/header and storing failure. FailedInput maps to the guard at the start of a later push. Five states use an abstract two-unit header, total sizes from two through five units and an allocation bound of three units. This finite model checks the control structure. It assumes header validation and abstracts byte arithmetic, string/property decoding, payload ownership, JavaScript allocation overhead and garbage collection. Concrete tests cover those wire rules and a caller-input mutation after fragmented delivery.
 
-BrowserClientHandoff sync commit: 9e63dbf66a94c79e741d1da6ad599244ce8f671f.
+BrowserClientHandoff sync commit: b8a47be675311bb8ae6de03710e5a736eda5b16f.
 
 - BrowserClientHandoff covers src/browserClient.ts's final signal check after connectPortable, and its packet transport close(force). Eight states describe one opening attempt and one forced retirement. Cancel represents the synchronous abort notification. Transfer checks cancellation before exposing the session. Force groups synchronous byte retirement and local promise completion without a native-close await. It assumes callback run-to-completion and promise jobs eventually execute. It does not prove a wall-clock deadline or physical socket closure. BrowserTransport separately covers byte retirement. The fake-timer client regression verifies that a ping timeout settles before a second native-close timer expires.
 
@@ -63,3 +63,5 @@ Record tool version, state counts, mutation result, real-code test result and wh
 On 7 November 2026, independent review compared all covered source with its previous synchronization commits. PR #46 at b54c1b1af94ce42d9d462b299ac59a5f884a1e4a retained those mappings. PR #47 at 9e63dbf66a94c79e741d1da6ad599244ce8f671f preserved the modeled transitions through the strict-type cleanup. The optional unlisten field permits a synchronous failure callback before registration returns; post-registration cleanup remains present.
 
 Both exact revisions passed all six positive models and all 13 broken configurations. Removing one real guard for each model in isolated source snapshots made the corresponding regression suite fail on both revisions. Every mutation was restored. Later Vitest-rule, test-assertion and comment cleanup changes do not alter product transitions. No property, bound or assumption was weakened. The check outcomes are in sync.
+
+On 7 November 2026, review checked b8a47be675311bb8ae6de03710e5a736eda5b16f against the prior synchronization commit. Named session and option types preserve the modeled control flow. The Node packet listener admits QoS 0 Buffer publications before passing them to the existing activation and retirement guards. It forwards acknowledgment objects unchanged. This is a concrete input precondition, not a new model transition or a proof of general packet conformance. Packet identity, Buffer mutability and unsupported-shape filtering have dedicated regressions. Replacing the real shape guard with an unconditional acceptance made the unsupported-publication regression fail; the guard was restored. All six positive models and all thirteen deliberately broken configurations retain their existing outcomes and bounds.

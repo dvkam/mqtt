@@ -1,13 +1,22 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
 
 const inputRoot = process.argv[2];
 assert.ok(inputRoot !== undefined && inputRoot !== '', 'Expected packed consumer directory');
 const root = resolve(inputRoot);
+cpSync(new URL('./browser', import.meta.url), resolve(root, 'browser'), { recursive: true });
+execFileSync(
+  process.execPath,
+  [fileURLToPath(new URL('../../node_modules/typescript/bin/tsc', import.meta.url)), '-p', resolve(root, 'browser/tsconfig.json')],
+  { stdio: 'inherit' },
+);
 const result = await build({
   root,
   configFile: false,
