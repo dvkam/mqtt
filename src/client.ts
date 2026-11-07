@@ -60,7 +60,9 @@ export class MqttClient extends EventEmitter {
     // NOTE: This is only handling incoming packets from the
     // readable stream of the conn stream.
     // we need to make sure that the function called on 'packet' is bound to the context of 'MQTTClient'
-    this._incomingPacketParser.on('packet', this.handleIncomingPacket.bind(this));
+    this._incomingPacketParser.on('packet', (packet) => {
+      void this.handleIncomingPacket(packet).catch((error) => this.emit('clientError', error));
+    });
 
     // Echo connection errors this.emit('clientError')
     // We could look at maybe pushing errors in different directions depending on how we should
@@ -83,7 +85,7 @@ export class MqttClient extends EventEmitter {
       }
     });
 
-    this.on('clientError', this.onError);
+    this.on('clientError', this.onError.bind(this));
     this.conn.on('error', this.emit.bind(this, 'clientError'));
 
     this.conn.on('close', () => {
@@ -152,7 +154,7 @@ export class MqttClient extends EventEmitter {
     });
   }
 
-  private async _destroyClient(force?: boolean) {
+  private _destroyClient(force?: boolean) {
     this.conn.removeAllListeners('error');
     this.conn.removeAllListeners('close');
     this.conn.on('close', () => {});
@@ -163,7 +165,6 @@ export class MqttClient extends EventEmitter {
     } else {
       this.conn.end();
     }
-    return this;
   }
 
   public async disconnect({ force, options = {} }: { force?: boolean; options?: any } = {}): Promise<MqttClient> {
@@ -208,7 +209,7 @@ export class MqttClient extends EventEmitter {
 
   // TODO: follow up on Aedes to see if there is a better way than breaking the Node Streams contract and accessing _writableState
   // to make sure that the write callback is cleaned up in case of error.
-  onError(err?: Error | null | undefined) {
+  onError(err?: Error | null) {
     if (this.connecting) {
       this._packetSequencer.cancelConnect(err ?? new Error('Connection failed'));
       return;
