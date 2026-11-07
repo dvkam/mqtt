@@ -5,7 +5,7 @@ export interface WebSocketOptions {
   protocolVersion?: number;
   browserBufferTimeout?: number;
   browserBufferSize?: number;
-  objectMode?: any;
+  objectMode?: boolean;
   url: URL;
   hostname: string;
   protocol: string;

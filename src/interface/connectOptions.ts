@@ -1,10 +1,23 @@
-import type { QoS, UserProperties } from 'mqtt-packet';
+import type { IAuthPacket, IPublishPacket, QoS, UserProperties } from 'mqtt-packet';
 import type { Duplex } from 'stream';
+import type { PacketStore } from '../store.js';
+
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Acknowledgment completion accepts the original mutable native error.
+export type LegacyAckCompletion = (error: Error | number | null, reasonCode?: number) => void;
+
+export type LegacyAckHandler = (
+  topic: string,
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The legacy handler receives the original mutable payload buffer.
+  payload: Buffer,
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The legacy handler receives the original mutable publication packet.
+  packet: IPublishPacket,
+  complete: LegacyAckCompletion,
+) => void;
 
 export interface ConnectOptions {
-  objectMode?: any;
-  autoUseTopicAlias?: any;
-  autoAssignTopicAlias?: any;
+  objectMode?: boolean;
+  autoUseTopicAlias?: boolean;
+  autoAssignTopicAlias?: boolean;
   topicAliasMaximum?: number;
   queueLimit?: number;
   cmd?: 'connect';
@@ -44,14 +57,14 @@ export interface ConnectOptions {
   brokerUrl?: URL;
   wsOptions?: Record<string, unknown>;
   tlsOptions?: Record<string, unknown>;
-  reschedulePings?: any;
-  reconnectPeriod?: any;
+  reschedulePings?: boolean;
+  reconnectPeriod?: number;
   connectTimeout?: number;
-  incomingStore?: any;
-  outgoingStore?: any;
-  queueQoSZero?: any;
-  customHandleAcks?: any;
-  authPacket?: any;
+  incomingStore?: PacketStore;
+  outgoingStore?: PacketStore;
+  queueQoSZero?: boolean;
+  customHandleAcks?: LegacyAckHandler;
+  authPacket?: Partial<IAuthPacket>;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Custom factories receive the existing mutable endpoint and stream configuration.
   transformWsUrl?: (options: URL | undefined) => URL;
   resubscribe?: boolean;
