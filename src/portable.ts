@@ -18,6 +18,8 @@ interface PortableOptions {
 type Acknowledgment = Extract<Packet, { cmd: 'connack' | 'suback' | 'pingresp' }>;
 
 class PortableClient {
+  private readonly transport: PacketTransport;
+  private readonly options: PortableOptions;
   private pendingAck?: (packet: Acknowledgment) => void;
   private readonly pendingOperations = new Set<(error: Error) => void>();
   private failure?: Error;
@@ -26,10 +28,9 @@ class PortableClient {
   private messageId = 0;
   private active = false;
 
-  constructor(
-    private readonly transport: PacketTransport,
-    private readonly options: PortableOptions,
-  ) {
+  constructor(transport: PacketTransport, options: PortableOptions) {
+    this.transport = transport;
+    this.options = options;
     this.unlisten = transport.listen(
       (packet) => {
         if (this.failure) return;

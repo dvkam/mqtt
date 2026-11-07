@@ -1,6 +1,6 @@
 import WebSocket, { createWebSocketStream } from 'ws';
-import { WebSocketOptions } from './interfaces/webSocketOptions.js';
-import { WebSocketStream } from './interfaces/webSocketStream.js';
+import type { WebSocketOptions } from './interfaces/webSocketOptions.js';
+import type { WebSocketStream } from './interfaces/webSocketStream.js';
 
 export function buildWebSocketStream(opts: WebSocketOptions): WebSocketStream {
   const socket = new WebSocket(opts.url, [opts.websocketSubProtocol]);

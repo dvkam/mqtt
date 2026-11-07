@@ -1,4 +1,4 @@
-import { Packet } from 'mqtt-packet';
+import type { Packet } from 'mqtt-packet';
 import { Readable } from 'stream';
 
 const streamsOpts = { objectMode: true };

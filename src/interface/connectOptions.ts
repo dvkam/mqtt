@@ -1,5 +1,5 @@
-import { QoS, UserProperties } from 'mqtt-packet';
-import { Duplex } from 'stream';
+import type { QoS, UserProperties } from 'mqtt-packet';
+import type { Duplex } from 'stream';
 
 export interface ConnectOptions {
   objectMode?: any;
