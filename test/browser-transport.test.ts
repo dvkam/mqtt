@@ -69,6 +69,24 @@ class Socket extends EventTarget {
   }
 }
 
+test.each(['remote', 'local', 'abort', 'error'] as const)('reports the first %s retirement kind exactly once', async (kind) => {
+  vi.stubGlobal('WebSocket', Socket);
+  const controller = new AbortController();
+  const onClose = vi.fn<(reason: unknown, kind: unknown) => void>();
+  const transport = await openBrowserTransport('ws://localhost', { signal: controller.signal, onBytes() {}, onClose });
+  const reason = new Error('explicit cancellation');
+  let closing: Promise<void> | undefined;
+  if (kind === 'local') closing = transport.close();
+  if (kind === 'abort') controller.abort(reason);
+  if (kind === 'error') Socket.instance.dispatchEvent(new Event('error'));
+  Socket.instance.readyState = Socket.CLOSED;
+  Socket.instance.dispatchEvent(new Event('close'));
+  await (closing ?? transport.close());
+  expect(onClose).toHaveBeenCalledTimes(1);
+  expect(onClose.mock.calls[0]?.[1]).toBe(kind);
+  expect(onClose.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+});
+
 test('a throwing close observer rejects the close promise after native completion', async () => {
   vi.stubGlobal('WebSocket', Socket);
   const reason = new Error('observer failed');
@@ -164,7 +182,7 @@ test('abort retires delivery, removes listeners, and rejects later writes', asyn
   lateMessage.call(Socket.instance, new MessageEvent('message', { data: new ArrayBuffer(2) }));
   Socket.instance.dispatchEvent(new MessageEvent('message', { data: new ArrayBuffer(2) }));
   expect(onBytes).not.toHaveBeenCalled();
-  expect(onClose).toHaveBeenCalledExactlyOnceWith(reason);
+  expect(onClose).toHaveBeenCalledExactlyOnceWith(reason, 'abort');
   expect(() => {
     transport.send(Uint8Array.of(1));
   }).toThrow(reason);
