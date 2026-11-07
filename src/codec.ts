@@ -341,12 +341,14 @@ export class PacketDecoder {
   private frame: Uint8Array<ArrayBuffer> | undefined;
   private offset = 0;
   private failure: Error | undefined;
+  private ended = false;
   constructor({ maxPacketBytes = 1024 * 1024 }: Readonly<{ maxPacketBytes?: number }> = {}) {
     this.maxPacketBytes = integer(maxPacketBytes, 268_435_460, 2);
   }
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
   push(bytes: Readonly<Uint8Array>): WirePacket[] {
     if (this.failure) throw this.failure;
+    if (this.ended) throw new Error('MQTT decoder has ended');
     const packets: WirePacket[] = [];
     let index = 0;
     try {
@@ -386,5 +388,18 @@ export class PacketDecoder {
       this.header = [];
       throw this.failure;
     }
+  }
+
+  /** Validate end of input and permanently close this decoder. */
+  finish(): void {
+    if (this.failure) throw this.failure;
+    if (this.header.length > 0 || this.frame !== undefined) {
+      this.failure = new Error('Truncated MQTT packet at end of input');
+      this.frame = undefined;
+      this.header = [];
+      this.offset = 0;
+      throw this.failure;
+    }
+    this.ended = true;
   }
 }
