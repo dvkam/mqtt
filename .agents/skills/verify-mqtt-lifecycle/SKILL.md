@@ -11,9 +11,9 @@ For each PR, compare its diff with the coverage below. Run the checks and record
 
 Use Java 11 or newer and the official TLA+ TLC 1.7.4 jar from https://github.com/tlaplus/tlaplus/releases/tag/v1.7.4. Set TLC_JAR to the jar path. Set JAVA to the absolute executable path if java is absent from PATH. The runner verifies the published jar checksum.
 
-Run from the repository root:
+Use the pinned development Node version from .node-version for the typed runner. Run from the repository root:
 
-    node verification/check.mjs
+    node verification/check.ts
     pnpm test test/portable.test.ts test/tcp-client.test.ts test/websocket.test.ts test/websocket-client.test.ts test/browser-transport.test.ts test/codec.test.ts test/browser-client.test.ts
 
 The positive models must pass. Each broken configuration must fail on its named invariant. An error parsing the model or starting Java is a blocked run.
@@ -77,3 +77,5 @@ The model checks RejectTruncatedEnd, NoOutputAfterEnd and PreserveFailure. Prese
 Run CodecEndOfInputTruncated, CodecEndOfInputOutput and CodecEndOfInputFailure as deliberately broken configurations. They must fail their named invariants. The real truncated-input regression fails when the completion header/frame guard is disabled. The post-completion regression fails when push omits its ended guard. The previous-failure regression fails when finish omits its stored-failure guard. All three real mutations were restored, and the full suite passed afterward.
 
 The first broken-model run exposed an incomplete successor assignment caused by missing parentheses around a Boolean update. The runner rejected that error because it was not the expected invariant violation. The equation was corrected without changing any property or bound. The final seven positive models and sixteen deliberately broken configurations all produce their expected results.
+
+The verification runner is now verification/check.ts. Its model cases use a readonly named tuple with an optional expected invariant, and the strict compiler and type-aware lint include the verification directory. The integrity regression passed against the original JavaScript before migration and against the typed runner afterward. Changing the expected checksum to accept the invalid jar made that regression fail. The published checksum was restored, and the test confirms rejection before a Java attempt. All seven positive models and sixteen deliberately broken configurations retained their outcomes after the port. No model property, bound or product source changed.
