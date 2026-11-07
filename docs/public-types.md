@@ -19,6 +19,6 @@ Callbacks infer their platform's receive payload. Publishing remains text-only. 
 
 Node and browser factories share a dependency-free session interface. Browser declarations do not import Node globals or native transports. The existing browser session name remains usable, and repeated factory `connect()` calls preserve promise identity.
 
-Compiler fixtures check valid options, contextual callbacks, specific payload types, QoS 0, mutable payload operations and invalid scalar combinations. Packed consumer checks import the names from the installed tarball. The browser fixture compiles with DOM declarations and no Node ambient types.
+Compiler fixtures check valid options, contextual callbacks, specific payload types, QoS 0, mutable payload operations and invalid scalar combinations. Packed Node and browser consumers check these names and callback types from the installed tarball. The packed browser fixture compiles with DOM declarations and no Node ambient types.
 
 This is part of #50. Minimum consumer compiler policy, named error contracts, package validators and wider public type-boundary work remain open. Legacy options are documented separately in `legacy-options.md`.
