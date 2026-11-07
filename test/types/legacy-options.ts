@@ -57,3 +57,11 @@ export const validLegacyOptions: ConnectOptions = {
   },
   authPacket: { cmd: 'auth', reasonCode: 0x18, properties: { authenticationMethod: 'test' } } satisfies Partial<IAuthPacket>,
 };
+
+export async function completeAndIdentifierLookupsRemainValid() {
+  const store = new Store();
+  await store.get({ cmd: 'puback', messageId: 7 });
+  await store.del({ cmd: 'puback', messageId: 7 });
+  await store.get({ messageId: 7 });
+  await store.del({ messageId: 7 });
+}
