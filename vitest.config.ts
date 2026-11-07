@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    // The inherited AVA integration suite requires a buildable client.
+    // Archived AVA fixtures stay outside Vitest until their unique coverage is migrated in #42.
     include: ['test/**/*.test.ts'],
     allowOnly: false,
     expect: { requireAssertions: true },

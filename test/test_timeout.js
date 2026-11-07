@@ -11,7 +11,7 @@ test.before('set up aedes broker', serverFactoryMacro, port);
 
 /* ============================== BEGIN TESTS ============================== */
 
-test.only('publish QoS 0', async (t) => {
+test('publish QoS 0', async (t) => {
   const connectReceivedListener = (packet) => {
     logger.test(`connect received: ${packet}`);
     t.context.broker.removeListener('connectReceived', connectReceivedListener);
@@ -50,3 +50,4 @@ test.afterEach.always(cleanupBetweenTestsMacro);
 
 test.after.always(cleanupAfterAllTestsMacro);
 /* ======================= END after/afterEach HOOKS ======================= */
+

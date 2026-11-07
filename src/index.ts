@@ -18,12 +18,13 @@ import { URL } from 'url';
  *   2) Instantiate a new client.
  *   3) Return the client to the user.
  */
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Legacy connect normalizes this object in place; #30 owns removing that mutation.
 async function connect(options: ConnectOptions) {
   if (typeof options.brokerUrl === 'string') {
     options.brokerUrl = new URL(options.brokerUrl);
   }
 
-  if (!options?.brokerUrl?.protocol) {
+  if (options.brokerUrl?.protocol === undefined || options.brokerUrl.protocol === '') {
     throw new Error(
       `Missing protocol. \
       To provide a protocol, you have two options:\
@@ -42,17 +43,18 @@ async function connect(options: ConnectOptions) {
   return client;
 }
 
-function _validateProtocol(opts: ConnectOptions): Error | undefined {
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- TLS options retain their native mutable certificate and key buffers.
+function _validateProtocol(opts: Readonly<ConnectOptions>): Error | undefined {
   if (opts.tlsOptions && 'cert' in opts.tlsOptions && 'key' in opts.tlsOptions) {
-    const urlProtocol = (opts.brokerUrl as URL).protocol;
-    if (urlProtocol) {
-      if (protocols.secure.indexOf(urlProtocol) === -1) {
+    const urlProtocol = opts.brokerUrl?.protocol;
+    if (urlProtocol !== undefined && urlProtocol !== '') {
+      if (!protocols.secure.includes(urlProtocol)) {
         const protocolError: Error = formatSecureProtocolError(urlProtocol);
         return protocolError;
       }
     } else {
       // A cert and key was provided, however no protocol was specified, so we will throw an error.
-      // TODO: Git Blame on this line. I don't understand the error message at all.
+      // Protocol normalization and this error contract are tracked in #30 and #52.
       return new Error('Missing secure protocol key');
     }
   }

@@ -1,5 +1,5 @@
 import { getEventListeners, once } from 'node:events';
-import { WebSocketServer } from 'ws';
+import WebSocket, { WebSocketServer } from 'ws';
 import { expect, test, vi } from 'vitest';
 import { openMqttWebSocket } from '../src/websocket.js';
 
@@ -8,17 +8,22 @@ async function peer(selectProtocol = true) {
     host: '127.0.0.1',
     port: 0,
     perMessageDeflate: false,
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
     handleProtocols: (protocols) => (selectProtocol && protocols.has('mqtt') ? 'mqtt' : false),
   });
   await once(server, 'listening');
   const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('Expected a TCP address');
+  if (address === null || typeof address === 'string') throw new Error('Expected a TCP address');
   return {
     server,
     url: 'ws://127.0.0.1:' + address.port,
     async close() {
       for (const socket of server.clients) socket.terminate();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await new Promise<void>((resolve) => {
+        server.close(() => {
+          resolve();
+        });
+      });
     },
   };
 }
@@ -26,7 +31,10 @@ async function peer(selectProtocol = true) {
 test('negotiates MQTT and exchanges binary frames through native WebSocket', async () => {
   const broker = await peer();
   try {
-    const [client, [socket]] = await Promise.all([openMqttWebSocket(broker.url), once(broker.server, 'connection')]);
+    const [client, acceptedArguments] = await Promise.all([openMqttWebSocket(broker.url), once(broker.server, 'connection')]);
+    const socketArguments: unknown[] = acceptedArguments;
+    const [socket] = socketArguments;
+    if (!(socket instanceof WebSocket)) throw new Error('Expected WebSocket peer');
     expect(client.protocol).toBe('mqtt');
     expect(client.binaryType).toBe('arraybuffer');
     const received = once(socket, 'message');
@@ -35,8 +43,12 @@ test('negotiates MQTT and exchanges binary frames through native WebSocket', asy
 
     const response = once(client, 'message');
     socket.send(Uint8Array.of(0xd0, 0));
-    const [message] = await response;
-    expect(new Uint8Array(message.data)).toEqual(Uint8Array.of(0xd0, 0));
+    const responseArguments: unknown[] = await response;
+    const [message] = responseArguments;
+    if (!(message instanceof MessageEvent)) throw new Error('Expected message event');
+    const data: unknown = message.data;
+    if (!(data instanceof ArrayBuffer)) throw new Error('Expected binary frame');
+    expect(new Uint8Array(data)).toEqual(Uint8Array.of(0xd0, 0));
 
     const closed = once(client, 'close');
     socket.close(1000);
@@ -93,7 +105,9 @@ test('cancels an in-flight handshake and removes its open listener before a late
   vi.stubGlobal('WebSocket', TestSocket);
   try {
     const opening = openMqttWebSocket('ws://127.0.0.1', { signal: controller.signal });
-    const result = expect(opening).rejects.toBe(reason);
+    const result = (async () => {
+      await expect(opening).rejects.toBe(reason);
+    })();
     controller.abort(reason);
     const socket = TestSocket.instance;
     await result;
@@ -113,7 +127,9 @@ test('times out a stalled opening and leaves no handshake listeners', async () =
   vi.useFakeTimers();
   try {
     const opening = openMqttWebSocket('ws://127.0.0.1', { timeoutMs: 50 });
-    const result = expect(opening).rejects.toThrow('handshake timed out');
+    const result = (async () => {
+      await expect(opening).rejects.toThrow('handshake timed out');
+    })();
     await vi.advanceTimersByTimeAsync(50);
     await result;
     expect(TestSocket.instance.closeCalls).toBe(1);

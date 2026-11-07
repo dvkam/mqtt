@@ -3,26 +3,42 @@ import { openBrowserTransport } from 'mqtt/browser';
 import { encodePacket, PacketDecoder } from 'mqtt/codec';
 export { createBrowserClient } from 'mqtt/browser';
 
+/** @param {import('mqtt/codec').WirePacket} packet */
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
 export function codecRoundTrip(packet) {
   return new PacketDecoder().push(encodePacket(packet));
 }
 
+/** @param {string} url */
 export async function exchangeTransport(url) {
-  let receive;
-  let reject;
-  const reply = new Promise((resolve, fail) => {
-    receive = resolve;
-    reject = fail;
-  });
+  /** @type {(bytes: readonly number[]) => void} */
+  let receive = () => {
+    throw new Error('Missing reply observer');
+  };
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+  /** @type {(error: Error) => void} */
+  let reject = () => {
+    throw new Error('Missing failure observer');
+  };
+  const reply = new Promise(
+    /** @param {(bytes: readonly number[]) => void} resolve */ (resolve, fail) => {
+      receive = resolve;
+      reject = fail;
+    },
+  );
   const transport = await openBrowserTransport(url, {
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
     onBytes(bytes) {
       receive(Array.from(bytes));
     },
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
     onClose(reason) {
       reject(reason);
     },
   });
-  const timer = setTimeout(() => reject(new Error('MQTT frame did not arrive')), 3000);
+  const timer = setTimeout(() => {
+    reject(new Error('MQTT frame did not arrive'));
+  }, 3000);
   try {
     transport.send(Uint8Array.of(0xc0, 0));
     return await reply;
@@ -32,21 +48,34 @@ export async function exchangeTransport(url) {
   }
 }
 
+/** @param {string} url */
 export async function exchange(url) {
   const socket = await openMqttWebSocket(url);
   const listeners = new AbortController();
   let timer;
   try {
     const result = new Promise((resolve, reject) => {
-      const fail = () => reject(new Error('WebSocket closed or failed during exchange'));
+      const fail = () => {
+        reject(new Error('WebSocket closed or failed during exchange'));
+      };
       const options = { once: true, signal: listeners.signal };
-      socket.addEventListener('message', (event) => resolve(Array.from(new Uint8Array(event.data))), options);
+      socket.addEventListener(
+        'message',
+        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+        (event) => {
+          resolve(Array.from(new Uint8Array(checkedArrayBuffer(event.data))));
+        },
+        options,
+      );
       socket.addEventListener('error', fail, options);
       socket.addEventListener('close', fail, options);
-      timer = setTimeout(() => reject(new Error('WebSocket frame did not arrive')), 3000);
+      timer = setTimeout(() => {
+        reject(new Error('WebSocket frame did not arrive'));
+      }, 3000);
     });
     socket.send(Uint8Array.of(0xc0, 0));
-    return { protocol: socket.protocol, bytes: await result };
+    /** @type {unknown} */ const bytes = await result;
+    return { protocol: socket.protocol, bytes };
   } finally {
     clearTimeout(timer);
     listeners.abort();
@@ -54,11 +83,17 @@ export async function exchange(url) {
   }
 }
 
+/**
+ * @param {string} url
+ * @param {(url: string) => Promise<Pick<WebSocket, 'bufferedAmount' | 'send' | 'close' | 'addEventListener'>>} open
+ */
 export async function measureQueue(url, open = openMqttWebSocket) {
   const socket = await open(url);
   const budget = 128 * 1024;
   const bytes = new Uint8Array(64 * 1024);
-  const closed = new Promise((resolve) => socket.addEventListener('close', resolve, { once: true }));
+  const closed = new Promise((resolve) => {
+    socket.addEventListener('close', resolve, { once: true });
+  });
   let admitted = 0;
   let peak = 0;
   let timer;
@@ -73,7 +108,9 @@ export async function measureQueue(url, open = openMqttWebSocket) {
     await Promise.race([
       closed,
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error('Stalled peer did not close')), 3000);
+        timer = setTimeout(() => {
+          reject(new Error('Stalled peer did not close'));
+        }, 3000);
       }),
     ]);
     return { admitted, peak, budget, nextWouldExceed, closeMs: performance.now() - beforeClose };
@@ -81,4 +118,10 @@ export async function measureQueue(url, open = openMqttWebSocket) {
     clearTimeout(timer);
     socket.close();
   }
+}
+
+/** @param {unknown} data */
+function checkedArrayBuffer(data) {
+  if (!(data instanceof ArrayBuffer)) throw new Error('Expected binary WebSocket frame');
+  return data;
 }

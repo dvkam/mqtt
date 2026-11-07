@@ -13,10 +13,10 @@ const defaultStoreOptions = {
  * @param {Object} [options] - store options
  */
 export class Store {
-  private _inflights: any;
-  options: any;
+  private _inflights: Map<Packet['messageId'], Packet> | null;
+  options: { clean?: boolean; [key: string]: unknown };
 
-  constructor(options: any = {}) {
+  constructor(options: Readonly<{ clean?: boolean; [key: string]: unknown }> = {}) {
     this.options = { ...options, defaultStoreOptions };
     this._inflights = new Map();
   }
@@ -26,7 +26,9 @@ export class Store {
    * anything that has a messageId property.
    *
    */
-  async put(packet: Packet): Promise<Store> {
+  // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- Keep the promise API so store failures reject asynchronously. The store preserves the identity of mutable protocol packets.
+  async put(packet: Readonly<Packet>): Promise<this> {
+    if (this._inflights === null) throw new TypeError('Store is closed');
     this._inflights.set(packet.messageId, packet);
     return this;
   }
@@ -35,25 +37,28 @@ export class Store {
    * Creates a stream with all the packets in the store
    *
    */
+  // oxlint-disable-next-line typescript/require-await -- Stream creation remains part of the existing promise API.
   async createStream() {
+    if (this._inflights === null) throw new TypeError('Store is closed');
     const stream = new Readable(streamsOpts);
     let destroyed = false;
-    const values: any[] = [];
-    let i = 0;
+    const values: Packet[] = [];
+    let packetIndex = 0;
 
-    this._inflights.forEach((value: any) => {
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The store preserves the identity of mutable protocol packets.
+    this._inflights.forEach((value) => {
       values.push(value);
     });
 
     stream._read = function () {
-      if (!destroyed && i < values.length) {
-        this.push(values[i++]);
+      if (!destroyed && packetIndex < values.length) {
+        this.push(values[packetIndex++]);
       } else {
         this.push(null);
       }
     };
 
-    stream.destroy = function (_error?: Error): Readable {
+    stream.destroy = function (_error?: Readonly<Error>): Readable {
       if (!destroyed) {
         destroyed = true;
         setTimeout(() => {
@@ -69,11 +74,13 @@ export class Store {
   /**
    * deletes a packet from the store.
    */
-  async del(packet: Packet): Promise<Packet> {
-    packet = this._inflights.get(packet.messageId);
-    if (packet) {
-      this._inflights.delete(packet.messageId);
-      return packet;
+  // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- Missing packets must reject through the existing promise API. The store preserves the identity of mutable protocol packets.
+  async del(packet: Readonly<Packet>): Promise<Packet> {
+    if (this._inflights === null) throw new TypeError('Store is closed');
+    const storedPacket = this._inflights.get(packet.messageId);
+    if (storedPacket !== undefined) {
+      this._inflights.delete(storedPacket.messageId);
+      return storedPacket;
     } else {
       throw new Error('missing packet');
     }
@@ -82,10 +89,12 @@ export class Store {
   /**
    * get a packet from the store.
    */
-  async get(packet: Packet): Promise<Packet> {
-    packet = this._inflights.get(packet.messageId);
-    if (packet) {
-      return packet;
+  // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- Missing packets must reject through the existing promise API. The store preserves the identity of mutable protocol packets.
+  async get(packet: Readonly<Packet>): Promise<Packet> {
+    if (this._inflights === null) throw new TypeError('Store is closed');
+    const storedPacket = this._inflights.get(packet.messageId);
+    if (storedPacket !== undefined) {
+      return storedPacket;
     } else {
       throw new Error('missing packet');
     }
@@ -94,8 +103,9 @@ export class Store {
   /**
    * Close the store
    */
+  // oxlint-disable-next-line typescript/require-await -- Preserve the existing asynchronous close contract.
   async close() {
-    if (this.options.clean) {
+    if (this.options.clean === true) {
       this._inflights = null;
     }
     return;

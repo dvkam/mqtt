@@ -6,25 +6,35 @@ import { once } from 'node:events';
 import { resolve } from 'node:path';
 
 const [consumer, ca] = process.argv.slice(2);
+assert.ok(consumer !== undefined && ca !== undefined, 'Expected consumer and CA paths');
 const targets = new Set(['localhost:18885', 'localhost:18887']);
+/** @type {Set<import('node:stream').Duplex>} */
 const sockets = new Set();
 let tunnels = 0;
-const proxy = createServer((_request, response) => response.writeHead(405).end());
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+const proxy = createServer((_request, response) => {
+  response.writeHead(405).end();
+});
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
 proxy.on('connect', (request, client, head) => {
-  if (!targets.has(request.url)) {
+  if (!targets.has(request.url ?? '')) {
     client.end('HTTP/1.1 403 Forbidden\r\n\r\n');
     return;
   }
   tunnels++;
-  const upstream = createConnection(Number(request.url.split(':')[1]), '127.0.0.1', () => {
+  const upstream = createConnection(Number((request.url ?? '').split(':')[1]), '127.0.0.1', () => {
     client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
     if (head.length > 0) upstream.write(head);
     client.pipe(upstream).pipe(client);
   });
   sockets.add(client);
   sockets.add(upstream);
-  client.on('error', () => upstream.destroy());
-  upstream.on('error', () => client.destroy());
+  client.on('error', () => {
+    upstream.destroy();
+  });
+  upstream.on('error', () => {
+    client.destroy();
+  });
   client.on('close', () => {
     sockets.delete(client);
     upstream.destroy();
@@ -37,7 +47,9 @@ proxy.on('connect', (request, client, head) => {
 proxy.listen(0, '127.0.0.1');
 await once(proxy, 'listening');
 try {
-  const address = 'http://127.0.0.1:' + proxy.address().port;
+  const endpoint = proxy.address();
+  assert.ok(endpoint !== null && typeof endpoint !== 'string');
+  const address = 'http://127.0.0.1:' + endpoint.port;
   /** @type {[entry: string, args: string[], env: NodeJS.ProcessEnv, sessions: number][]} */
   const cases = [
     [
@@ -64,7 +76,7 @@ try {
       2,
     ],
   ];
-  if (process.env.MQTT_CHROMIUM_HOME) {
+  if (process.env['MQTT_CHROMIUM_HOME'] !== undefined && process.env['MQTT_CHROMIUM_HOME'] !== '') {
     cases.push([
       resolve('test/packed/websocket-session-check.mjs'),
       [consumer, 'wss://localhost:18887/mqtt', 'chromium'],
@@ -79,7 +91,7 @@ try {
       env: { ...process.env, ...env },
       timeout: 12_000,
     });
-    const [status] = await once(child, 'exit');
+    const [status] = /** @type {unknown[]} */ (await once(child, 'exit'));
     assert.equal(status, 0);
     assert.equal(tunnels, before + sessions, 'Expected every session to use the CONNECT proxy');
   }

@@ -1,13 +1,14 @@
 import net from 'net';
 import type { Duplex } from 'stream';
 import tls from 'tls';
-import type { URL } from 'url';
 import type { ConnectOptions } from '../interface/connectOptions.js';
 import { buildWebSocketStream } from './buildWebSocketStream.js';
 import type { WebSocketOptions } from './interfaces/webSocketOptions.js';
 
-export function connectionFactory(options: ConnectOptions): Duplex {
-  const brokerUrl: URL = options.brokerUrl as URL;
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Connection options contain native TLS buffers and mutable stream factories.
+export function connectionFactory(options: Readonly<ConnectOptions>): Duplex {
+  const brokerUrl = options.brokerUrl;
+  if (brokerUrl === undefined) throw new Error('Missing broker URL');
   const tlsOptions = options.tlsOptions;
   switch (brokerUrl.protocol) {
     case 'tcp:': /* fall through */
@@ -30,11 +31,9 @@ export function connectionFactory(options: ConnectOptions): Duplex {
         ...options.tlsOptions,
       });
 
-      const handleTLSerrors = (err: Error) => {
-        // How can I get verify this error is a tls error?
-        // TODO: In the old version this was emitted via the client.
-        // We need to make this better.
-        if (options.tlsOptions as any['rejectUnauthorized']) {
+      const handleTLSerrors = (err: Readonly<Error>) => {
+        // Error forwarding and terminal TLS ownership are tracked in #27 and #52.
+        if (options.tlsOptions) {
           connection.emit('error', err);
         }
 
@@ -46,9 +45,8 @@ export function connectionFactory(options: ConnectOptions): Duplex {
         connection.end();
       };
 
-      /* eslint no-use-before-define: [2, "nofunc"] */
       connection.on('secureConnect', function () {
-        if ((tlsOptions as any['rejectUnauthorized']) && !connection.authorized) {
+        if (tlsOptions && !connection.authorized) {
           connection.emit('error', new Error('TLS not authorized'));
         } else {
           connection.removeListener('error', handleTLSerrors);
@@ -59,7 +57,7 @@ export function connectionFactory(options: ConnectOptions): Duplex {
       return connection;
     }
     case 'ws:': {
-      const url = options.transformWsUrl ? options.transformWsUrl(options.brokerUrl) : (options.brokerUrl as URL);
+      const url = options.transformWsUrl ? options.transformWsUrl(options.brokerUrl) : brokerUrl;
       const websocketSubProtocol = options.protocolId === 'MQIsdp' && options.protocolVersion === 3 ? 'mqttv3.1' : 'mqtt';
       const webSocketOptions: WebSocketOptions = {
         url: url,
@@ -69,7 +67,7 @@ export function connectionFactory(options: ConnectOptions): Duplex {
         protocolId: options.protocolId,
         websocketSubProtocol: websocketSubProtocol,
         path: url.pathname || '/',
-        wsOptions: options.wsOptions || {},
+        wsOptions: options.wsOptions ?? {},
       };
       const wsStream = buildWebSocketStream(webSocketOptions);
       return wsStream;

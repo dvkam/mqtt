@@ -46,13 +46,15 @@ export interface ConnectOptions {
   tlsOptions?: Record<string, unknown>;
   reschedulePings?: any;
   reconnectPeriod?: any;
-  connectTimeout?: any;
+  connectTimeout?: number;
   incomingStore?: any;
   outgoingStore?: any;
   queueQoSZero?: any;
   customHandleAcks?: any;
   authPacket?: any;
-  transformWsUrl?: (options: any) => URL;
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Custom factories receive the existing mutable endpoint and stream configuration.
+  transformWsUrl?: (options: URL | undefined) => URL;
   resubscribe?: boolean;
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Custom factories receive the existing mutable endpoint and stream configuration.
   customStreamFactory?: (options: ConnectOptions) => Duplex;
 }

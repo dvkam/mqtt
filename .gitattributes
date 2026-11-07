@@ -1,6 +1,5 @@
 *.ts text eol=lf
 *.config.mjs text eol=lf
-test/types/**/*.json text eol=lf
+test/**/*.json text eol=lf
 test/**/*.mjs text eol=lf
-test/packed/*.json text eol=lf
 test/packed/*.sh text eol=lf

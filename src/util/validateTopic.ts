@@ -48,13 +48,13 @@ export function validateTopic(topic: string) {
  * @param {Array} topics - Array of topics
  * @returns {String} If the topics is valid, returns null. Otherwise, returns the invalid one
  */
-export function validateTopics(topics: Array<string>) {
+export function validateTopics(topics: readonly string[]) {
   if (topics.length === 0) {
     return 'empty_topic_list';
   }
-  for (let i = 0; i < topics.length; i++) {
-    if (!validateTopic(topics[i] as string)) {
-      return topics[i];
+  for (const topic of topics) {
+    if (!validateTopic(topic)) {
+      return topic;
     }
   }
   return null;

@@ -1,0 +1,15 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "..",
+    "allowJs": true,
+    "checkJs": true,
+    "paths": {
+      "/trace.js": ["./packed/browser.mjs"],
+      "/probe.js": ["./packed/websocket-browser.mjs"],
+      "/session.js": ["./packed/websocket-session.mjs"]
+    }
+  },
+  "include": ["./*.test.ts", "./packed/*.mjs", "./bench/*.mjs"]
+}
