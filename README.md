@@ -93,7 +93,7 @@ The browser path uses the in-repository portable codec. The Node adapters still 
 
 ## Development and evidence
 
-Read the [contribution guide](.github/contributing.md). CI runs tests, strict compiler checks, type-aware lint, formatting and builds on Ubuntu and Windows. The packed-consumer job installs the actual tarball, checks declarations and exercises MQTT 5 against Mosquitto, including browser, WS/WSS and certificate/proxy cases. Wider browser and fault coverage remains work under [#23](https://github.com/dvkam/mqtt/issues/23).
+Read the [contribution guide](.github/contributing.md). CI runs tests, strict compiler checks, type-aware lint, formatting and builds on Ubuntu and Windows. The packed-consumer job installs the actual tarball, checks declarations and browser bundles, and exercises MQTT 5 against Mosquitto over TCP and WS/WSS with certificate and proxy cases. Scheduled runs add browser runtime tests across Chromium, Firefox and WebKit. Wider browser and fault coverage remains work under [#23](https://github.com/dvkam/mqtt/issues/23).
 
 The [verification guide](.agents/skills/verify-mqtt-lifecycle/SKILL.md) describes bounded lifecycle models and their limits. Models supplement regression and integration tests; they do not prove the entire implementation correct.
 
