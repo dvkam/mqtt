@@ -1,5 +1,5 @@
-import { Server } from 'http';
-import { Server as HttpsServer } from 'https';
+import type { Server } from 'http';
+import type { Server as HttpsServer } from 'https';
 
 export type WsOptions = {
   backlog: number;

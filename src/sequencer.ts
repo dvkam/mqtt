@@ -1,12 +1,15 @@
 import type { IConnackPacket, IConnectPacket, Packet } from 'mqtt-packet';
 
 export class MqttPacketSequencer {
+  private readonly send: (packet: Packet) => Promise<void>;
   private pendingConnect?: {
     resolve: (packet: IConnackPacket) => void;
     reject: (error: Error) => void;
   };
 
-  constructor(private readonly send: (packet: Packet) => Promise<void>) {}
+  constructor(send: (packet: Packet) => Promise<void>) {
+    this.send = send;
+  }
 
   async connect(packet: IConnectPacket, timeout: number): Promise<IConnackPacket> {
     if (this.pendingConnect) throw new Error('CONNECT already in flight');
