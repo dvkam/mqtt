@@ -81,7 +81,10 @@ import { encodePacket, PacketDecoder } from 'mqtt/codec';
 
 export function checkCodecDeclarations() {
   const bytes: Uint8Array = encodePacket({ cmd: 'connect', clientId: 'consumer' });
-  return new PacketDecoder({ maxPacketBytes: 4096 }).push(bytes);
+  const decoder = new PacketDecoder({ maxPacketBytes: 4096 });
+  const packets = decoder.push(bytes);
+  decoder.finish();
+  return packets;
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.

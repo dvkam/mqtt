@@ -1,4 +1,5 @@
 import { createBrowserClient } from 'mqtt/browser';
+import { PacketDecoder } from 'mqtt/codec';
 import type { BrowserClientOptions, BrowserSession, ClientFactory, ClientSession } from 'mqtt/browser';
 
 type RequireTrue<Value extends true> = Value;
@@ -23,3 +24,9 @@ const options: BrowserClientOptions = {
   },
 };
 export const factory: ClientFactory = createBrowserClient(options);
+
+export function checkDecoderCompletion() {
+  const decoder = new PacketDecoder();
+  decoder.push(Uint8Array.of(0xd0, 0));
+  decoder.finish();
+}

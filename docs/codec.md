@@ -36,9 +36,15 @@ The encoder uses the compact two-byte normal DISCONNECT. mqtt-packet 9.0.2 regen
 
 The decoder validates Remaining Length and the per-packet limit before allocating a frame. Its default limit is 1 MiB, including the fixed header. Any decoding error permanently fails that decoder. Start a new decoder for a new connection.
 
-The limit covers the frame byte allocation. It excludes decoded strings, property tuples, retained output, the returned packet array and transport buffers. A single call can return many packets. On connection closure, the session must reject any unfinished exchange. An explicit end-of-input validation API remains under #9 and #37.
+The limit covers the frame byte allocation. It excludes decoded strings, property tuples, retained output, the returned packet array and transport buffers. A single call can return many packets. On connection closure, the session must reject any unfinished exchange.
+
+Call `finish()` when byte input has ended, not after each chunk or WebSocket message. It succeeds only at a packet boundary and closes the decoder. Repeated successful calls are harmless. Later `push()` calls reject, including empty input. A partial fixed header, Remaining Length or body causes a truncation error and releases the buffered frame and header. That failure is permanent, and later `finish()` or `push()` calls throw the same error. A previous decode error keeps its original identity.
+
+Packets already returned by `push()` remain valid if trailing input is truncated. `finish()` performs no I/O and does not wait for missing bytes. Transport adapters still need to call it at actual end of input. Browser close integration remains under #8 and #37; this change adds the codec API rather than changing adapter close reasons.
 
 The bounded CodecFrames model checks allocation admission, completion before emission and no output after failure. It abstracts complete header validation, byte content and copying. UTF-8, property rules and concrete fragmented parsing are covered by wire-vector tests.
+
+The bounded CodecEndOfInput model checks truncation rejection, no output after successful completion and failure reporting on repeated completion. It uses five abstract states for an open boundary, partial header, partial body, successful end and failure. Sequential method calls and ordinary byte-view reads are assumptions. It does not prove packet conformance, garbage collection behavior or transport shutdown.
 
 ## Initial measurements
 
