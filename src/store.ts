@@ -1,4 +1,4 @@
-import { Packet } from 'mqtt-packet';
+import type { Packet } from 'mqtt-packet';
 import { Readable } from 'stream';
 
 const streamsOpts = { objectMode: true };
@@ -53,7 +53,7 @@ export class Store {
       }
     };
 
-    stream.destroy = function (_error?: Error | undefined): Readable {
+    stream.destroy = function (_error?: Error): Readable {
       if (!destroyed) {
         destroyed = true;
         setTimeout(() => {

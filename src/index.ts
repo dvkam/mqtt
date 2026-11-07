@@ -6,7 +6,7 @@
  */
 
 import { MqttClient } from './client.js';
-import { ConnectOptions } from './interface/connectOptions.js';
+import type { ConnectOptions } from './interface/connectOptions.js';
 import { protocols } from './util/constants.js';
 
 import { URL } from 'url';

@@ -1,7 +1,5 @@
-import { QoS, UserProperties } from 'mqtt-packet';
-import { Duplex } from 'stream';
-import { TlsOptions } from 'tls';
-import { WsOptions } from './wsOptions.js';
+import type { QoS, UserProperties } from 'mqtt-packet';
+import type { Duplex } from 'stream';
 
 export interface ConnectOptions {
   objectMode?: any;
@@ -44,8 +42,8 @@ export interface ConnectOptions {
     authenticationData?: Buffer;
   };
   brokerUrl?: URL;
-  wsOptions?: { [key: string]: WsOptions | unknown };
-  tlsOptions?: { [key: string]: TlsOptions | unknown };
+  wsOptions?: Record<string, unknown>;
+  tlsOptions?: Record<string, unknown>;
   reschedulePings?: any;
   reconnectPeriod?: any;
   connectTimeout?: any;
