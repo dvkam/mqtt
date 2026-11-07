@@ -1,4 +1,5 @@
 import { connect, createTcpClient, createWebSocketClient } from 'mqtt';
+export type { ConnectOptions, LegacyAckCompletion, LegacyAckHandler, PacketIdentifier, PacketLookup, PacketStore } from 'mqtt';
 import { connectPortable, type PacketTransport } from 'mqtt/portable';
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.

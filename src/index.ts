@@ -80,5 +80,7 @@ function formatSecureProtocolError(protocol: string): Error {
 }
 
 export { connect };
+export type { ConnectOptions, LegacyAckCompletion, LegacyAckHandler } from './interface/connectOptions.js';
+export type { PacketIdentifier, PacketLookup, PacketStore } from './store.js';
 export { createTcpClient } from './tcpClient.js';
 export { createWebSocketClient } from './websocketClient.js';

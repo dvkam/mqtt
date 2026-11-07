@@ -1,6 +1,21 @@
 import type { Packet } from 'mqtt-packet';
 import { Readable } from 'stream';
 
+export type PacketIdentifier = Readonly<Pick<Packet, 'messageId'>>;
+export type PacketLookup = PacketIdentifier | Readonly<Packet>;
+
+/** Structural legacy storage contract. QoS storage flows are not implemented by the preview client. */
+export interface PacketStore {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Custom stores receive and preserve caller-owned mutable packets.
+  put(packet: Packet): Promise<unknown>;
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Lookups retain compatibility with complete packets containing mutable payload buffers.
+  get(packet: PacketLookup): Promise<Packet>;
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Lookups retain compatibility with complete packets containing mutable payload buffers.
+  del(packet: PacketLookup): Promise<Packet>;
+  createStream(): Promise<Readable>;
+  close(): Promise<void>;
+}
+
 const streamsOpts = { objectMode: true };
 const defaultStoreOptions = {
   clean: true,
@@ -12,7 +27,7 @@ const defaultStoreOptions = {
  *
  * @param {Object} [options] - store options
  */
-export class Store {
+export class Store implements PacketStore {
   private _inflights: Map<Packet['messageId'], Packet> | null;
   options: { clean?: boolean; [key: string]: unknown };
 
@@ -74,8 +89,8 @@ export class Store {
   /**
    * deletes a packet from the store.
    */
-  // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- Missing packets must reject through the existing promise API. The store preserves the identity of mutable protocol packets.
-  async del(packet: Readonly<Packet>): Promise<Packet> {
+  // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- Missing packets reject through the promise API; complete packet inputs may contain mutable payload buffers.
+  async del(packet: PacketLookup): Promise<Packet> {
     if (this._inflights === null) throw new TypeError('Store is closed');
     const storedPacket = this._inflights.get(packet.messageId);
     if (storedPacket !== undefined) {
@@ -89,8 +104,8 @@ export class Store {
   /**
    * get a packet from the store.
    */
-  // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- Missing packets must reject through the existing promise API. The store preserves the identity of mutable protocol packets.
-  async get(packet: Readonly<Packet>): Promise<Packet> {
+  // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- Missing packets reject through the promise API; complete packet inputs may contain mutable payload buffers.
+  async get(packet: PacketLookup): Promise<Packet> {
     if (this._inflights === null) throw new TypeError('Store is closed');
     const storedPacket = this._inflights.get(packet.messageId);
     if (storedPacket !== undefined) {
