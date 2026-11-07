@@ -11,5 +11,5 @@
       "/session.js": ["./packed/websocket-session.mjs"]
     }
   },
-  "include": ["./*.test.ts", "./packed/*.mjs", "./bench/*.mjs", "../sample/*.ts", "../lint/*.ts"]
+  "include": ["./*.test.ts", "./packed/*.mjs", "./bench/*.mjs", "../sample/*.ts", "../lint/*.ts", "../verification/*.ts"]
 }
