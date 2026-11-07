@@ -1,4 +1,30 @@
 import { openMqttWebSocket } from 'mqtt/websocket';
+import { openBrowserTransport } from 'mqtt/browser';
+
+export async function exchangeTransport(url) {
+  let receive;
+  let reject;
+  const reply = new Promise((resolve, fail) => {
+    receive = resolve;
+    reject = fail;
+  });
+  const transport = await openBrowserTransport(url, {
+    onBytes(bytes) {
+      receive(Array.from(bytes));
+    },
+    onClose(reason) {
+      reject(reason);
+    },
+  });
+  const timer = setTimeout(() => reject(new Error('MQTT frame did not arrive')), 3000);
+  try {
+    transport.send(Uint8Array.of(0xc0, 0));
+    return await reply;
+  } finally {
+    clearTimeout(timer);
+    await transport.close();
+  }
+}
 
 export async function exchange(url) {
   const socket = await openMqttWebSocket(url);

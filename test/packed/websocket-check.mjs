@@ -50,13 +50,17 @@ if (process.argv.includes('--bundle-only')) {
     const endpoint = '127.0.0.1:' + server.address().port;
     const url = 'ws://' + endpoint;
     const expected = { protocol: 'mqtt', bytes: [0xd0, 0] };
-    const { exchange, measureQueue } = await import(pathToFileURL(entry).href);
+    const { exchange, exchangeTransport, measureQueue } = await import(pathToFileURL(entry).href);
     assert.deepEqual(await exchange(url), expected);
     browser = await chromium.launch();
     const page = await browser.newPage();
     await page.goto('http://' + endpoint);
     assert.deepEqual(await page.evaluate(async (url) => (await import('/probe.js')).exchange(url), url), expected);
+    assert.deepEqual(await exchangeTransport(url), [0xd0, 0]);
+    assert.deepEqual(await page.evaluate(async (url) => (await import('/probe.js')).exchangeTransport(url), url), [0xd0, 0]);
     assert.deepEqual(frames, [
+      { binary: true, bytes: [0xc0, 0] },
+      { binary: true, bytes: [0xc0, 0] },
       { binary: true, bytes: [0xc0, 0] },
       { binary: true, bytes: [0xc0, 0] },
     ]);
