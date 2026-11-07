@@ -1,15 +1,25 @@
 import assert from 'node:assert/strict';
-import { createTcpClient } from 'mqtt';
+import { readFileSync } from 'node:fs';
+import { Agent } from 'node:https';
+import { createTcpClient, createWebSocketClient } from 'mqtt';
 
 let receive;
-const client = await createTcpClient({
-  host: '127.0.0.1',
-  port: Number(process.env.MQTT_TEST_PORT),
+const options = {
   clientId: 'packed-ci',
   onMessage(packet) {
     receive?.(packet);
   },
-}).connect();
+};
+const url = process.env.MQTT_TEST_WS_URL;
+const ca = process.env.MQTT_TEST_CA ? readFileSync(process.env.MQTT_TEST_CA) : undefined;
+const proxy = process.env.MQTT_TEST_PROXY;
+const cert = process.env.MQTT_TEST_CERT ? readFileSync(process.env.MQTT_TEST_CERT) : undefined;
+const key = process.env.MQTT_TEST_KEY ? readFileSync(process.env.MQTT_TEST_KEY) : undefined;
+const agent = proxy ? new Agent({ proxyEnv: { HTTPS_PROXY: proxy, NO_PROXY: '' } }) : undefined;
+const factory = url
+  ? createWebSocketClient({ ...options, url, ca, cert, key, agent })
+  : createTcpClient({ ...options, host: '127.0.0.1', port: Number(process.env.MQTT_TEST_PORT) });
+const client = await factory.connect();
 try {
   await client.subscribe('ci/echo');
   await client.ping();

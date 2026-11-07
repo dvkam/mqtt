@@ -18,7 +18,7 @@
   "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": "^22.12.0 || ^24.0.0 || ^26.0.0"
   },
   "files": [
     "dist"
@@ -33,6 +33,10 @@
     "./portable": {
       "types": "./dist/portable.d.ts",
       "import": "./dist/portable.js"
+    },
+    "./websocket": {
+      "types": "./dist/websocket.d.ts",
+      "import": "./dist/websocket.js"
     }
   },
   "scripts": {
