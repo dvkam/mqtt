@@ -4,11 +4,13 @@ Import `openBrowserTransport` from `mqtt/browser`. It opens the browser's native
 
 ```ts
 import { openBrowserTransport } from 'mqtt/browser';
+import { encodePacket, PacketDecoder } from 'mqtt/codec';
+
+const decoder = new PacketDecoder();
 
 const transport = await openBrowserTransport('wss://broker.example/mqtt', {
   onBytes(bytes) {
-    // Feed the bytes to the MQTT decoder.
-    console.log(bytes.byteLength);
+    for (const packet of decoder.push(bytes)) console.log(packet.cmd);
   },
   onClose(reason) {
     console.log(reason.message);
@@ -17,11 +19,10 @@ const transport = await openBrowserTransport('wss://broker.example/mqtt', {
   timeoutMs: 3000,
 });
 
-transport.send(Uint8Array.of(0xc0, 0));
-await transport.close();
+transport.send(encodePacket({ cmd: 'connect', clientId: 'example' }));
 ```
 
-The example sends an MQTT PINGREQ wire vector. A real MQTT session must first send CONNECT and accept CONNACK. Codec integration and the browser client API remain under #37 and #8.
+The example sends CONNECT. A session must accept CONNACK before publishing or subscribing and match later acknowledgments. Call `transport.close()` when the session ends. The codec preview profile is documented in docs/codec.md. The public client preview in docs/browser-client.md owns these session operations.
 
 `send` checks the native `bufferedAmount` plus the new message against the budget, then calls native `send`. A successful call means local queue admission. The budget excludes browser framing, receive buffers, kernel buffers and application allocations.
 

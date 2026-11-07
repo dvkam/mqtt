@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "types": [],
+    "paths": {
+      "mqtt/browser": ["../../../.type-fixtures/browser-api/browser.d.ts"],
+      "mqtt/codec": ["../../../.type-fixtures/browser-api/codec.d.ts"]
+    },
+    "strict": true,
+    "skipLibCheck": false,
+    "noEmit": true
+  },
+  "include": ["consumer.ts"]
+}

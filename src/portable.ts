@@ -1,25 +1,28 @@
 import type { IConnectPacket, IPublishPacket, Packet } from 'mqtt-packet';
 
-export interface PacketTransport {
+type PublishMessage = Omit<IPublishPacket, 'payload'> & { payload: unknown };
+type IncomingPacket<Message extends PublishMessage> = Exclude<Packet, IPublishPacket> | Message;
+
+export interface PacketTransport<Message extends PublishMessage = IPublishPacket> {
   send(packet: Packet): Promise<void>;
-  listen(onPacket: (packet: Packet) => void, onClose: (error: Error) => void): () => void;
+  listen(onPacket: (packet: IncomingPacket<Message>) => void, onClose: (error: Error) => void): () => void;
   /** Forced closure must promptly release pending I/O and settle. */
   close(force?: boolean): Promise<void>;
 }
 
-interface PortableOptions {
+interface PortableOptions<Message extends PublishMessage> {
   clientId: string;
   username?: IConnectPacket['username'];
   password?: IConnectPacket['password'];
   timeoutMs?: number;
-  onMessage?: (packet: IPublishPacket) => void;
+  onMessage?: (packet: Message) => void;
 }
 
 type Acknowledgment = Extract<Packet, { cmd: 'connack' | 'suback' | 'pingresp' }>;
 
-class PortableClient {
-  private readonly transport: PacketTransport;
-  private readonly options: PortableOptions;
+class PortableClient<Message extends PublishMessage> {
+  private readonly transport: PacketTransport<Message>;
+  private readonly options: PortableOptions<Message>;
   private pendingAck?: (packet: Acknowledgment) => void;
   private readonly pendingOperations = new Set<(error: Error) => void>();
   private failure?: Error;
@@ -28,7 +31,7 @@ class PortableClient {
   private messageId = 0;
   private active = false;
 
-  constructor(transport: PacketTransport, options: PortableOptions) {
+  constructor(transport: PacketTransport<Message>, options: PortableOptions<Message>) {
     this.transport = transport;
     this.options = options;
     this.unlisten = transport.listen(
@@ -153,7 +156,10 @@ class PortableClient {
   }
 }
 
-export async function connectPortable(transport: PacketTransport, options: PortableOptions) {
+export async function connectPortable<Message extends PublishMessage = IPublishPacket>(
+  transport: PacketTransport<Message>,
+  options: PortableOptions<Message>,
+) {
   const client = new PortableClient(transport, options);
   try {
     await client.open();

@@ -22,9 +22,11 @@ const requests = [
 ].map((packet) => Array.from(generate(packet, codec)));
 const entry = resolve(root, 'websocket-session.mjs');
 let replies;
+let clientMessage;
 if (mode === 'node') {
-  const { mqttSession } = await import(pathToFileURL(entry).href);
+  const { mqttSession, mqttClientSession } = await import(pathToFileURL(entry).href);
   replies = await mqttSession(url, requests);
+  clientMessage = await mqttClientSession(url);
 } else {
   const result = await build({
     root,
@@ -54,18 +56,21 @@ if (mode === 'node') {
     });
     const page = await browser.newPage();
     await page.goto('http://127.0.0.1:' + server.address().port);
-    replies = await page.evaluate(
+    const result = await page.evaluate(
       async ({ url, requests }) => {
-        const { mqttSession } = await import('/session.js');
-        return mqttSession(url, requests);
+        const { mqttSession, mqttClientSession } = await import('/session.js');
+        return { replies: await mqttSession(url, requests), clientMessage: await mqttClientSession(url) };
       },
       { url, requests },
     );
+    replies = result.replies;
+    clientMessage = result.clientMessage;
   } finally {
     await browser?.close();
     server.close();
   }
 }
+assert.deepEqual(clientMessage, { topic: 'ci/browser-client', payload: [104, 101, 108, 108, 111] });
 const decoded = [];
 const decoder = parser(codec);
 decoder.on('packet', (packet) => decoded.push(packet));

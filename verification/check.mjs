@@ -26,6 +26,13 @@ const models = [
   ['BrowserTransport', 'BrowserTransportDelivery', 'NoLateDelivery'],
   ['BrowserTransport', 'BrowserTransportBudget', 'BoundedAdmission'],
   ['BrowserTransport', 'BrowserTransportObserver', 'NativeCloseSettles'],
+  ['CodecFrames', 'CodecFrames'],
+  ['CodecFrames', 'CodecFramesAllocation', 'BoundedAllocation'],
+  ['CodecFrames', 'CodecFramesEarly', 'CompleteBeforeEmit'],
+  ['CodecFrames', 'CodecFramesPoison', 'NoOutputAfterFailure'],
+  ['BrowserClientHandoff', 'BrowserClientHandoff'],
+  ['BrowserClientHandoff', 'BrowserClientHandoffAbort', 'NoCancelledTransfer'],
+  ['BrowserClientHandoff', 'BrowserClientHandoffForce', 'ForceWithoutNativeWait'],
 ];
 
 for (const [model, config, invariant] of models) {
