@@ -23,36 +23,139 @@ test('enables every type-aware rule supplied by the pinned linter', () => {
   expect(configuration.options.typeAware).toBe(true);
 });
 
-test('rejects explicit any types with a failing lint exit code', () => {
-  const directory = mkdtempSync(join('test', '.lint-policy-'));
+function lintFixture(contents: string, extension: 'ts' | 'mjs', configuration = 'compiler') {
+  const directory = mkdtempSync(join(configuration === 'repository' ? 'verification' : 'test', '.lint-policy-'));
   try {
-    const filename = join(directory, 'probe.ts');
-    writeFileSync(
-      filename,
-      'export type Escape = any;\nexport type Items = any[];\nexport const cast = 1 as any;\nexport function result(): any { return 1; }\n',
-    );
+    const filename = join(directory, `probe.${extension}`);
+    writeFileSync(filename, contents);
     const result = spawnSync(
       process.execPath,
-      ['node_modules/oxlint/bin/oxlint', '-c', 'oxlint.config.mjs', '--format', 'json', filename],
-      { encoding: 'utf8' },
+      configuration === 'compiler' || configuration === 'repository'
+        ? ['lint/typePolicy.ts', ...(configuration === 'repository' ? [] : [filename])]
+        : ['node_modules/oxlint/bin/oxlint', '-c', configuration, '--format', 'json', filename],
+      { encoding: 'utf8', timeout: 15000 },
     );
-    expect(result.error).toBeUndefined();
-    expect(result.status).toBe(1);
+    if (result.error) throw result.error;
     const report: unknown = JSON.parse(result.stdout);
     if (typeof report !== 'object' || report === null || !('diagnostics' in report) || !Array.isArray(report.diagnostics))
       throw new Error('Expected Oxlint diagnostics');
     const diagnostics: unknown[] = report.diagnostics;
-    const explicitTypes = diagnostics.filter(
-      (diagnostic) =>
-        typeof diagnostic === 'object' &&
-        diagnostic !== null &&
-        'code' in diagnostic &&
-        diagnostic.code === 'typescript(no-explicit-any)' &&
-        'severity' in diagnostic &&
-        diagnostic.severity === 'error',
-    );
-    expect(explicitTypes).toHaveLength(4);
+    return { status: result.status, diagnostics };
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+}
+
+function errorsFor(diagnostics: readonly unknown[], code: string) {
+  return diagnostics.filter(
+    (diagnostic) =>
+      typeof diagnostic === 'object' &&
+      diagnostic !== null &&
+      'code' in diagnostic &&
+      diagnostic.code === code &&
+      'severity' in diagnostic &&
+      diagnostic.severity === 'error',
+  );
+}
+
+test.each(['oxlint.config.mjs', 'compiler'])('rejects explicit any through %s', (configuration) => {
+  const result = lintFixture(
+    'export type Escape = any;\nexport type Items = any[];\nexport const cast = 1 as any;\nexport function result(): any { return 1; }\n',
+    'ts',
+    configuration,
+  );
+  expect(result.status).toBe(1);
+  expect(
+    errorsFor(result.diagnostics, configuration === 'compiler' ? 'type-policy(no-any)' : 'typescript(no-explicit-any)'),
+  ).toHaveLength(4);
+});
+
+test.each(['compiler'])('rejects literal and nested JSDoc escapes through %s', (configuration) => {
+  const result = lintFixture(
+    '/** @type {any} */ export const direct = 1;\n' +
+      '/** @type {*} */ export const wildcard = 1;\n' +
+      '/** @type {Promise<any>} */ export const nested = Promise.resolve(1);\n' +
+      '/** @type {Array<*>} */ export const nestedWildcard = [];\n',
+    'mjs',
+    configuration,
+  );
+  expect(result.status).toBe(1);
+  expect(errorsFor(result.diagnostics, 'type-policy(no-any)')).toHaveLength(4);
+});
+
+test('rejects inline, braceless and multi-star JSDoc annotations', () => {
+  const result = lintFixture(
+    [
+      '/** @param {string} name @returns {any} */ export function inline(name) { return name; }',
+      '/** @type {string} @type {any} */ export const repeated = 1;',
+      '/** @type any */ export const direct = 1;',
+      '/** @type Array<any> */ export const array = [];',
+      '/** @type * */ export const wildcard = 1;',
+      '/** @satisfies any */ export const checked = 1;',
+      '/*** @type {any} */ export const stars = 1;',
+    ].join('\n'),
+    'mjs',
+  );
+  expect(result.status).toBe(1);
+  expect(errorsFor(result.diagnostics, 'type-policy(no-any)')).toHaveLength(7);
+});
+
+test('checks ambient module import attributes with the same compiler grammar', () => {
+  const result = lintFixture('declare module "*.wire" with {type: "bytes"} { const bytes: any; export default bytes; }', 'ts');
+  expect(result.status).toBe(1);
+  expect(errorsFor(result.diagnostics, 'type-policy(no-any)')).toHaveLength(1);
+});
+
+test('the default policy scan includes verification scripts', () => {
+  const result = lintFixture('/** @type {any} */ export const value = 1;', 'mjs', 'repository');
+  expect(result.status).toBe(1);
+  expect(errorsFor(result.diagnostics, 'type-policy(no-any)')).toHaveLength(1);
+});
+
+test('rejects aliases, constraints, defaults and nested JSDoc signatures', () => {
+  const result = lintFixture(
+    [
+      '/** @type {unknown | any} */ export const union = 1;',
+      '/** @returns {Promise<*>} */ export function promise() { return Promise.resolve(1); }',
+      '/**\n * @typedef {object} Records\n * @property {Array<*>} values\n */',
+      '/** @typedef {{ payload: any }} Message */',
+      '/** @template {any} Value */',
+      '/** @template [Value=any] */',
+      '/** @satisfies {any} */ export const checked = 1;',
+      '/** @arg {*} value */ export function alias(value) { return value; }',
+      '/** @type {string extends string ? any : never} */ export const conditional = 1;',
+    ].join('\n'),
+    'mjs',
+  );
+  expect(result.status).toBe(1);
+  expect(errorsFor(result.diagnostics, 'type-policy(no-any)')).toHaveLength(9);
+});
+
+test('rejects compiler-recognized any nodes even in malformed annotations', () => {
+  const result = lintFixture(
+    '/** @template [Value=any */\nexport function generic(value) { return value; }\n/** @type {any */ export const brokenBrace = 1;\n',
+    'mjs',
+  );
+  expect(result.status).toBe(1);
+  expect(errorsFor(result.diagnostics, 'type-policy(no-any)')).toHaveLength(2);
+});
+
+test.each(['oxlint.config.mjs', 'compiler'])('accepts specific types and non-type any text through %s', (configuration) => {
+  const result = lintFixture(
+    [
+      '// English text may mention any value.',
+      "export const description = '/** @type {any} */';",
+      '/** @type {readonly string[]} */ export const names = [];',
+      '/** @type {{any: string; many: number}} */ export const fields = {any: "value", many: 1};',
+      '/** @type {"any"} */ export const literal = "any";',
+      '/** @type {Record<string, import("node:events").EventEmitter>} */ export const imported = {};',
+      '/** @template [Value=string] */',
+      '/** @example {any} is documentation, not a type annotation. */',
+      'export const signal = AbortSignal.any([]);',
+    ].join('\n'),
+    'mjs',
+    configuration,
+  );
+  expect(result.status).toBe(0);
+  expect(result.diagnostics).toEqual([]);
 });
