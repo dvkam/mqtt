@@ -14,19 +14,49 @@ export async function checkDeclarations(transport: PacketTransport) {
 }
 
 export async function checkTcpDeclarations(signal: AbortSignal) {
-  const tcp = createTcpClient({ host: '127.0.0.1', clientId: 'consumer', signal });
+  const tcp = createTcpClient({
+    host: '127.0.0.1',
+    clientId: 'consumer',
+    signal,
+    onMessage(packet) {
+      packet.payload.toString();
+    },
+  });
   const connected = await tcp.connect();
   await connected.ping();
   await connected.disconnect();
 }
 
 export async function checkWebSocketDeclarations(signal: AbortSignal) {
-  const factory = createWebSocketClient({ url: new URL('wss://localhost/mqtt'), clientId: 'consumer', signal });
+  const factory = createWebSocketClient({
+    url: new URL('wss://localhost/mqtt'),
+    clientId: 'consumer',
+    signal,
+    onMessage(packet) {
+      packet.payload.toString();
+    },
+  });
   const client = await factory.connect();
   await client.ping();
   await client.disconnect();
 }
-import { openBrowserTransport } from 'mqtt/browser';
+import { createBrowserClient, openBrowserTransport } from 'mqtt/browser';
+
+export async function checkBrowserClientDeclarations(signal: AbortSignal) {
+  const client = await createBrowserClient({
+    url: 'wss://localhost/mqtt',
+    clientId: 'consumer',
+    signal,
+    onMessage(message) {
+      const bytes: Uint8Array = message.payload;
+      bytes.byteLength.toFixed();
+    },
+  }).connect();
+  await client.subscribe('a');
+  await client.publish('a', 'hello');
+  await client.ping();
+  await client.disconnect();
+}
 import { encodePacket, PacketDecoder } from 'mqtt/codec';
 
 export function checkCodecDeclarations() {

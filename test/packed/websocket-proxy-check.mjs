@@ -38,7 +38,7 @@ proxy.listen(0, '127.0.0.1');
 await once(proxy, 'listening');
 try {
   const address = 'http://127.0.0.1:' + proxy.address().port;
-  /** @type {[entry: string, args: string[], env: NodeJS.ProcessEnv][]} */
+  /** @type {[entry: string, args: string[], env: NodeJS.ProcessEnv, sessions: number][]} */
   const cases = [
     [
       resolve(consumer, 'broker.mjs'),
@@ -48,6 +48,7 @@ try {
         MQTT_TEST_CA: ca,
         MQTT_TEST_PROXY: address,
       },
+      1,
     ],
     [
       resolve('test/packed/websocket-session-check.mjs'),
@@ -60,6 +61,7 @@ try {
         no_proxy: '',
         NODE_EXTRA_CA_CERTS: ca,
       },
+      2,
     ],
   ];
   if (process.env.MQTT_CHROMIUM_HOME) {
@@ -67,9 +69,10 @@ try {
       resolve('test/packed/websocket-session-check.mjs'),
       [consumer, 'wss://localhost:18887/mqtt', 'chromium'],
       { MQTT_CHROMIUM_PROXY: address },
+      2,
     ]);
   }
-  for (const [entry, args, env] of cases) {
+  for (const [entry, args, env, sessions] of cases) {
     const before = tunnels;
     const child = spawn(process.execPath, [entry, ...args], {
       stdio: 'inherit',
@@ -78,7 +81,7 @@ try {
     });
     const [status] = await once(child, 'exit');
     assert.equal(status, 0);
-    assert.equal(tunnels, before + 1, 'Expected this client to use the CONNECT proxy');
+    assert.equal(tunnels, before + sessions, 'Expected every session to use the CONNECT proxy');
   }
   console.log(cases.length + ' clients used the WSS CONNECT proxy');
 } finally {

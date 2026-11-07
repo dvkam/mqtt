@@ -1,8 +1,12 @@
 import { createConnection } from 'node:net';
-import { generate, parser } from 'mqtt-packet';
+import { generate, parser, type IPublishPacket } from 'mqtt-packet';
 import { connectPortable, type PacketTransport } from './portable.js';
 
-type TcpClientOptions = Parameters<typeof connectPortable>[1] & { host: string; port?: number; signal?: AbortSignal };
+type TcpClientOptions = Parameters<typeof connectPortable<IPublishPacket>>[1] & {
+  host: string;
+  port?: number;
+  signal?: AbortSignal;
+};
 
 export function createTcpClient(options: TcpClientOptions) {
   let connection: ReturnType<typeof connectPortable> | undefined;

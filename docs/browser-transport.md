@@ -22,7 +22,7 @@ const transport = await openBrowserTransport('wss://broker.example/mqtt', {
 transport.send(encodePacket({ cmd: 'connect', clientId: 'example' }));
 ```
 
-The example sends CONNECT. A session must accept CONNACK before publishing or subscribing and match later acknowledgments. Call `transport.close()` when the session ends. The codec preview profile is documented in docs/codec.md. The browser client API remains under #37 and #8.
+The example sends CONNECT. A session must accept CONNACK before publishing or subscribing and match later acknowledgments. Call `transport.close()` when the session ends. The codec preview profile is documented in docs/codec.md. The public client preview in docs/browser-client.md owns these session operations.
 
 `send` checks the native `bufferedAmount` plus the new message against the budget, then calls native `send`. A successful call means local queue admission. The budget excludes browser framing, receive buffers, kernel buffers and application allocations.
 

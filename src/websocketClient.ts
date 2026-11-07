@@ -1,10 +1,10 @@
-import { generate, parser } from 'mqtt-packet';
+import { generate, parser, type IPublishPacket } from 'mqtt-packet';
 import type { Agent } from 'node:http';
 import type { SecureContextOptions } from 'node:tls';
 import WebSocket from 'ws';
 import { connectPortable, type PacketTransport } from './portable.js';
 
-type WebSocketClientOptions = Parameters<typeof connectPortable>[1] &
+type WebSocketClientOptions = Parameters<typeof connectPortable<IPublishPacket>>[1] &
   Pick<SecureContextOptions, 'ca' | 'cert' | 'key'> & {
     url: string | URL;
     agent?: Agent;

@@ -10,7 +10,7 @@ const connectBytes = encodePacket({ cmd: 'connect', clientId: 'example' });
 const packets = decoder.push(Uint8Array.of(0x20, 3, 0, 0, 0));
 ```
 
-Send encoded bytes through `openBrowserTransport` and feed its `onBytes` values to the decoder. The packed integration test follows this path against Mosquitto in Node and Chromium. A session still owns acknowledgment ordering, legal packet phases, negotiated limits and reconnect behavior.
+Send encoded bytes through `openBrowserTransport` and feed its `onBytes` values to the decoder. The packed integration test follows this path against Mosquitto in Node and Chromium. The public `createBrowserClient` preview also combines this codec with the existing session lifecycle. A session owns acknowledgment ordering, legal packet phases, negotiated limits and reconnect behavior.
 
 ## Supported profile
 
@@ -53,6 +53,6 @@ These are medians of three runs. Allocation samples include measurement overhead
 
 Encoding is slower and allocates more in this workload. Decoding is faster with fewer sampled bytes. This corpus does not establish a general performance advantage. The raw runs are in docs/baseline/codec-results.jsonl.
 
-The upstream mqtt-packet release checked for this work is v9.0.2. The v10 roadmap remains relevant to a later comparison with a published or pinned implementation. Profile expansion, broader differential cases, randomized wire inputs, session integration and package extraction remain in #37.
+The upstream mqtt-packet release checked for this work is v9.0.2. The v10 roadmap remains relevant to a later comparison with a published or pinned implementation. Profile expansion, broader differential cases, randomized wire inputs and package extraction remain in #37. The packed client-and-codec test harness reports its browser bundle size in CI.
 
 The wire rules come from MQTT 5 sections 1.5, 2.1, 2.2 and 3.1 through 3.14. [MQTT 5 specification](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html) · [Upstream codec roadmap](https://github.com/mqttjs/mqtt-packet/issues/159)

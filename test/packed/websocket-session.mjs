@@ -1,5 +1,31 @@
-import { openBrowserTransport } from 'mqtt/browser';
+import { openBrowserTransport, createBrowserClient } from 'mqtt/browser';
 import { encodePacket, PacketDecoder } from 'mqtt/codec';
+
+export async function mqttClientSession(url) {
+  let receive;
+  let timer;
+  const client = await createBrowserClient({
+    url,
+    clientId: 'browser-client-ci',
+    onMessage(packet) {
+      receive?.({ topic: packet.topic, payload: Array.from(packet.payload) });
+    },
+  }).connect();
+  try {
+    await client.subscribe('ci/browser-client');
+    const reply = new Promise((resolve, reject) => {
+      receive = resolve;
+      timer = setTimeout(() => reject(new Error('Browser client echo timed out')), 3000);
+    });
+    const [, message] = await Promise.all([client.publish('ci/browser-client', 'hello'), reply]);
+    await client.ping();
+    await client.disconnect();
+    return message;
+  } finally {
+    clearTimeout(timer);
+    await client.disconnect();
+  }
+}
 
 export async function mqttSession(url, packets) {
   const decoder = new PacketDecoder();
