@@ -84,8 +84,14 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
       }
     },
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
-    onClose(reason) {
-      failure ??= reason;
+    onClose(reason, kind) {
+      let terminalReason = reason;
+      try {
+        decoder.finish();
+      } catch (error) {
+        if (kind === 'remote') terminalReason = error instanceof Error ? error : new Error('MQTT decoder completion failed');
+      }
+      failure ??= terminalReason;
       failed?.(failure);
     },
   });

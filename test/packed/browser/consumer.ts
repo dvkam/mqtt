@@ -1,6 +1,6 @@
-import { createBrowserClient } from 'mqtt/browser';
+import { createBrowserClient, openBrowserTransport } from 'mqtt/browser';
 import { PacketDecoder } from 'mqtt/codec';
-import type { BrowserClientOptions, BrowserSession, ClientFactory, ClientSession } from 'mqtt/browser';
+import type { BrowserClientOptions, BrowserCloseKind, BrowserSession, ClientFactory, ClientSession } from 'mqtt/browser';
 
 type RequireTrue<Value extends true> = Value;
 type RequireFalse<Value extends false> = Value;
@@ -24,6 +24,16 @@ const options: BrowserClientOptions = {
   },
 };
 export const factory: ClientFactory = createBrowserClient(options);
+
+export async function checkTransportCloseKind() {
+  return openBrowserTransport('wss://localhost/mqtt', {
+    onBytes() {},
+    onClose(_reason: Readonly<Error>, kind) {
+      const closeKind: BrowserCloseKind = kind;
+      if (closeKind === 'remote') return;
+    },
+  });
+}
 
 export function checkDecoderCompletion() {
   const decoder = new PacketDecoder();
