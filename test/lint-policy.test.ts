@@ -1,4 +1,6 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test } from 'vitest';
 import configuration from '../oxlint.config.mjs';
 
@@ -19,4 +21,38 @@ test('enables every type-aware rule supplied by the pinned linter', () => {
   }
   expect(typeAwareCount).toBeGreaterThan(0);
   expect(configuration.options.typeAware).toBe(true);
+});
+
+test('rejects explicit any types with a failing lint exit code', () => {
+  const directory = mkdtempSync(join('test', '.lint-policy-'));
+  try {
+    const filename = join(directory, 'probe.ts');
+    writeFileSync(
+      filename,
+      'export type Escape = any;\nexport type Items = any[];\nexport const cast = 1 as any;\nexport function result(): any { return 1; }\n',
+    );
+    const result = spawnSync(
+      process.execPath,
+      ['node_modules/oxlint/bin/oxlint', '-c', 'oxlint.config.mjs', '--format', 'json', filename],
+      { encoding: 'utf8' },
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    const report: unknown = JSON.parse(result.stdout);
+    if (typeof report !== 'object' || report === null || !('diagnostics' in report) || !Array.isArray(report.diagnostics))
+      throw new Error('Expected Oxlint diagnostics');
+    const diagnostics: unknown[] = report.diagnostics;
+    const explicitTypes = diagnostics.filter(
+      (diagnostic) =>
+        typeof diagnostic === 'object' &&
+        diagnostic !== null &&
+        'code' in diagnostic &&
+        diagnostic.code === 'typescript(no-explicit-any)' &&
+        'severity' in diagnostic &&
+        diagnostic.severity === 'error',
+    );
+    expect(explicitTypes).toHaveLength(4);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
