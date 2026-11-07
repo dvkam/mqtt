@@ -100,6 +100,21 @@ test('rejects inline, braceless and multi-star JSDoc annotations', () => {
   expect(errorsFor(result.diagnostics, 'type-policy(no-any)')).toHaveLength(7);
 });
 
+test('rejects JSDoc question-mark any without rejecting nullable specific types', () => {
+  const rejected = lintFixture(
+    '/** @type {?} */ export const direct = 1;\n/** @type {Array<?>} */ export const nested = [];',
+    'mjs',
+  );
+  expect(rejected.status).toBe(1);
+  expect(errorsFor(rejected.diagnostics, 'type-policy(no-any)')).toHaveLength(2);
+  const accepted = lintFixture(
+    '/** @type {?string} */ export const nullable = null;\n/** @type {unknown} */ export const value = 1;',
+    'mjs',
+  );
+  expect(accepted.status).toBe(0);
+  expect(accepted.diagnostics).toEqual([]);
+});
+
 test('checks ambient module import attributes with the same compiler grammar', () => {
   const result = lintFixture('declare module "*.wire" with {type: "bytes"} { const bytes: any; export default bytes; }', 'ts');
   expect(result.status).toBe(1);

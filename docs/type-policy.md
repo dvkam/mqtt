@@ -4,7 +4,7 @@
 
 The default scan includes tracked TypeScript and JavaScript files and new files that Git does not ignore. It covers source, tests, samples, tooling, verification scripts and code in hidden directories. Installed dependencies and generated `dist` and `.type-fixtures` output are excluded. Deleted files are skipped. Development and CI need Git available.
 
-The check rejects TypeScript AnyKeyword and JSDoc wildcard nodes. It visits attached JSDoc as well as ordinary syntax children, with each node visited once. This covers nested types, inline tags, braceless annotations, multi-star comments, aliases, template constraints/defaults and ambient module import attributes. Each diagnostic includes its file, line and column, and any finding causes exit code 1.
+The check rejects TypeScript AnyKeyword and JSDoc wildcard nodes, including the bare question-mark spelling that TypeScript treats as any. Specific nullable types such as `?string` remain accepted. It visits attached JSDoc as well as ordinary syntax children, with each node visited once. This covers nested types, inline tags, braceless annotations, multi-star comments, aliases, template constraints/defaults and ambient module import attributes. Each diagnostic includes its file, line and column, and any finding causes exit code 1.
 
 Quoted string types, object property names, prose, examples and string contents do not become any-type nodes. Syntax validity remains the compiler's responsibility. The policy can reject any nodes recovered from a malformed annotation, but it is not a separate JSDoc validity checker.
 

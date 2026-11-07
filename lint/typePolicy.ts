@@ -12,12 +12,15 @@ if (
   !('AnyKeyword' in kinds) ||
   typeof kinds.AnyKeyword !== 'number' ||
   !('JSDocAllType' in kinds) ||
-  typeof kinds.JSDocAllType !== 'number'
+  typeof kinds.JSDocAllType !== 'number' ||
+  !('JSDocNullableType' in kinds) ||
+  typeof kinds.JSDocNullableType !== 'number'
 )
   throw new Error('The pinned TypeScript AST API does not expose the required syntax kinds');
 
 const anyKeyword = kinds.AnyKeyword;
 const wildcard = kinds.JSDocAllType;
+const nullable = kinds.JSDocNullableType;
 const requested = process.argv.slice(2);
 const filenames = (
   requested.length > 0
@@ -47,7 +50,8 @@ try {
         if (!node || seen.has(node)) continue;
         seen.add(node);
         const kind: unknown = node.kind;
-        if (kind === anyKeyword || kind === wildcard) {
+        // Bare JSDoc ? means any; ?string is a specific nullable type.
+        if (kind === anyKeyword || kind === wildcard || (kind === nullable && node.getText(source).trim() === '?')) {
           const position = source.getLineAndCharacterOfPosition(node.getStart(source));
           diagnostics.push({
             filename,
