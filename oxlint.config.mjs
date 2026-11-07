@@ -4,7 +4,7 @@ export default defineConfig({
   options: { typeAware: true },
   plugins: ['typescript', 'vitest'],
   categories: { correctness: 'error' },
-  ignorePatterns: ['dist/**', 'test/test_*.js', 'test/util/**', 'test/types/attributes.d.ts'],
+  ignorePatterns: ['dist/**', 'test/types/attributes.d.ts'],
   rules: {
     'typescript/no-explicit-any': 'error',
     'typescript/ban-ts-comment': [
