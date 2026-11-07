@@ -2,10 +2,20 @@ import { defineConfig } from 'oxlint';
 
 export default defineConfig({
   options: { typeAware: true },
-  plugins: ['typescript'],
+  plugins: ['typescript', 'vitest'],
   categories: { correctness: 'error' },
   ignorePatterns: ['dist/**', 'test/test_*.js', 'test/util/**', 'test/types/attributes.d.ts'],
   rules: {
+    'typescript/ban-ts-comment': [
+      'error',
+      {
+        'ts-ignore': true,
+        'ts-nocheck': true,
+        'ts-check': false,
+        'ts-expect-error': 'allow-with-description',
+        minimumDescriptionLength: 10,
+      },
+    ],
     'no-unused-expressions': ['error', { allowTernary: true }],
     'typescript/await-thenable': 'error',
     'typescript/consistent-return': 'error',

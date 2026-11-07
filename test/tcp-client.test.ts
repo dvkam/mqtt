@@ -140,7 +140,9 @@ test('aborts while waiting for CONNACK and removes the signal listener', async (
     const closed = once(peer.events, 'peer-close');
     const connecting = createTcpClient({ ...peer.options, signal: controller.signal }).connect();
     const reason = new Error('caller cancelled the handshake');
-    const rejected = expect(connecting).rejects.toBe(reason);
+    const rejected = (async () => {
+      await expect(connecting).rejects.toBe(reason);
+    })();
     await request;
     controller.abort(reason);
     await rejected;
@@ -161,7 +163,9 @@ test('disconnects once and rejects an outstanding SUBSCRIBE', async () => {
     controller.abort();
     const request = once(peer.events, 'subscribe');
     const subscribed = client.subscribe('tcp/teardown');
-    const rejected = expect(subscribed).rejects.toThrow('Client disconnected');
+    const rejected = (async () => {
+      await expect(subscribed).rejects.toThrow('Client disconnected');
+    })();
     await request;
     const closed = once(peer.events, 'peer-close');
     const closing = client.disconnect();
@@ -203,7 +207,9 @@ test('closes TCP and rejects pending work when a message callback throws', async
     }).connect();
     const request = once(peer.events, 'subscribe');
     const pending = client.subscribe('tcp/observer');
-    const rejected = expect(pending).rejects.toBe(reason);
+    const rejected = (async () => {
+      await expect(pending).rejects.toBe(reason);
+    })();
     const requestArguments: unknown[] = await request;
     const [socket] = requestArguments;
     if (!(socket instanceof Socket)) throw new Error('Expected TCP socket');

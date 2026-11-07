@@ -93,7 +93,9 @@ test('active abort settles a pending browser ping and rejects later writes', asy
     const client = await createBrowserClient({ url: broker.url, clientId: 'abort', signal: controller.signal }).connect();
     const pending = client.ping();
     const reason = new Error('cancel browser session');
-    const result = expect(pending).rejects.toBe(reason);
+    const result = (async () => {
+      await expect(pending).rejects.toBe(reason);
+    })();
     controller.abort(reason);
     await result;
     await expect(client.publish('a', 'late')).rejects.toBe(reason);

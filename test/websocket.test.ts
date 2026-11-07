@@ -105,7 +105,9 @@ test('cancels an in-flight handshake and removes its open listener before a late
   vi.stubGlobal('WebSocket', TestSocket);
   try {
     const opening = openMqttWebSocket('ws://127.0.0.1', { signal: controller.signal });
-    const result = expect(opening).rejects.toBe(reason);
+    const result = (async () => {
+      await expect(opening).rejects.toBe(reason);
+    })();
     controller.abort(reason);
     const socket = TestSocket.instance;
     await result;
@@ -125,7 +127,9 @@ test('times out a stalled opening and leaves no handshake listeners', async () =
   vi.useFakeTimers();
   try {
     const opening = openMqttWebSocket('ws://127.0.0.1', { timeoutMs: 50 });
-    const result = expect(opening).rejects.toThrow('handshake timed out');
+    const result = (async () => {
+      await expect(opening).rejects.toThrow('handshake timed out');
+    })();
     await vi.advanceTimersByTimeAsync(50);
     await result;
     expect(TestSocket.instance.closeCalls).toBe(1);

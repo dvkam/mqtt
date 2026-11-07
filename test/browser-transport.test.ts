@@ -56,8 +56,8 @@ class Socket extends EventTarget {
   readyState = 1;
   binaryType = 'blob';
   bufferedAmount = 0;
-  send = vi.fn();
-  close = vi.fn(() => {
+  send = vi.fn<(data: unknown) => void>();
+  close = vi.fn<() => void>(() => {
     this.readyState = 2;
   });
   constructor() {
@@ -83,7 +83,9 @@ test('a throwing close observer rejects the close promise after native completio
   expect(() => {
     closing = transport.close();
   }).not.toThrow();
-  const result = expect(closing).rejects.toBe(reason);
+  const result = (async () => {
+    await expect(closing).rejects.toBe(reason);
+  })();
   Socket.instance.readyState = Socket.CLOSED;
   Socket.instance.dispatchEvent(new Event('close'));
   await result;
@@ -197,7 +199,9 @@ test('close is idempotent and reports a stalled native close at its deadline', a
   });
   vi.useFakeTimers();
   const closing = transport.close();
-  const result = expect(closing).rejects.toThrow('close timed out');
+  const result = (async () => {
+    await expect(closing).rejects.toThrow('close timed out');
+  })();
   expect(transport.close()).toBe(closing);
   await vi.advanceTimersByTimeAsync(50);
   await result;
