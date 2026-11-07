@@ -1,6 +1,6 @@
-import { Duplex } from 'stream';
-import { WebSocketOptions } from './webSocketOptions.js';
-import { URL } from 'url';
+import type { Duplex } from 'stream';
+import type { WebSocketOptions } from './webSocketOptions.js';
+import type { URL } from 'url';
 
 export interface WebSocketStream extends Duplex {
   setReadable?: any;

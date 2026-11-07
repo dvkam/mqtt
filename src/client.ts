@@ -1,16 +1,16 @@
 import {
-  IConnackPacket,
-  IConnectPacket,
-  IDisconnectPacket,
-  IPublishPacket,
-  Packet,
+  type IConnackPacket,
+  type IConnectPacket,
+  type IDisconnectPacket,
+  type IPublishPacket,
+  type Packet,
   parser as mqttParser,
-  Parser as MqttParser,
+  type Parser as MqttParser,
 } from 'mqtt-packet';
 import { write } from './write.js';
-import { ConnectOptions } from './interface/connectOptions.js';
-import { Duplex } from 'node:stream';
-import { Socket } from 'node:net';
+import type { ConnectOptions } from './interface/connectOptions.js';
+import type { Duplex } from 'node:stream';
+import type { Socket } from 'node:net';
 import { EventEmitter } from 'node:events';
 import { connectionFactory } from './connectionFactory/index.js';
 import { defaultConnectOptions } from './util/constants.js';

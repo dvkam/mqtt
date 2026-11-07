@@ -1,7 +1,7 @@
-import { QoS, UserProperties } from 'mqtt-packet';
-import { Duplex } from 'stream';
-import { TlsOptions } from 'tls';
-import { WsOptions } from './wsOptions.js';
+import type { QoS, UserProperties } from 'mqtt-packet';
+import type { Duplex } from 'stream';
+import type { TlsOptions } from 'tls';
+import type { WsOptions } from './wsOptions.js';
 
 export interface ConnectOptions {
   objectMode?: any;
