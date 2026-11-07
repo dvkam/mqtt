@@ -27,12 +27,15 @@ interface BrowserClientOptions {
   timeoutMs?: number;
   maxBufferedBytes?: number;
   maxPacketBytes?: number;
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
   onMessage?: (message: BrowserMessage) => void;
 }
 
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
 export function createBrowserClient(options: BrowserClientOptions): { connect(): Promise<BrowserSession> } {
   let connection: Promise<BrowserSession> | undefined;
   return {
+    // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
     connect() {
       connection ??= openClient(options);
       return connection;
@@ -40,15 +43,18 @@ export function createBrowserClient(options: BrowserClientOptions): { connect():
   };
 }
 
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
 async function openClient(options: BrowserClientOptions): Promise<BrowserSession> {
   const decoder = new PacketDecoder({ maxPacketBytes: options.maxPacketBytes });
   let deliver: Parameters<PacketTransport<BrowserMessage>['listen']>[0] | undefined;
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
   let failed: ((reason: Error) => void) | undefined;
   let failure: Error | undefined;
   const bytes = await openBrowserTransport(options.url, {
     signal: options.signal,
     timeoutMs: options.timeoutMs,
     maxBufferedBytes: options.maxBufferedBytes,
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
     onBytes(chunk) {
       for (const packet of decoder.push(chunk)) {
         switch (packet.cmd) {
@@ -72,17 +78,23 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
               userProperties: packet.userProperties,
             });
             break;
+          case 'connect':
+          case 'disconnect':
+          case 'pingreq':
+          case 'subscribe':
           default:
             throw new Error('Unexpected MQTT packet from broker: ' + packet.cmd);
         }
       }
     },
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
     onClose(reason) {
       failure ??= reason;
       failed?.(failure);
     },
   });
   const transport: PacketTransport<BrowserMessage> = {
+    // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- Encoding and admission failures must reject through the packet transport's promise API. The browser adapter preserves native signals and mutable packet payloads.
     async send(packet) {
       let encoded: WirePacket;
       switch (packet.cmd) {
@@ -98,7 +110,11 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
           break;
         case 'subscribe':
           if (packet.messageId === undefined) throw new Error('SUBSCRIBE requires a packet identifier');
-          encoded = { cmd: 'subscribe', messageId: packet.messageId, topics: packet.subscriptions.map(({ topic }) => topic) };
+          encoded = {
+            cmd: 'subscribe',
+            messageId: packet.messageId,
+            topics: packet.subscriptions.map(({ topic }: Readonly<{ topic: string }>) => topic),
+          };
           break;
         case 'publish':
           encoded = {
@@ -112,6 +128,16 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
         case 'disconnect':
           encoded = { cmd: packet.cmd };
           break;
+        case 'auth':
+        case 'connack':
+        case 'pingresp':
+        case 'puback':
+        case 'pubcomp':
+        case 'pubrec':
+        case 'pubrel':
+        case 'suback':
+        case 'unsuback':
+        case 'unsubscribe':
         default:
           throw new Error('Unsupported browser client operation');
       }
@@ -128,7 +154,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
     },
     async close(force) {
       const closing = bytes.close();
-      if (force) {
+      if (force === true) {
         // Local retirement has already reported the operation's terminal reason.
         void closing.catch(() => {});
         return;
@@ -142,7 +168,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
     timeoutMs: options.timeoutMs,
     onMessage: options.onMessage,
   });
-  if (options.signal?.aborted) {
+  if (options.signal?.aborted === true) {
     await transport.close(true);
     throw failure ?? new Error('MQTT WebSocket aborted');
   }

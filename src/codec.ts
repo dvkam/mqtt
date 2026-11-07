@@ -30,7 +30,7 @@ const connackCodes = new Set([
   0, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 140, 144, 149, 151, 153, 154, 155, 156, 157, 159,
 ]);
 const subackCodes = new Set([0, 1, 2, 128, 131, 135, 143, 145, 151, 158, 161, 162]);
-const packetFields: Record<WirePacket['cmd'], readonly string[]> = {
+const packetFields: Partial<Record<string, readonly string[]>> = {
   connect: ['cmd', 'clientId', 'cleanStart', 'keepAlive', 'username', 'password', 'userProperties'],
   connack: ['cmd', 'sessionPresent', 'reasonCode', 'receiveMaximum', 'topicAliasMaximum', 'userProperties'],
   publish: ['cmd', 'topic', 'payload', 'retain', 'userProperties'],
@@ -62,7 +62,9 @@ function variable(value: number): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(bytes);
 }
 
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
 function join(parts: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
   const result = new Uint8Array(parts.reduce((size, part) => size + part.byteLength, 0));
   let offset = 0;
   for (const part of parts) {
@@ -83,14 +85,17 @@ function topic(value: string, filter: boolean): void {
   if (!value || (!filter && /[+#]/u.test(value))) throw new Error('Invalid MQTT topic');
   if (
     filter &&
-    value.split('/').some((level, index, levels) => {
+    value.split('/').some((level: string, index: number, levels: readonly string[]) => {
       return (level.includes('#') && (level !== '#' || index !== levels.length - 1)) || (level.includes('+') && level !== '+');
     })
   )
     throw new Error('Invalid MQTT topic filter');
 }
 
-function properties(packet: Exclude<WirePacket, { cmd: 'pingreq' | 'pingresp' | 'disconnect' }>): Uint8Array<ArrayBuffer> {
+function properties(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
+  packet: Readonly<Exclude<WirePacket, { cmd: 'pingreq' | 'pingresp' | 'disconnect' }>>,
+): Uint8Array<ArrayBuffer> {
   const parts: Uint8Array[] = [];
   for (const [key, value] of packet.userProperties ?? []) parts.push(Uint8Array.of(0x26), utf8(key), utf8(value));
   if (packet.cmd === 'connack') {
@@ -103,7 +108,8 @@ function properties(packet: Exclude<WirePacket, { cmd: 'pingreq' | 'pingresp' | 
 }
 
 /** MQTT 5 preview profile. Unsupported packet forms and properties are rejected. */
-export function encodePacket(packet: WirePacket): Uint8Array<ArrayBuffer> {
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
+export function encodePacket(packet: Readonly<WirePacket>): Uint8Array<ArrayBuffer> {
   const fields = packetFields[packet.cmd];
   if (!fields || Object.keys(packet).some((field) => !fields.includes(field))) {
     throw new Error('Unsupported MQTT encoder field or packet');
@@ -137,7 +143,7 @@ export function encodePacket(packet: WirePacket): Uint8Array<ArrayBuffer> {
       break;
     case 'publish':
       topic(packet.topic, false);
-      header = 0x30 | (packet.retain ? 1 : 0);
+      header = 0x30 | (packet.retain === true ? 1 : 0);
       body = join([utf8(packet.topic), properties(packet), packet.payload]);
       break;
     case 'subscribe':
@@ -172,7 +178,8 @@ export function encodePacket(packet: WirePacket): Uint8Array<ArrayBuffer> {
 class Reader {
   private readonly bytes: Uint8Array;
   offset = 0;
-  constructor(bytes: Uint8Array) {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
+  constructor(bytes: Readonly<Uint8Array>) {
     this.bytes = bytes;
   }
   get remaining(): number {
@@ -218,7 +225,7 @@ interface DecodedProperties extends Properties {
   reasonString?: string;
 }
 
-function readProperties(reader: Reader, cmd: string): DecodedProperties {
+function readProperties(reader: Readonly<Reader>, cmd: string): DecodedProperties {
   const fields = new Reader(reader.take(reader.variable()));
   const result: DecodedProperties = {};
   const userProperties: UserProperty[] = [];
@@ -254,7 +261,8 @@ function validateHeader(header: number): void {
   }
 }
 
-function decodeFrame(frame: Uint8Array): WirePacket {
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
+function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
   const reader = new Reader(frame);
   const header = reader.byte();
   reader.variable();
@@ -333,10 +341,11 @@ export class PacketDecoder {
   private frame: Uint8Array<ArrayBuffer> | undefined;
   private offset = 0;
   private failure: Error | undefined;
-  constructor({ maxPacketBytes = 1024 * 1024 }: { maxPacketBytes?: number } = {}) {
+  constructor({ maxPacketBytes = 1024 * 1024 }: Readonly<{ maxPacketBytes?: number }> = {}) {
     this.maxPacketBytes = integer(maxPacketBytes, 268_435_460, 2);
   }
-  push(bytes: Uint8Array): WirePacket[] {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
+  push(bytes: Readonly<Uint8Array>): WirePacket[] {
     if (this.failure) throw this.failure;
     const packets: WirePacket[] = [];
     let index = 0;

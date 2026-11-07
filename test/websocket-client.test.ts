@@ -8,14 +8,17 @@ async function peer(earlyPublish = false) {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
   const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('Expected a TCP address');
+  if (address === null || typeof address === 'string') throw new Error('Expected a TCP address');
   const packets: Packet[] = [];
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
   server.on('connection', (socket) => {
     const codec = { protocolVersion: 5 };
     const decoder = parser(codec);
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
     socket.on('message', (data) => {
       if (Buffer.isBuffer(data)) decoder.parse(data);
     });
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
     decoder.on('packet', (packet) => {
       packets.push(packet);
       if (packet.cmd === 'connect') {
@@ -44,7 +47,11 @@ async function peer(earlyPublish = false) {
     packets,
     async close() {
       for (const socket of server.clients) socket.terminate();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await new Promise<void>((resolve) => {
+        server.close(() => {
+          resolve();
+        });
+      });
     },
   };
 }
@@ -55,6 +62,7 @@ test('rejects a packet above the write budget without sending it and can still d
     const client = await createWebSocketClient({ url: broker.url, clientId: 'budget', maxBufferedBytes: 128 }).connect();
     await expect(client.publish('budget', 'x'.repeat(256))).rejects.toThrow('WebSocket write budget exceeded');
     await client.disconnect();
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
     expect(broker.packets.map(({ cmd }) => cmd)).toEqual(['connect', 'disconnect']);
   } finally {
     await broker.close();
@@ -67,6 +75,7 @@ test('settles a pending operation and refuses later sends when the WebSocket clo
     const client = await createWebSocketClient({ url: broker.url, clientId: 'peer-close' }).connect();
     await expect(client.subscribe('close')).rejects.toThrow('MQTT WebSocket closed');
     await expect(client.publish('close', 'late')).rejects.toThrow('MQTT WebSocket closed');
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
     expect(broker.packets.map(({ cmd }) => cmd)).toEqual(['connect', 'subscribe']);
   } finally {
     await broker.close();
@@ -80,7 +89,10 @@ test('does not deliver application messages before MQTT connection acceptance', 
     const client = await createWebSocketClient({
       url: broker.url,
       clientId: 'early',
-      onMessage: (packet) => delivered.push(packet),
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+      onMessage: (packet) => {
+        delivered.push(packet);
+      },
     }).connect();
     await client.disconnect();
     expect(delivered).toEqual([]);
@@ -93,7 +105,8 @@ test('terminates an unresponsive peer when the local close deadline expires', as
   const broker = await peer();
   try {
     const client = await createWebSocketClient({ url: broker.url, clientId: 'local-close', timeoutMs: 250 }).connect();
-    const socket = [...broker.server.clients][0]!;
+    const socket = [...broker.server.clients][0];
+    if (socket === undefined) throw new Error('Expected connected socket');
     socket.pause();
     const start = performance.now();
     const closing = client.disconnect();

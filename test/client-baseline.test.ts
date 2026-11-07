@@ -4,6 +4,7 @@ import { generate, parser, type Packet } from 'mqtt-packet';
 import { expect, test, vi } from 'vitest';
 import { connect } from '../src/index.js';
 
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
 function peer(version: 4 | 5, reply?: Packet) {
   const packets: Packet[] = [];
   let blocked = false;
@@ -13,7 +14,9 @@ function peer(version: 4 | 5, reply?: Packet) {
     read() {},
     write(chunk, _encoding, callback) {
       if (blocked) return;
-      decoder.parse(chunk);
+      const bytes: unknown = chunk;
+      if (!Buffer.isBuffer(bytes)) throw new Error('Expected byte chunk');
+      decoder.parse(bytes);
       callback();
     },
     final(callback) {
@@ -21,6 +24,7 @@ function peer(version: 4 | 5, reply?: Packet) {
       callback();
     },
   });
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
   decoder.on('packet', (packet: Packet) => {
     packets.push(packet);
     if (packet.cmd === 'connect' && reply) stream.push(generate(reply, { protocolVersion: version }));
@@ -47,6 +51,7 @@ test.each([4, 5] as const)('writes one CONNECT, a QoS 0 publish, and DISCONNECT 
     await client.disconnect();
     await finished;
 
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
     expect(packets.map(({ cmd }) => cmd)).toEqual(['connect', 'publish', 'disconnect']);
     expect(packets[1]).toMatchObject({ qos: 0, topic: 'baseline/topic', payload: Buffer.from('hello') });
     expect(packets[1]).not.toHaveProperty('messageId');
@@ -93,7 +98,8 @@ test('never serializes CONNECT credentials or PUBLISH payloads for logging', asy
     await client.publish({ topic: 'baseline/topic', payload: 'test-payload' });
     await client.disconnect();
     const serializedPackets = stringify.mock.calls
-      .map(([value]) => value)
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+      .map(([value]): unknown => value)
       .filter((value) => typeof value === 'object' && value !== null && 'cmd' in value);
     expect(serializedPackets).toEqual([]);
   } finally {

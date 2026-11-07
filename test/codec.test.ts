@@ -1,4 +1,4 @@
-import { generate, parser } from 'mqtt-packet';
+import { generate, parser, type Packet } from 'mqtt-packet';
 import { expect, test } from 'vitest';
 import { encodePacket, PacketDecoder, type WirePacket } from '../src/codec.js';
 
@@ -13,16 +13,18 @@ const vectors: [WirePacket, number[]][] = [
   [{ cmd: 'disconnect' }, [0xe0, 0]],
 ];
 
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
 test.each(vectors)('encodes independent MQTT 5 vector %j', (packet, bytes) => {
   expect(Array.from(encodePacket(packet))).toEqual(bytes);
 });
 
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
 test.each(vectors)('decodes every split of the independent vector %j', (packet, bytes) => {
   for (let split = 0; split <= bytes.length; split++) {
     const decoder = new PacketDecoder();
     const decoded = [...decoder.push(Uint8Array.from(bytes.slice(0, split))), ...decoder.push(Uint8Array.from(bytes.slice(split)))];
     expect(decoded).toHaveLength(1);
-    expect(Array.from(encodePacket(decoded[0]!))).toEqual(bytes);
+    expect(Array.from(encodePacket(requiredPacket(decoded[0])))).toEqual(bytes);
     expect(decoded[0]?.cmd).toBe(packet.cmd);
   }
 });
@@ -82,7 +84,7 @@ test.each([
   [0x20, 3, 1, 0x80, 0],
   [0x90, 4, 0, 0, 0, 0],
   [0x90, 4, 0, 1, 0, 3],
-])('rejects malformed wire vector %j', (...bytes) => {
+])('rejects malformed wire vector %j', (...bytes: readonly number[]) => {
   expect(() => new PacketDecoder().push(Uint8Array.from(bytes))).toThrow();
 });
 
@@ -105,12 +107,15 @@ test('rejects invalid identifiers, topics, budgets and unsupported packet profil
 
 test('matches pinned mqtt-packet for the MQTT 5 preview operations', () => {
   for (const [packet, bytes] of vectors) {
-    const decoded: { cmd: string }[] = [];
+    const decoded: Packet[] = [];
     const decoder = parser({ protocolVersion: 5 });
-    decoder.on('packet', (value) => decoded.push(value));
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+    decoder.on('packet', (value) => {
+      decoded.push(value);
+    });
     decoder.parse(Buffer.from(bytes));
     expect(decoded[0]?.cmd).toBe(packet.cmd);
-    const upstream = generate(decoded[0] as Parameters<typeof generate>[0], { protocolVersion: 5 });
+    const upstream = generate(requiredPacket(decoded[0]), { protocolVersion: 5 });
     if (packet.cmd === 'disconnect') {
       expect(Array.from(upstream)).toEqual([0xe0, 2, 0, 0]);
       expect(new PacketDecoder().push(upstream)).toEqual([packet]);
@@ -129,7 +134,7 @@ test.each([
   [0xe0, 0],
   [0xe0, 1, 0],
   [0xe0, 2, 0, 0],
-])('accepts the legal normal DISCONNECT abbreviation %j', (...bytes) => {
+])('accepts the legal normal DISCONNECT abbreviation %j', (...bytes: readonly number[]) => {
   expect(new PacketDecoder().push(Uint8Array.from(bytes))).toEqual([{ cmd: 'disconnect' }]);
 });
 
@@ -151,3 +156,8 @@ test.each(['$share//a', '$share/g', '$share/g/', '$share/+/a', '$share/g/a'])(
     expect(() => new PacketDecoder().push(wire)).toThrow('Unsupported');
   },
 );
+
+function requiredPacket<PacketType>(packet: PacketType | undefined): PacketType {
+  if (packet === undefined) throw new Error('Expected decoded packet');
+  return packet;
+}

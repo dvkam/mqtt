@@ -1,3 +1,3 @@
 export function defaultId() {
-  return 'mqttjs_' + Math.random().toString(16).substr(2, 8);
+  return 'mqttjs_' + Math.random().toString(16).slice(2, 10);
 }

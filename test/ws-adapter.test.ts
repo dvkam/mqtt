@@ -1,5 +1,5 @@
 import { once } from 'node:events';
-import { WebSocketServer } from 'ws';
+import WebSocket, { WebSocketServer } from 'ws';
 import { expect, test } from 'vitest';
 import { buildWebSocketStream } from '../src/connectionFactory/buildWebSocketStream.js';
 
@@ -7,7 +7,7 @@ test('negotiates MQTT, transfers binary bytes and closes the Node WebSocket stre
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
   const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('Expected a TCP address');
+  if (address === null || typeof address === 'string') throw new Error('Expected a TCP address');
   const url = new URL('ws://127.0.0.1:' + address.port);
   const handshake = new AbortController();
   const signal = AbortSignal.any([handshake.signal, AbortSignal.timeout(2000)]);
@@ -24,15 +24,19 @@ test('negotiates MQTT, transfers binary bytes and closes the Node WebSocket stre
       websocketSubProtocol: 'mqtt',
       wsOptions: {},
     });
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
     const failed = once(stream, 'error', { signal }).then(([error]) => {
       throw error;
     });
-    const [peer] = await Promise.race([accepted, failed]);
+    const acceptedArguments: unknown[] = await Promise.race([accepted, failed]);
+    const [peer] = acceptedArguments;
+    if (!(peer instanceof WebSocket)) throw new Error('Expected WebSocket peer');
     expect(peer.protocol).toBe('mqtt');
     const message = once(peer, 'message');
     const bytes = Buffer.from([0xc0, 0x00]);
     stream.write(bytes);
-    const [received, binary] = await message;
+    const receivedArguments: unknown[] = await message;
+    const [received, binary] = receivedArguments;
     expect(binary).toBe(true);
     expect(received).toEqual(bytes);
 
@@ -48,6 +52,10 @@ test('negotiates MQTT, transfers binary bytes and closes the Node WebSocket stre
     handshake.abort();
     stream?.destroy();
     for (const peer of server.clients) peer.terminate();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await new Promise<void>((resolve) => {
+      server.close(() => {
+        resolve();
+      });
+    });
   }
 });

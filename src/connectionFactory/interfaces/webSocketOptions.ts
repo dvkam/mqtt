@@ -1,4 +1,5 @@
 import type { URL } from 'url';
+import type { DuplexOptions } from 'node:stream';
 
 export interface WebSocketOptions {
   protocolVersion?: number;
@@ -13,5 +14,5 @@ export interface WebSocketOptions {
   port: number;
   path: string;
   binary?: boolean;
-  wsOptions: any;
+  wsOptions: DuplexOptions;
 }
