@@ -13,7 +13,8 @@ const namedOptions: BrowserClientOptions = {
   },
 };
 export const browserFactory: ClientFactory = createBrowserClient(namedOptions);
-export type BrowserSessionIsCommon = BrowserSession extends ClientSession ? true : never;
+type RequireTrue<Value extends true> = Value;
+export type BrowserSessionIsCommon = RequireTrue<BrowserSession extends ClientSession ? true : false>;
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
 export async function checkBrowserTypes(signal: AbortSignal) {
