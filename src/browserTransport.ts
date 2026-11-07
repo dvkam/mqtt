@@ -1,5 +1,7 @@
 import { openMqttWebSocket } from './websocket.js';
 
+export type BrowserCloseKind = 'remote' | 'local' | 'abort' | 'error';
+
 export interface BrowserTransport {
   /** Admission to the native send queue. Completion does not imply broker receipt. */
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- This transport boundary uses native sockets, signals and mutable byte views.
@@ -12,7 +14,7 @@ interface BrowserTransportOptions {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- This transport boundary uses native sockets, signals and mutable byte views.
   onBytes: (bytes: Uint8Array<ArrayBuffer>) => void;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- This transport boundary uses native sockets, signals and mutable byte views.
-  onClose: (reason: Error) => void;
+  onClose: (reason: Error, kind: BrowserCloseKind) => void;
   signal?: AbortSignal;
   timeoutMs?: number;
   maxBufferedBytes?: number;
@@ -43,7 +45,7 @@ export async function openBrowserTransport(
     settle(complete);
   };
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- This transport boundary uses native sockets, signals and mutable byte views.
-  const retire = (reason: Error) => {
+  const retire = (reason: Error, kind: BrowserCloseKind) => {
     if (failure) return;
     failure = reason;
     socket.removeEventListener('message', message);
@@ -54,33 +56,33 @@ export async function openBrowserTransport(
     }, timeoutMs);
     if (socket.readyState < WebSocket.CLOSING) socket.close();
     try {
-      onClose(reason);
+      onClose(reason, kind);
     } catch (error) {
       observerError = error instanceof Error ? error : new Error('MQTT WebSocket close observer failed');
     }
   };
   const nativeClosed = () => {
-    retire(new Error('MQTT WebSocket closed'));
+    retire(new Error('MQTT WebSocket closed'), 'remote');
     finish(true);
   };
   const errored = () => {
-    retire(new Error('MQTT WebSocket failed'));
+    retire(new Error('MQTT WebSocket failed'), 'error');
   };
   const aborted = () => {
     const reason: unknown = signal?.reason;
-    retire(reason instanceof Error ? reason : new Error('MQTT WebSocket aborted'));
+    retire(reason instanceof Error ? reason : new Error('MQTT WebSocket aborted'), 'abort');
   };
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- This transport boundary uses native sockets, signals and mutable byte views.
   const message = (event: MessageEvent) => {
     if (failure) return;
     if (!(event.data instanceof ArrayBuffer)) {
-      retire(new Error('MQTT WebSocket requires binary messages'));
+      retire(new Error('MQTT WebSocket requires binary messages'), 'error');
       return;
     }
     try {
       onBytes(new Uint8Array(event.data));
     } catch (error) {
-      retire(error instanceof Error ? error : new Error('MQTT WebSocket byte handler failed'));
+      retire(error instanceof Error ? error : new Error('MQTT WebSocket byte handler failed'), 'error');
     }
   };
   socket.addEventListener('message', message);
@@ -105,7 +107,7 @@ export async function openBrowserTransport(
         if (observerError) throw observerError;
         if (!complete) throw new Error('MQTT WebSocket close timed out');
       });
-      retire(new Error('MQTT WebSocket closed locally'));
+      retire(new Error('MQTT WebSocket closed locally'), 'local');
       return closing;
     },
   };

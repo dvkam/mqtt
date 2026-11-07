@@ -40,7 +40,9 @@ The limit covers the frame byte allocation. It excludes decoded strings, propert
 
 Call `finish()` when byte input has ended, not after each chunk or WebSocket message. It succeeds only at a packet boundary and closes the decoder. Repeated successful calls are harmless. Later `push()` calls reject, including empty input. A partial fixed header, Remaining Length or body causes a truncation error and releases the buffered frame and header. That failure is permanent, and later `finish()` or `push()` calls throw the same error. A previous decode error keeps its original identity.
 
-Packets already returned by `push()` remain valid if trailing input is truncated. `finish()` performs no I/O and does not wait for missing bytes. Transport adapters still need to call it at actual end of input. Browser close integration remains under #8 and #37; this change adds the codec API rather than changing adapter close reasons.
+Packets already returned by `push()` remain valid if trailing input is truncated. `finish()` performs no I/O and does not wait for missing bytes. The browser client calls it once when its byte transport retires. A peer close with partial input rejects unfinished exchanges with the truncation error. Local disconnect, cancellation, transport errors and application callback errors keep their original outcome. Refusal and operation timeout also keep their earlier failure. Completion does not add a wait for native socket closure.
+
+The browser byte transport passes an additional `BrowserCloseKind` argument to `onClose`. Its values are `remote`, `local`, `abort` and `error`. The first retirement determines the notification. A later native close does not notify again. Opening handshake failures occur before this byte transport owns input and do not complete a decoder.
 
 The bounded CodecFrames model checks allocation admission, completion before emission and no output after failure. It abstracts complete header validation, byte content and copying. UTF-8, property rules and concrete fragmented parsing are covered by wire-vector tests.
 
