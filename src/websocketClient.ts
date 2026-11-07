@@ -1,20 +1,22 @@
-import { generate, parser, type IPublishPacket } from 'mqtt-packet';
+import { generate, parser } from 'mqtt-packet';
 import type { Agent } from 'node:http';
 import type { SecureContextOptions } from 'node:tls';
 import WebSocket from 'ws';
-import { connectPortable, type PacketTransport } from './portable.js';
+import { connectPortable, type PacketTransport, type PortableOptions } from './portable.js';
+import type { ClientFactory } from './session.js';
+import type { NodeMessage } from './nodeMessage.js';
+import { nodePacketListener } from './nodePacketListener.js';
 
-type WebSocketClientOptions = Parameters<typeof connectPortable<IPublishPacket>>[1] &
-  Pick<SecureContextOptions, 'ca' | 'cert' | 'key'> & {
-    url: string | URL;
-    agent?: Agent;
-    headers?: Record<string, string>;
-    signal?: AbortSignal;
-    maxBufferedBytes?: number;
-  };
+export interface WebSocketClientOptions extends PortableOptions<NodeMessage>, Pick<SecureContextOptions, 'ca' | 'cert' | 'key'> {
+  url: string | URL;
+  agent?: Agent;
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+  maxBufferedBytes?: number;
+}
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
-export function createWebSocketClient(options: Readonly<WebSocketClientOptions>) {
+export function createWebSocketClient(options: Readonly<WebSocketClientOptions>): ClientFactory {
   let connection: ReturnType<typeof connectPortable> | undefined;
   return {
     // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
@@ -83,7 +85,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
   });
   decoder.on('error', terminate);
 
-  const transport: PacketTransport = {
+  const transport: PacketTransport<NodeMessage> = {
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
     async send(packet) {
       if (socket.readyState !== WebSocket.OPEN) throw socketError ?? new Error('MQTT WebSocket closed');
@@ -102,10 +104,11 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
       const failed = () => {
         onClose(socketError ?? new Error('MQTT WebSocket closed'));
       };
-      decoder.on('packet', onPacket);
+      const received = nodePacketListener(onPacket);
+      decoder.on('packet', received);
       socket.on('close', failed);
       return () => {
-        decoder.off('packet', onPacket);
+        decoder.off('packet', received);
         socket.off('close', failed);
       };
     },

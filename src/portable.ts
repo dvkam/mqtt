@@ -1,4 +1,5 @@
 import type { IConnectPacket, IPublishPacket, Packet } from 'mqtt-packet';
+import type { ClientSession } from './session.js';
 
 type PublishMessage = Omit<IPublishPacket, 'payload'> & { payload: unknown };
 type IncomingPacket<Message extends PublishMessage> = Exclude<Packet, IPublishPacket> | Message;
@@ -12,7 +13,7 @@ export interface PacketTransport<Message extends PublishMessage = IPublishPacket
   close(force?: boolean): Promise<void>;
 }
 
-interface PortableOptions<Message extends PublishMessage> {
+export interface PortableOptions<Message extends PublishMessage = IPublishPacket> {
   clientId: string;
   username?: IConnectPacket['username'];
   password?: IConnectPacket['password'];
@@ -183,7 +184,7 @@ export async function connectPortable<Message extends PublishMessage = IPublishP
   transport: PacketTransport<Message>,
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
   options: PortableOptions<Message>,
-) {
+): Promise<ClientSession> {
   const client = new PortableClient(transport, options);
   try {
     await client.open();

@@ -2,7 +2,7 @@ import { EventEmitter, getEventListeners, once } from 'node:events';
 import { createServer, Socket } from 'node:net';
 import { setTimeout } from 'node:timers/promises';
 import { generate, parser, type Packet } from 'mqtt-packet';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { createTcpClient } from '../src/index.js';
 
 const connack: Packet = { cmd: 'connack', reasonCode: 0, sessionPresent: false };
@@ -63,13 +63,53 @@ test('opens no TCP connection during construction and one when connect is called
     const client = createTcpClient(peer.options);
     await setTimeout(25);
     expect(peer.opened()).toBe(0);
-    const connected = await client.connect();
+    const opening = client.connect();
+    expect(client.connect()).toBe(opening);
+    const connected = await opening;
     expect(peer.opened()).toBe(1);
     expect(peer.commands).toEqual(['connect']);
     const closed = once(peer.events, 'peer-close');
     await connected.disconnect();
     await closed;
     expect(peer.commands).toEqual(['connect', 'disconnect']);
+  } finally {
+    await peer.close();
+  }
+});
+
+test('delivers QoS 0 messages with mutable Buffer payloads', async () => {
+  const peer = await broker((packet: Readonly<Pick<Packet, 'cmd'>>) => {
+    if (packet.cmd === 'connect') return connack;
+    if (packet.cmd === 'publish')
+      return {
+        cmd: 'publish',
+        qos: 0,
+        dup: false,
+        retain: false,
+        topic: 'tcp/binary',
+        payload: Buffer.from([0, 255, 128]),
+      };
+    return undefined;
+  });
+  const received: unknown[] = [];
+  try {
+    const client = await createTcpClient({
+      ...peer.options,
+      onMessage(message: Readonly<{ payload: unknown; qos: unknown; cmd: unknown }>) {
+        received.push(message);
+      },
+    }).connect();
+    await client.publish('tcp/binary', 'request');
+    await vi.waitFor(() => {
+      expect(received).toHaveLength(1);
+      expect(received[0]).toMatchObject({ cmd: 'publish', qos: 0, payload: Buffer.from([0, 255, 128]) });
+    });
+    const message = received[0];
+    if (typeof message !== 'object' || message === null || !('payload' in message) || !Buffer.isBuffer(message.payload))
+      throw new Error('Expected a received Buffer');
+    message.payload[0] = 42;
+    expect(message.payload[0]).toBe(42);
+    await client.disconnect();
   } finally {
     await peer.close();
   }

@@ -1,6 +1,7 @@
 import { openBrowserTransport } from './browserTransport.js';
 import { encodePacket, PacketDecoder, type UserProperty, type WirePacket } from './codec.js';
 import { connectPortable, type PacketTransport } from './portable.js';
+import type { ClientFactory, ClientSession } from './session.js';
 
 export interface BrowserMessage {
   cmd: 'publish';
@@ -12,14 +13,9 @@ export interface BrowserMessage {
   userProperties?: readonly UserProperty[];
 }
 
-export interface BrowserSession {
-  subscribe(topic: string): Promise<void>;
-  publish(topic: string, payload: string): Promise<void>;
-  ping(): Promise<void>;
-  disconnect(): Promise<void>;
-}
+export type BrowserSession = ClientSession;
 
-interface BrowserClientOptions {
+export interface BrowserClientOptions {
   url: string | URL;
   clientId: string;
   username?: string;
@@ -32,7 +28,7 @@ interface BrowserClientOptions {
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
-export function createBrowserClient(options: BrowserClientOptions): { connect(): Promise<BrowserSession> } {
+export function createBrowserClient(options: BrowserClientOptions): ClientFactory {
   let connection: Promise<BrowserSession> | undefined;
   return {
     // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
