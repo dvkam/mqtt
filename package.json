@@ -51,9 +51,9 @@
     "build": "tsc",
     "test": "vitest run",
     "test:types": "tsc --emitDeclarationOnly && tsc -p test/types/tsconfig.json && tsc -p test/types/consumer/tsconfig.json && tsc --emitDeclarationOnly --outDir .type-fixtures/browser-api && tsc -p test/types/browser/tsconfig.json && tsc -p test/tsconfig.json",
-    "lint": "oxlint -c oxlint.config.mjs --deny-warnings --report-unused-disable-directives src test vitest.config.ts oxlint.config.mjs oxfmt.config.mjs",
-    "format": "oxfmt -c oxfmt.config.mjs src test vitest.config.ts oxlint.config.mjs oxfmt.config.mjs",
-    "format:check": "oxfmt -c oxfmt.config.mjs --check src test vitest.config.ts oxlint.config.mjs oxfmt.config.mjs"
+    "lint": "oxlint -c oxlint.config.mjs --deny-warnings --report-unused-disable-directives src test sample vitest.config.ts oxlint.config.mjs oxfmt.config.mjs",
+    "format": "oxfmt -c oxfmt.config.mjs src test sample vitest.config.ts oxlint.config.mjs oxfmt.config.mjs",
+    "format:check": "oxfmt -c oxfmt.config.mjs --check src test sample vitest.config.ts oxlint.config.mjs oxfmt.config.mjs"
   },
   "dependencies": {
     "mqtt-packet": "9.0.2",
@@ -63,7 +63,6 @@
   "devDependencies": {
     "@types/node": "26.6.6",
     "@types/ws": "8.18.2",
-    "aedes": "1.2.0",
     "oxfmt": "0.77.0",
     "oxlint": "1.92.0",
     "oxlint-tsgolint": "7.0.2006",
