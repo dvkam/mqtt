@@ -50,7 +50,7 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "test:types": "tsc -p test/types/tsconfig.json && tsc -p test/types/consumer/tsconfig.json && tsc -p test/types/browser/tsconfig.json",
+    "test:types": "tsc -p test/types/tsconfig.json && tsc -p test/types/consumer/tsconfig.json && tsc --emitDeclarationOnly --outDir .type-fixtures/browser-api && tsc -p test/types/browser/tsconfig.json",
     "lint": "oxlint -c oxlint.config.mjs --deny-warnings src test vitest.config.ts oxlint.config.mjs oxfmt.config.mjs",
     "format": "oxfmt -c oxfmt.config.mjs src test vitest.config.ts oxlint.config.mjs oxfmt.config.mjs",
     "format:check": "oxfmt -c oxfmt.config.mjs --check src test vitest.config.ts oxlint.config.mjs oxfmt.config.mjs"
