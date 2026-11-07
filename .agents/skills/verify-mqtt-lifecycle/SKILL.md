@@ -14,7 +14,7 @@ Use Java 11 or newer and the official TLA+ TLC 1.7.4 jar from https://github.com
 Use the pinned development Node version from .node-version for the typed runner. Run from the repository root:
 
     node verification/check.ts
-    pnpm test test/portable.test.ts test/tcp-client.test.ts test/websocket.test.ts test/websocket-client.test.ts test/browser-transport.test.ts test/codec.test.ts test/browser-client.test.ts test/browser-eof.test.ts
+    pnpm test test/portable.test.ts test/tcp-client.test.ts test/websocket.test.ts test/websocket-client.test.ts test/browser-transport.test.ts test/codec.test.ts test/browser-client.test.ts test/browser-eof.test.ts test/message-queue.test.ts test/browser-message-stream.test.ts test/delivery-comparison.test.ts
 
 The positive models must pass. Each broken configuration must fail on its named invariant. An error parsing the model or starting Java is a blocked run.
 
@@ -89,3 +89,21 @@ RemoteTruncation checks that a remote retirement inside a packet reports truncat
 The model does not prove codec conformance, frame allocation limits, physical socket closure or wall-clock deadlines. Existing CodecEndOfInput, BrowserTransport and BrowserClientHandoff models retain their properties and bounds. Their source mappings remain valid. The additional close-kind argument classifies the same retirement paths; it does not introduce another delivery or settlement transition.
 
 BrowserDecoderCloseOmit, BrowserDecoderCloseReplace and BrowserDecoderCloseRepeat must fail RemoteTruncation, PreserveOtherCause and FinishAtMostOnce respectively. The corresponding real-source mutations omit decoder.finish, apply truncation replacement to every close kind, or remove the first-retirement guard. Each mutation makes test/browser-eof.test.ts fail. All source mutations were restored. All eight positive models and nineteen broken configurations produce their expected outcomes.
+
+MessageQueueOwnership and StreamTerminal sync commit: 55481c70ce3f41ee9e60f315068184ef3c0c3970.
+
+These models describe the unpublished comparison prototype in test/experiments/message-queue.ts. Existing product source is unchanged from bfb0d4e822c731a714b0489053a39e2a5a8f6993, so the prior eight lifecycle models remain in sync with their recorded mappings. No property or bound was weakened.
+
+MessageQueueOwnership explores 51 states with up to two queued messages, a three-unit data budget, message sizes one through four, one pending iterator request and two abstract protocol-control steps. Offer maps to push admission, direct delivery or queued copying. Read maps to shifting an entry and subtracting its weight. Wait maps to one pending next request. Close maps to source completion with queued drain. Stop maps to cancellation or iterator exit. Fail maps to source failure or overflow. The first source terminal signal wins; consumer cancellation may discard an existing drain.
+
+BoundedQueue checks item and accounted-data admission. NoLateDelivery checks that later push calls cannot deliver or retain new application data after termination. BoundedWaiters checks the single pending iterator request. ConsumerDoesNotOwnProtocol checks that application stop does not retire the independent protocol reader. Control steps remain available while the facade is stopped; the model does not assert fairness or eventual protocol replies.
+
+MessageQueueOwnershipBudget, MessageQueueOwnershipDelivery and MessageQueueOwnershipWaiter must fail their named invariants. Removing the real admission, post-stop push or pending-read guard makes the matching TypeScript regression fail. MessageQueueOwnershipCancel is a hypothetical incorrect wiring that gives application stop ownership of the protocol reader. It is not a mutation of this queue, which receives no session or socket capability. The real ownership evidence is that dependency separation plus Node-native and packed Chromium tests that continue SUBACK, PINGRESP and disconnect after cancellation or overflow.
+
+StreamTerminal explores 24 states with one accepted message, one pull and an explicit suspension between iterator resolution and native controller notification. Pull maps to the callback before await. Resume maps to its continuation. Offer can resolve a waiting pull before that continuation executes. Close and Fail map to source terminal notification. Cancel represents native consumer cancellation. EmptyCompletion and FailureSettles check immediate notification of an empty normal close or failure, even with no read. PreserveHandedMessage checks that normal close does not close the controller before a message already handed to a pending pull is enqueued.
+
+The original prototype left reader.closed pending at idle completion or failure. Concrete regressions reproduced that bug before terminal notification was added. A separate regression protects push followed by close before a pull resumes. StreamTerminalClose, StreamTerminalFailure and StreamTerminalHandoff must fail EmptyCompletion, FailureSettles and PreserveHandedMessage. Removing each source notification or the pulling guard makes its real regression fail. Every mutation was restored.
+
+The new models assume sequential ordinary callbacks and native Streams controller semantics. They abstract payload contents, compact copying, string accounting, Error identity, consumer-created pending read promises, native stream internals, downstream transforms and heap overhead. Concrete tests cover those supported data and outcome contracts; no total-memory, network backpressure, full MQTT conformance or automatic source-end coupling is proved. The original protocol models retain their own narrower assumptions.
+
+All ten positive models and twenty-six deliberately broken configurations produce their expected outcomes. Six corresponding queue and terminal source mutations fail their concrete regressions. Cancellation ownership is checked through the structural and integration evidence described above, rather than counted as a seventh source mutation.
