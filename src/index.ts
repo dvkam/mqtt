@@ -54,7 +54,7 @@ function _validateProtocol(opts: Readonly<ConnectOptions>): Error | undefined {
       }
     } else {
       // A cert and key was provided, however no protocol was specified, so we will throw an error.
-      // TODO: Git Blame on this line. I don't understand the error message at all.
+      // Protocol normalization and this error contract are tracked in #30 and #52.
       return new Error('Missing secure protocol key');
     }
   }

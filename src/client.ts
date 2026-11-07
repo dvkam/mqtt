@@ -128,7 +128,7 @@ export class MqttClient extends EventEmitter {
    * @param options
    * @returns
    */
-  // TODO: Should this be moved up to the index.ts file, or should it live here?
+  // Legacy connect placement and public options are tracked in #28 and #52.
   public async connect(): Promise<IConnackPacket> {
     if (this.connecting || this.connected) throw new Error('Client is already connecting or connected');
     this.connecting = true;
@@ -240,8 +240,7 @@ export class MqttClient extends EventEmitter {
     this.connected = true;
   }
 
-  // TODO: follow up on Aedes to see if there is a better way than breaking the Node Streams contract and accessing _writableState
-  // to make sure that the write callback is cleaned up in case of error.
+  // Replacing private writable-state cleanup is tracked in #27, #42 and #52.
   onError(err?: Readonly<Error | null>) {
     if (this.connecting) {
       this._packetSequencer.cancelConnect(err ?? new Error('Connection failed'));

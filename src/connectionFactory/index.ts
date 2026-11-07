@@ -32,9 +32,7 @@ export function connectionFactory(options: Readonly<ConnectOptions>): Duplex {
       });
 
       const handleTLSerrors = (err: Readonly<Error>) => {
-        // How can I get verify this error is a tls error?
-        // TODO: In the old version this was emitted via the client.
-        // We need to make this better.
+        // Error forwarding and terminal TLS ownership are tracked in #27 and #52.
         if (options.tlsOptions) {
           connection.emit('error', err);
         }
@@ -47,7 +45,6 @@ export function connectionFactory(options: Readonly<ConnectOptions>): Duplex {
         connection.end();
       };
 
-      /* eslint no-use-before-define: [2, "nofunc"] */
       connection.on('secureConnect', function () {
         if (tlsOptions && !connection.authorized) {
           connection.emit('error', new Error('TLS not authorized'));

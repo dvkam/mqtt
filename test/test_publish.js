@@ -11,7 +11,7 @@ test.before('set up aedes broker', serverFactoryMacro, port);
 
 /* ============================== BEGIN TESTS ============================== */
 
-test.only('publish QoS 0', async (t) => {
+test('publish QoS 0', async (t) => {
   const connectReceivedPromise = new Promise((resolve) => {
     const connectReceivedListener = (packet) => {
       logger.info(`connect received: ${packet}`);
