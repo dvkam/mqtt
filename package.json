@@ -34,6 +34,10 @@
       "types": "./dist/portable.d.ts",
       "import": "./dist/portable.js"
     },
+    "./codec": {
+      "types": "./dist/codec.d.ts",
+      "import": "./dist/codec.js"
+    },
     "./browser": {
       "types": "./dist/browserTransport.d.ts",
       "import": "./dist/browserTransport.js"

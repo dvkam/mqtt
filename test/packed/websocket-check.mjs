@@ -3,6 +3,7 @@ import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { gzipSync } from 'node:zlib';
 import { chromium } from 'playwright';
 import { build } from 'vite';
 import WebSocket, { WebSocketServer } from 'ws';
@@ -22,7 +23,7 @@ assert.deepEqual([...imports, ...dynamicImports], []);
 assert.doesNotMatch(code, /__vite-browser-external|\bBuffer\b|\bnode:/);
 
 if (process.argv.includes('--bundle-only')) {
-  console.log('Packed WebSocket browser graph has no Node imports');
+  console.log(JSON.stringify({ browserBytes: Buffer.byteLength(code), gzipBytes: gzipSync(code).length }));
 } else {
   const server = createServer((request, response) => {
     if (request.url === '/probe.js') response.writeHead(200, { 'Content-Type': 'text/javascript' }).end(code);
@@ -50,11 +51,15 @@ if (process.argv.includes('--bundle-only')) {
     const endpoint = '127.0.0.1:' + server.address().port;
     const url = 'ws://' + endpoint;
     const expected = { protocol: 'mqtt', bytes: [0xd0, 0] };
-    const { exchange, exchangeTransport, measureQueue } = await import(pathToFileURL(entry).href);
+    const { exchange, exchangeTransport, codecRoundTrip, measureQueue } = await import(pathToFileURL(entry).href);
+    assert.deepEqual(codecRoundTrip({ cmd: 'pingreq' }), [{ cmd: 'pingreq' }]);
     assert.deepEqual(await exchange(url), expected);
     browser = await chromium.launch();
     const page = await browser.newPage();
     await page.goto('http://' + endpoint);
+    assert.deepEqual(await page.evaluate(async () => (await import('/probe.js')).codecRoundTrip({ cmd: 'pingreq' })), [
+      { cmd: 'pingreq' },
+    ]);
     assert.deepEqual(await page.evaluate(async (url) => (await import('/probe.js')).exchange(url), url), expected);
     assert.deepEqual(await exchangeTransport(url), [0xd0, 0]);
     assert.deepEqual(await page.evaluate(async (url) => (await import('/probe.js')).exchangeTransport(url), url), [0xd0, 0]);

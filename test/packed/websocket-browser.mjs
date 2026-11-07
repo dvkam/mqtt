@@ -1,5 +1,10 @@
 import { openMqttWebSocket } from 'mqtt/websocket';
 import { openBrowserTransport } from 'mqtt/browser';
+import { encodePacket, PacketDecoder } from 'mqtt/codec';
+
+export function codecRoundTrip(packet) {
+  return new PacketDecoder().push(encodePacket(packet));
+}
 
 export async function exchangeTransport(url) {
   let receive;

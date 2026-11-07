@@ -1,7 +1,8 @@
 import { openBrowserTransport } from 'mqtt/browser';
+import { encodePacket, PacketDecoder } from 'mqtt/codec';
 
 export async function mqttSession(url, packets) {
-  let buffer = new Uint8Array();
+  const decoder = new PacketDecoder();
   const received = [];
   let wake;
   let failure;
@@ -10,22 +11,7 @@ export async function mqttSession(url, packets) {
     wake?.();
   }
   function receive(bytes) {
-    const combined = new Uint8Array(buffer.length + bytes.length);
-    combined.set(buffer);
-    combined.set(bytes, buffer.length);
-    buffer = combined;
-    while (buffer.length >= 2) {
-      let size = 0;
-      let offset = 1;
-      while (offset < buffer.length && offset <= 4) {
-        const byte = buffer[offset++];
-        size += (byte & 127) * 128 ** (offset - 2);
-        if (!(byte & 128)) break;
-      }
-      if (buffer[offset - 1] & 128 || buffer.length < offset + size) break;
-      received.push(Array.from(buffer.subarray(0, offset + size)));
-      buffer = buffer.subarray(offset + size);
-    }
+    for (const packet of decoder.push(bytes)) received.push(Array.from(encodePacket(packet)));
     wake?.();
   }
 
@@ -45,13 +31,15 @@ export async function mqttSession(url, packets) {
   }
 
   const transport = await openBrowserTransport(url, { onBytes: receive, onClose: fail });
+  const input = new PacketDecoder();
+  const requests = packets.map((bytes) => encodePacket(input.push(Uint8Array.from(bytes))[0]));
   try {
     const replies = [];
-    for (const request of packets.slice(0, -1)) {
-      transport.send(Uint8Array.from(request));
+    for (const request of requests.slice(0, -1)) {
+      transport.send(request);
       replies.push(await nextPacket());
     }
-    transport.send(Uint8Array.from(packets.at(-1)));
+    transport.send(requests.at(-1));
     await transport.close();
     return replies;
   } finally {

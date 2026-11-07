@@ -1,0 +1,12 @@
+{"name":"prototype encode","runtime":"v26.13.0","iterations":10000,"elapsedMs":121.08640700000001,"operationsPerSecond":82585.65307004278,"sampledAllocationBytes":34036920,"checksum":2730000}
+{"name":"mqtt-packet encode","runtime":"v26.13.0","iterations":10000,"elapsedMs":65.95907399999987,"operationsPerSecond":151609.16297884987,"sampledAllocationBytes":23975360,"checksum":2730000}
+{"name":"prototype decode","runtime":"v26.13.0","iterations":10000,"elapsedMs":89.29076199999986,"operationsPerSecond":111993.66850514743,"sampledAllocationBytes":25551416,"checksum":2560000}
+{"name":"mqtt-packet decode","runtime":"v26.13.0","iterations":10000,"elapsedMs":155.88083400000005,"operationsPerSecond":64151.5684987931,"sampledAllocationBytes":51363616,"checksum":2560000}
+{"name":"prototype encode","runtime":"v26.13.0","iterations":10000,"elapsedMs":117.96674299999995,"operationsPerSecond":84769.65410497096,"sampledAllocationBytes":33897800,"checksum":2730000}
+{"name":"mqtt-packet encode","runtime":"v26.13.0","iterations":10000,"elapsedMs":64.96661099999983,"operationsPerSecond":153925.22168041096,"sampledAllocationBytes":23663880,"checksum":2730000}
+{"name":"prototype decode","runtime":"v26.13.0","iterations":10000,"elapsedMs":86.84281400000009,"operationsPerSecond":115150.57538324346,"sampledAllocationBytes":25583456,"checksum":2560000}
+{"name":"mqtt-packet decode","runtime":"v26.13.0","iterations":10000,"elapsedMs":153.19220200000018,"operationsPerSecond":65277.47411059467,"sampledAllocationBytes":51620552,"checksum":2560000}
+{"name":"prototype encode","runtime":"v26.13.0","iterations":10000,"elapsedMs":115.42352400000004,"operationsPerSecond":86637.4518248117,"sampledAllocationBytes":33580632,"checksum":2730000}
+{"name":"mqtt-packet encode","runtime":"v26.13.0","iterations":10000,"elapsedMs":65.55090299999983,"operationsPerSecond":152553.1997629388,"sampledAllocationBytes":23673872,"checksum":2730000}
+{"name":"prototype decode","runtime":"v26.13.0","iterations":10000,"elapsedMs":88.06536600000004,"operationsPerSecond":113552.01771375134,"sampledAllocationBytes":25561384,"checksum":2560000}
+{"name":"mqtt-packet decode","runtime":"v26.13.0","iterations":10000,"elapsedMs":160.68027800000004,"operationsPerSecond":62235.39145233491,"sampledAllocationBytes":51438720,"checksum":2560000}

@@ -27,6 +27,12 @@ export async function checkWebSocketDeclarations(signal: AbortSignal) {
   await client.disconnect();
 }
 import { openBrowserTransport } from 'mqtt/browser';
+import { encodePacket, PacketDecoder } from 'mqtt/codec';
+
+export function checkCodecDeclarations() {
+  const bytes: Uint8Array = encodePacket({ cmd: 'connect', clientId: 'consumer' });
+  return new PacketDecoder({ maxPacketBytes: 4096 }).push(bytes);
+}
 
 export async function checkBrowserTransportDeclarations(signal: AbortSignal) {
   const transport = await openBrowserTransport('wss://localhost/mqtt', {
