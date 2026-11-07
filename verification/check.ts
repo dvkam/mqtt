@@ -39,6 +39,10 @@ const models: readonly VerificationCase[] = [
   ['BrowserClientHandoff', 'BrowserClientHandoff'],
   ['BrowserClientHandoff', 'BrowserClientHandoffAbort', 'NoCancelledTransfer'],
   ['BrowserClientHandoff', 'BrowserClientHandoffForce', 'ForceWithoutNativeWait'],
+  ['BrowserDecoderClose', 'BrowserDecoderClose'],
+  ['BrowserDecoderClose', 'BrowserDecoderCloseOmit', 'RemoteTruncation'],
+  ['BrowserDecoderClose', 'BrowserDecoderCloseReplace', 'PreserveOtherCause'],
+  ['BrowserDecoderClose', 'BrowserDecoderCloseRepeat', 'FinishAtMostOnce'],
 ];
 
 for (const [model, configuration, expectedInvariant] of models) {

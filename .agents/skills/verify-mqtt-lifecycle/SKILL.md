@@ -14,7 +14,7 @@ Use Java 11 or newer and the official TLA+ TLC 1.7.4 jar from https://github.com
 Use the pinned development Node version from .node-version for the typed runner. Run from the repository root:
 
     node verification/check.ts
-    pnpm test test/portable.test.ts test/tcp-client.test.ts test/websocket.test.ts test/websocket-client.test.ts test/browser-transport.test.ts test/codec.test.ts test/browser-client.test.ts
+    pnpm test test/portable.test.ts test/tcp-client.test.ts test/websocket.test.ts test/websocket-client.test.ts test/browser-transport.test.ts test/codec.test.ts test/browser-client.test.ts test/browser-eof.test.ts
 
 The positive models must pass. Each broken configuration must fail on its named invariant. An error parsing the model or starting Java is a blocked run.
 
@@ -79,3 +79,13 @@ Run CodecEndOfInputTruncated, CodecEndOfInputOutput and CodecEndOfInputFailure a
 The first broken-model run exposed an incomplete successor assignment caused by missing parentheses around a Boolean update. The runner rejected that error because it was not the expected invariant violation. The equation was corrected without changing any property or bound. The final seven positive models and sixteen deliberately broken configurations all produce their expected results.
 
 The verification runner is now verification/check.ts. Its model cases use a readonly named tuple with an optional expected invariant, and the strict compiler and type-aware lint include the verification directory. The integrity regression passed against the original JavaScript before migration and against the typed runner afterward. Changing the expected checksum to accept the invalid jar made that regression fail. The published checksum was restored, and the test confirms rejection before a Java attempt. All seven positive models and sixteen deliberately broken configurations retained their outcomes after the port. No model property, bound or product source changed.
+
+BrowserDecoderClose sync commit: d7419239711339020771ac8a5b292d2ea43ef7eb.
+
+BrowserDecoderClose covers the composition of src/browserTransport.ts retirement and src/browserClient.ts decoder completion. Its ten states include open input at a packet boundary or inside a packet and one retirement with each of four causes. Begin and Complete abstract input fragmentation. Retire maps to the first-failure guard, listener removal and onClose notification. Completion runs during that notification. The remote-only branch selects a decoder truncation error; local, abort and error causes retain their initiating reason. Repeat maps to a later retirement attempt stopped by the same guard. partialAtClose is a history variable for the decoder state before finish clears buffered input.
+
+RemoteTruncation checks that a remote retirement inside a packet reports truncation. PreserveOtherCause checks that other causes survive completion. FinishAtMostOnce checks that later retirements cannot repeat completion. The model uses cause categories rather than Error objects. Concrete tests check identity, refusal codes, timeouts and successful local disconnect. Opening failures before the byte transport owns input are outside this model. Browser event callbacks run to completion with promise jobs between native message and close tasks. A real native WebSocket test checks immediate refusal followed by partial trailing input and closure. Arbitrary synchronous nesting of synthetic message and close events is outside that scheduling assumption.
+
+The model does not prove codec conformance, frame allocation limits, physical socket closure or wall-clock deadlines. Existing CodecEndOfInput, BrowserTransport and BrowserClientHandoff models retain their properties and bounds. Their source mappings remain valid. The additional close-kind argument classifies the same retirement paths; it does not introduce another delivery or settlement transition.
+
+BrowserDecoderCloseOmit, BrowserDecoderCloseReplace and BrowserDecoderCloseRepeat must fail RemoteTruncation, PreserveOtherCause and FinishAtMostOnce respectively. The corresponding real-source mutations omit decoder.finish, apply truncation replacement to every close kind, or remove the first-retirement guard. Each mutation makes test/browser-eof.test.ts fail. All source mutations were restored. All eight positive models and nineteen broken configurations produce their expected outcomes.
