@@ -45,7 +45,8 @@ test.each([4, 5] as const)('writes one CONNECT, a QoS 0 publish, and DISCONNECT 
     ...(version === 5 ? { reasonCode: 0 } : { returnCode: 0 }),
   });
   try {
-    const client = await connect(options);
+    const client = await connect({ ...options, clientId: 'baseline-client' });
+    expect(packets[0]).toMatchObject({ cmd: 'connect', clientId: 'baseline-client', protocolVersion: version });
     await client.publish({ topic: 'baseline/topic', payload: 'hello' });
     const finished = once(stream, 'finish');
     await client.disconnect();
@@ -104,6 +105,50 @@ test('never serializes CONNECT credentials or PUBLISH payloads for logging', asy
     expect(serializedPackets).toEqual([]);
   } finally {
     stringify.mockRestore();
+    stream.destroy();
+  }
+});
+
+test('retains the legacy default CONNECT fields without an embedded broker', async () => {
+  const { options, packets, stream } = peer(4, { cmd: 'connack', sessionPresent: false, returnCode: 0 });
+  try {
+    const client = await connect({ brokerUrl: options.brokerUrl, customStreamFactory: options.customStreamFactory });
+    expect(packets[0]).toMatchObject({
+      cmd: 'connect',
+      protocolId: 'MQTT',
+      protocolVersion: 4,
+      clean: true,
+      keepalive: 60,
+    });
+    const packet = packets[0];
+    if (packet?.cmd !== 'connect') throw new Error('Expected CONNECT');
+    expect(packet.clientId).toMatch(/^mqttjs_/);
+    expect(packet.will).toBeUndefined();
+    expect(packet.username).toBeUndefined();
+    expect(packet.password).toBeUndefined();
+    await client.disconnect();
+  } finally {
+    stream.destroy();
+  }
+});
+
+test('rejects a missing topic from a JavaScript caller without writing PUBLISH', async () => {
+  const { options, packets, stream } = peer(5, { cmd: 'connack', sessionPresent: false, reasonCode: 0 });
+
+  try {
+    const client = await connect(options);
+
+    const emitted = new Promise<unknown>((resolve) => {
+      client.once('error', resolve);
+    });
+    const publish = client.publish.bind(client);
+    const publication: unknown = Reflect.apply(publish, undefined, [{ payload: 'missing topic' }]);
+    await expect(publication).rejects.toThrow(/topic|Transport closed/i);
+    await expect(emitted).resolves.toHaveProperty('message', 'Invalid topic');
+
+    expect(packets).toHaveLength(1);
+    expect(packets[0]?.cmd).toBe('connect');
+  } finally {
     stream.destroy();
   }
 });
