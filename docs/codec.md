@@ -51,7 +51,7 @@ These are medians of three runs. Allocation samples include measurement overhead
 | Encode | 84,770 | 152,553 | 33,897,800 | 23,673,872 |
 | Decode | 113,552 | 64,152 | 25,561,384 | 51,438,720 |
 
-Encoding is slower and allocates more in this workload. Decoding is faster with fewer sampled bytes. This corpus does not establish a general performance advantage. The raw runs are in docs/baseline/codec-results.jsonl.
+Encoding is slower and allocates more in this workload. Decoding is faster with fewer sampled bytes. This corpus does not establish a general performance advantage. Keep raw measurements with the local research or CI artifacts when rerunning the benchmark.
 
 The upstream mqtt-packet release checked for this work is v9.0.2. The v10 roadmap remains relevant to a later comparison with a published or pinned implementation. Profile expansion, broader differential cases, randomized wire inputs and package extraction remain in #37. The packed client-and-codec test harness reports its browser bundle size in CI.
 
