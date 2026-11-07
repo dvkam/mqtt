@@ -53,7 +53,7 @@ export class Store {
       }
     };
 
-    stream.destroy = function (_error?: Error | undefined): Readable {
+    stream.destroy = function (_error?: Error): Readable {
       if (!destroyed) {
         destroyed = true;
         setTimeout(() => {
