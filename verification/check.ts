@@ -43,6 +43,15 @@ const models: readonly VerificationCase[] = [
   ['BrowserDecoderClose', 'BrowserDecoderCloseOmit', 'RemoteTruncation'],
   ['BrowserDecoderClose', 'BrowserDecoderCloseReplace', 'PreserveOtherCause'],
   ['BrowserDecoderClose', 'BrowserDecoderCloseRepeat', 'FinishAtMostOnce'],
+  ['MessageQueueOwnership', 'MessageQueueOwnership'],
+  ['MessageQueueOwnership', 'MessageQueueOwnershipBudget', 'BoundedQueue'],
+  ['MessageQueueOwnership', 'MessageQueueOwnershipDelivery', 'NoLateDelivery'],
+  ['MessageQueueOwnership', 'MessageQueueOwnershipCancel', 'ConsumerDoesNotOwnProtocol'],
+  ['MessageQueueOwnership', 'MessageQueueOwnershipWaiter', 'BoundedWaiters'],
+  ['StreamTerminal', 'StreamTerminal'],
+  ['StreamTerminal', 'StreamTerminalClose', 'EmptyCompletion'],
+  ['StreamTerminal', 'StreamTerminalFailure', 'FailureSettles'],
+  ['StreamTerminal', 'StreamTerminalHandoff', 'PreserveHandedMessage'],
 ];
 
 for (const [model, configuration, expectedInvariant] of models) {

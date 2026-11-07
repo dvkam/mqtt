@@ -8,8 +8,18 @@
     "paths": {
       "/trace.js": ["./packed/browser.mjs"],
       "/probe.js": ["./packed/websocket-browser.mjs"],
-      "/session.js": ["./packed/websocket-session.mjs"]
+      "/session.js": ["./packed/websocket-session.mjs"],
+      "/streams.js": ["./packed/stream-comparison.ts"]
     }
   },
-  "include": ["./*.test.ts", "./packed/*.mjs", "./bench/*.mjs", "../sample/*.ts", "../lint/*.ts", "../verification/*.ts"]
+  "include": [
+    "./*.test.ts",
+    "./packed/*.mjs",
+    "./packed/*.ts",
+    "./experiments/*.ts",
+    "./bench/*.mjs",
+    "../sample/*.ts",
+    "../lint/*.ts",
+    "../verification/*.ts"
+  ]
 }
