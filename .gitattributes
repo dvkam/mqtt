@@ -3,3 +3,4 @@
 test/types/**/*.json text eol=lf
 test/packed/*.mjs text eol=lf
 test/packed/*.json text eol=lf
+test/packed/*.sh text eol=lf

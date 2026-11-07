@@ -26,3 +26,18 @@ export async function checkWebSocketDeclarations(signal: AbortSignal) {
   await client.ping();
   await client.disconnect();
 }
+import { openBrowserTransport } from 'mqtt/browser';
+
+export async function checkBrowserTransportDeclarations(signal: AbortSignal) {
+  const transport = await openBrowserTransport('wss://localhost/mqtt', {
+    signal,
+    onBytes(bytes) {
+      bytes.byteLength.toFixed();
+    },
+    onClose(reason) {
+      reason.message.toLowerCase();
+    },
+  });
+  transport.send(Uint8Array.of(0xc0, 0));
+  await transport.close();
+}

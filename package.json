@@ -34,6 +34,10 @@
       "types": "./dist/portable.d.ts",
       "import": "./dist/portable.js"
     },
+    "./browser": {
+      "types": "./dist/browserTransport.d.ts",
+      "import": "./dist/browserTransport.js"
+    },
     "./websocket": {
       "types": "./dist/websocket.d.ts",
       "import": "./dist/websocket.js"

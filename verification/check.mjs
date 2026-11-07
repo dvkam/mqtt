@@ -22,6 +22,10 @@ const models = [
   ['WebSocketSession', 'WebSocketSession'],
   ['WebSocketSession', 'WebSocketSessionDeliver', 'NoInvalidDelivery'],
   ['WebSocketSession', 'WebSocketSessionBudget', 'BoundedBudget'],
+  ['BrowserTransport', 'BrowserTransport'],
+  ['BrowserTransport', 'BrowserTransportDelivery', 'NoLateDelivery'],
+  ['BrowserTransport', 'BrowserTransportBudget', 'BoundedAdmission'],
+  ['BrowserTransport', 'BrowserTransportObserver', 'NativeCloseSettles'],
 ];
 
 for (const [model, config, invariant] of models) {
