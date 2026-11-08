@@ -2,6 +2,13 @@ import { expect, test } from 'vitest';
 import { createMessageQueue } from './experiments/message-queue.js';
 import type { BrowserMessage } from '../src/browserClient.js';
 
+type RequireFalse<Value extends false> = Value;
+type IsAny<Value> = 0 extends 1 & Value ? true : false;
+type Queue = ReturnType<typeof createMessageQueue>;
+type QueueIterator = ReturnType<Queue['iterate']>;
+type NextResult = Awaited<ReturnType<QueueIterator['next']>>;
+export type IteratorValueIsSpecific = RequireFalse<IsAny<NextResult['value']>>;
+
 function message(value = 1): BrowserMessage {
   return { cmd: 'publish', topic: 'a', payload: Uint8Array.of(value), qos: 0, dup: false, retain: false };
 }
