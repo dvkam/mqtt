@@ -90,6 +90,8 @@ class PortableClient<Message extends PublishMessage> {
 
   async publish(topic: string, payload: string): Promise<void> {
     if (this.closing) throw new Error('Client is closing');
+    if (this.failure) throw this.failure;
+    if (topic.includes('+') || topic.includes('#') || !validateTopic(topic)) throw new Error('Invalid MQTT topic name');
     await this.run(async () => this.transport.send({ cmd: 'publish', topic, payload, qos: 0, dup: false, retain: false }));
   }
 
