@@ -85,6 +85,7 @@ The [deadline guide](docs/deadlines.md) defines timeout validation, captured set
 
 - The supported clients open MQTT 5 clean sessions with Keep Alive set to zero. They support ordinary QoS 0 subscriptions, text publishing, received binary payloads, explicit ping and graceful disconnect.
 - Await subscribe and ping operations before starting another acknowledgment exchange. A failed ping retires the connection because a later PINGRESP cannot identify which request it answers.
+- Any operation timeout retires the session and starts forced cleanup. Later work cannot send. Already-admitted QoS 0 bytes may still reach the broker; a timeout does not prove non-delivery. The deadline guide explains custom transport cleanup requirements.
 - Successful QoS 0 publication reports local send completion or admission according to the adapter. It does not prove broker receipt or durable storage.
 - Publishing rejects empty topic names, wildcards, null characters, unpaired surrogates and names exceeding 65,535 UTF-8 bytes before sending. Rejection leaves an active session usable. Topic aliases are not supported by this publishing API.
 - The browser transport has a write budget and the browser codec has a separate packet allocation limit. These are not a bound on every retained application object or an offline message queue.

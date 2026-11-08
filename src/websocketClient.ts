@@ -114,6 +114,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
     },
     async close(force) {
       input.detachCore();
+      if (force === true) signal?.removeEventListener('abort', abort);
       if (socket.readyState === WebSocket.CLOSED) return;
       if (force === true) socket.terminate();
       else socket.close();

@@ -90,6 +90,7 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
     },
     async close(force) {
       input.detachCore();
+      if (force === true) signal?.removeEventListener('abort', abort);
       if (!socket.destroyed) {
         if (force === true) socket.destroy();
         else socket.destroySoon();
