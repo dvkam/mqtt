@@ -31,10 +31,10 @@ export function connectionFactory(options: Readonly<ConnectOptions>): Duplex {
         ...options.tlsOptions,
       });
 
-      const handleTLSerrors = (err: Readonly<Error>) => {
+      const handleTlsError = (error: Readonly<Error>) => {
         // Error forwarding and terminal TLS ownership are tracked in #27 and #52.
         if (options.tlsOptions) {
-          connection.emit('error', err);
+          connection.emit('error', error);
         }
 
         // close this connection to match the behaviour of net
@@ -49,11 +49,11 @@ export function connectionFactory(options: Readonly<ConnectOptions>): Duplex {
         if (tlsOptions && !connection.authorized) {
           connection.emit('error', new Error('TLS not authorized'));
         } else {
-          connection.removeListener('error', handleTLSerrors);
+          connection.removeListener('error', handleTlsError);
         }
       });
 
-      connection.on('error', handleTLSerrors);
+      connection.on('error', handleTlsError);
       return connection;
     }
     case 'ws:': {

@@ -19,7 +19,7 @@ pnpm build
 
 Add a regression that fails for the reported behavior before fixing a bug. Check the failure reason and process exit code. Tests should inspect observable protocol, lifecycle or public API behavior rather than copy an implementation. For type changes, include valid and invalid consumers and verify contextual inference.
 
-Use descriptive names and specific types. Do not add explicit `any`, unchecked casts or broad lint exclusions to make a check pass. Accept `unknown` at an untrusted boundary and narrow it. Prefer removing a suppression through a behavior-preserving change. If an API contract requires a narrow suppression, explain the behavior it preserves. The [type policy](../docs/type-policy.md) describes JSDoc enforcement and the remaining gap under [#57](https://github.com/dvkam/mqtt/issues/57).
+Use descriptive local, callback and type-parameter names. Preserve MQTT wire fields and external API names. Do not add explicit `any`, unchecked casts or broad lint exclusions to make a check pass. Accept `unknown` at an untrusted boundary and narrow it. Prefer removing a suppression through a behavior-preserving change. If an API contract requires a narrow suppression, explain the behavior it preserves. The [type policy](../docs/type-policy.md) describes compiler enforcement, including JSDoc. That work closed [#57](https://github.com/dvkam/mqtt/issues/57).
 
 ## Integration and review
 

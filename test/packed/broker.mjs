@@ -65,7 +65,7 @@ try {
     }
   }
   const elapsed = performance.now() - start;
-  samples.sort((a, b) => a - b);
+  samples.sort((leftMilliseconds, rightMilliseconds) => leftMilliseconds - rightMilliseconds);
   console.log(
     JSON.stringify({
       iterations,

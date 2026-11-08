@@ -9,11 +9,11 @@ export type WsOptions = {
   maxPayload: number;
   noServer: boolean;
   path: string;
-  perMessageDeflate: boolean | { [x: string]: unknown };
+  perMessageDeflate: boolean | { [optionName: string]: unknown };
   port: number;
   server: Server | HttpsServer;
   skipUTF8Validation: boolean;
   verifyClient: () => unknown;
 } & {
-  [prop: string]: string;
+  [propertyName: string]: string;
 };

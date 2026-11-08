@@ -80,8 +80,8 @@ export class MqttClient extends EventEmitter {
     // Echo connection errors this.emit('clientError')
     // We could look at maybe pushing errors in different directions depending on how we should
     // respond to the different errors.
-    this._incomingPacketParser.on('error', (err: unknown) => {
-      this.emit('clientError', err);
+    this._incomingPacketParser.on('error', (error: unknown) => {
+      this.emit('clientError', error);
     });
 
     this.on('close', () => {
@@ -241,12 +241,12 @@ export class MqttClient extends EventEmitter {
   }
 
   // Replacing private writable-state cleanup is tracked in #27, #42 and #52.
-  onError(err?: Readonly<Error | null>) {
+  onError(error?: Readonly<Error | null>) {
     if (this.connecting) {
-      this._packetSequencer.cancelConnect(err ?? new Error('Connection failed'));
+      this._packetSequencer.cancelConnect(error ?? new Error('Connection failed'));
       return;
     }
-    this.emit('error', err);
+    this.emit('error', error);
     this.errored = true;
     this.conn.removeAllListeners('error');
     this.conn.on('error', () => {});

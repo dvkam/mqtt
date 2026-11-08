@@ -3,10 +3,10 @@ import type { WebSocketOptions } from './interfaces/webSocketOptions.js';
 import type { WebSocketStream } from './interfaces/webSocketStream.js';
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The factory passes native stream options through to the WebSocket adapter.
-export function buildWebSocketStream(opts: Readonly<WebSocketOptions>): WebSocketStream {
-  const socket = new WebSocket(opts.url, [opts.websocketSubProtocol]);
-  const webSocketStream: WebSocketStream = createWebSocketStream(socket, opts.wsOptions);
-  webSocketStream.url = opts.url;
+export function buildWebSocketStream(options: Readonly<WebSocketOptions>): WebSocketStream {
+  const socket = new WebSocket(options.url, [options.websocketSubProtocol]);
+  const webSocketStream: WebSocketStream = createWebSocketStream(socket, options.wsOptions);
+  webSocketStream.url = options.url;
   socket.on('close', () => {
     webSocketStream.destroy();
   });

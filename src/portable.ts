@@ -150,7 +150,7 @@ class PortableClient<Message extends PublishMessage> {
     }
   }
 
-  private async run<T>(operation: () => Promise<T>): Promise<T> {
+  private async run<Result>(operation: () => Promise<Result>): Promise<Result> {
     if (this.failure) throw this.failure;
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
     let rejectOnClose!: (error: Error) => void;
