@@ -41,3 +41,53 @@ A zero timing sample reflects timer resolution and synchronous work; it does not
 The portable tracer imports mqtt/portable. Its size is not the full browser client, codec or npm package size. The stream-comparison figure includes its test workload. The queue is experimental and is not a published export. These are Vite build outputs with the harness's current library settings, not production application savings or a minification comparison.
 
 Run `node test/packed/browser-build.mjs <consumer-directory> chromium` after installing the tarball and the pinned Playwright browser. Omitting the engine runs declaration, bundle and installed Node receive checks without executing the browser comparison. The harness reports gzip through Node's gzipSync. Local transcripts are node-receive-packed.log and node-receive-ws-session.log outside the checkout; the tables preserve their quantitative observations with readable rounding.
+
+## TCP packet-admission follow-up
+
+The later packed run used b7b5e3b51fe5a5efa61e60a5e8ed7c12d532e773 with the same pinned tools and broker. The public TCP consumer set maxPacketBytes to 4096. All 100 sequential echo checks passed; the reported rate was 5315.414 echoes/s and p99 was 0.309834 ms. This small smoke run does not isolate decoder cost or establish a speedup over the earlier run.
+
+The new installed-package probe also passed exact-limit Buffer ownership, declared excess, valid acknowledgment prefixes, fragmented lengths, partial EOF and readable EOF during an 8 MiB blocked outgoing write. These are contract checks, not additional performance samples. The outgoing payload is deliberately larger than the incoming limit; those budgets are separate.
+
+The Chromium delivery rerun reported the following observations. Each mode again accepted and delivered 2,000 ordered messages with checksum 1,999,000.
+
+| Mode | Elapsed ms | Messages/s | Delivery p99 ms | Peak queued messages | Peak accounted bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Callback | 6.7 | 298507.463 | 0 | 0 | 0 |
+| Iterator | 12.9 | 155038.760 | 0.2 | 15 | 3870 |
+| Web Streams | 11.2 | 178571.429 | 0.7 | 16 | 4128 |
+
+| Bundled fixture | Raw bytes | Gzip bytes |
+| --- | ---: | ---: |
+| Portable tracer plus test consumer | 5679 | 1927 |
+| Full stream-comparison fixture | 27085 | Not measured |
+| Isolated experimental queue module | 3114 | 1274 |
+
+Raw graph sizes are unchanged in this rerun. The two-byte gzip difference in the queue fixture is an observation, not an optimization result. Ownership and terminal probes again passed. The local transcript is tcp-packet-packed.log outside the checkout. The same browser harness now runs the installed TCP capacity probe even when no browser engine is selected.
+
+## Final TCP integration validation
+
+The final local run used source and tests at 645c85d, including the shared CONNECT-refusal ordering fix at 1aaafce8126857ef3606c92a49a3f547d66b52bc. Tool versions and workloads match the earlier checks. All packed TCP capacity and EOF probes passed. Direct WS/WSS, client certificates, certificate rejection, cancellation and proxy checks also passed. Node WS/WSS still uses the existing parser, so these checks do not establish its per-packet capacity limit.
+
+| Transport fixture | Echoes | Echoes/s | Reported p99 ms |
+| --- | ---: | ---: | ---: |
+| TCP | 100 | 4790.993 | 0.629659 |
+| WS | 5 | 2158.203 | 0.923975 |
+| Direct WSS | 5 | 2789.830 | 0.680935 |
+| WSS with client certificate | 5 | 1205.226 | 2.555920 |
+| WSS through CONNECT proxy | 1 | 1066.487 | 0.928034 |
+
+| Mode | Elapsed ms | Messages/s | Delivery p99 ms | Peak queued messages | Peak accounted bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Callback | 6.3 | 317460.317 | 0 | 0 | 0 |
+| Iterator | 11.8 | 169491.525 | 0.2 | 15 | 3870 |
+| Web Streams | 10.9 | 183486.239 | 0.4 | 16 | 4128 |
+
+Each Chromium mode again delivered 2,000 ordered messages with checksum 1,999,000. Iterator break, stream cancellation and queue overflow cleared queued entries; all terminal probes passed. The timer-resolution and sample-size limitations above still apply.
+
+| Bundled fixture | Raw bytes | Gzip bytes |
+| --- | ---: | ---: |
+| Portable tracer plus test consumer | 5830 | 1950 |
+| Full stream-comparison fixture | 27236 | Not measured |
+| Isolated experimental queue module | 3114 | 1276 |
+
+The portable tracer grew by 151 raw bytes and 23 gzip bytes after the core refusal fix. The stream-comparison fixture grew by 151 raw bytes. These fixtures include consumer code and are not whole-package sizes. The queue module's raw size stayed unchanged. Local transcripts are tcp-packet-packed-final.log and tcp-packet-ws-session-final.log outside the checkout. These observations do not establish a performance regression or improvement; #18 owns controlled comparisons and thresholds.

@@ -1,6 +1,6 @@
 # Node framing measurements
 
-Measured on 8 November 2026. These results describe the test-only prototype in test/experiments/bounded-node-decoder.ts, not the published adapters.
+Measured on 8 November 2026. Runs 1 and 2 describe the test-only prototype at commit 0fe90aebb2e8739ad21c69cf71b402368e53d4bf. Run 3 uses the promoted private decoder in the TCP integration at b7b5e3b51fe5a5efa61e60a5e8ed7c12d532e773. These are decoder measurements, not end-to-end client throughput.
 
 ## Method
 
@@ -9,13 +9,14 @@ Run from the repository root with the pinned development runtime:
 ```sh
 node --expose-gc test/bench/node-framing.ts > ../node-framing-results.jsonl
 node --expose-gc test/bench/node-framing.ts > ../node-framing-results-final.jsonl
+node --expose-gc test/bench/node-framing.ts > ../tcp-production-framing-results.jsonl
 ```
 
 Each run repeats six cases three times. The input is one 263-byte MQTT 5 QoS 0 PUBLISH carrying 256 payload bytes. Each case warms 1,000 packets and measures 5,000. Input is either contiguous or split into precomputed one-byte views; creation of those views is outside the timed loop. Every case verifies packet count and payload-length checksum.
 
 V8 allocation sampling runs during timing, at a 1,024-byte interval, including objects collected by minor or major GC. Explicit GC runs before sampling. Throughput therefore includes profiler overhead. Sampled heap bytes are estimates for the measured loop, not exact allocation counts, external ArrayBuffer allocation, peak heap, RSS or GC pause time. Backing-buffer retention is measured separately by inspecting a retained payload view.
 
-Compact and streaming share bounded header admission and terminal rules. The reference is the unbounded mqtt-packet parser and lacks those guards. It provides context, not an equivalent hardened alternative. The harness measures valid packets without broker, socket, application-queue or reconnect work. Candidate order is fixed; there is no performance threshold or claim of universal superiority. No tests or TLC runs were active during either measurement run.
+Compact and streaming share bounded header admission and terminal rules. The reference is the unbounded mqtt-packet parser and lacks those guards. It provides context, not an equivalent hardened alternative. The harness measures valid packets without broker, socket, application-queue or reconnect work. Candidate order is fixed; there is no performance threshold or claim of universal superiority. No tests or TLC runs were active during any measurement run.
 
 Environment captured in the second run: Node v26.13.0, Linux x64 under WSL2, kernel 6.18.54.1-microsoft-standard-WSL2, AMD Ryzen 5 3600, 12 available logical processors. The first run used the same checkout and host; its original rows record runtime but do not contain a separate environment record.
 
@@ -85,4 +86,38 @@ The retained-view case places one publication before 10,000 PINGRESP packets in 
 
 Compact allocates the admitted remainder before its body arrives; streaming can defer body storage to arriving fragments. The prototype trades that bounded upfront allocation and copy for compact payload ownership and less fragment-management work. More payload sizes, malformed-input schedules and public adapter integration are required before adoption. See the design record and #75.
 
-Raw JSONL files remain outside the repository checkout. This document contains every throughput and retained-backing observation from both local runs. Timing values are rounded to whole packets/s for readability; the raw local rows retain elapsed milliseconds and full precision. No results file is included in the npm artifact.
+Raw JSONL files remain outside the repository checkout. This document contains every throughput and retained-backing observation from all three local runs. Timing values are rounded to whole packets/s for readability; the raw local rows retain elapsed milliseconds and full precision. No results file is included in the npm artifact.
+
+## Run 3: production decoder promotion
+
+The current runner uses src/nodePacketDecoder.ts for compact assembly and test/experiments/streaming-node-decoder.ts for streaming. Historical runs 1 and 2 require their recorded prototype revision. This run uses the same workload, iterations, warmup and profiler settings. It excludes NodePacketInput, the portable session and native socket work. No model checks or tests competed with this measurement.
+| Candidate | Fragment bytes | Repetition | Packets/s | Sampled heap bytes |
+| --- | ---: | ---: | ---: | ---: |
+| reference | 263 | 1 | 50095 | 29137776 |
+| compact | 263 | 1 | 84392 | 15266704 |
+| streaming | 263 | 1 | 87348 | 15269320 |
+| reference | 1 | 1 | 4878 | 301518656 |
+| compact | 1 | 1 | 11982 | 143708488 |
+| streaming | 1 | 1 | 4596 | 301752360 |
+| reference | 263 | 2 | 158589 | 9660904 |
+| compact | 263 | 2 | 93911 | 14155760 |
+| streaming | 263 | 2 | 100376 | 14009904 |
+| reference | 1 | 2 | 5097 | 300877800 |
+| compact | 1 | 2 | 12607 | 142969608 |
+| streaming | 1 | 2 | 4634 | 300311128 |
+| reference | 263 | 3 | 159693 | 9878200 |
+| compact | 263 | 3 | 91798 | 14393672 |
+| streaming | 263 | 3 | 98669 | 14133512 |
+| reference | 1 | 3 | 5015 | 300696048 |
+| compact | 1 | 3 | 12664 | 142741160 |
+| streaming | 1 | 3 | 4612 | 300541776 |
+
+| Candidate | Payload bytes | Retained backing bytes | Input batch bytes |
+| --- | ---: | ---: | ---: |
+| reference | 256 | 20263 | 20263 |
+| compact | 256 | 262 | 20263 |
+| streaming | 256 | 20263 | 20263 |
+
+Median contiguous rates were 158,589 packets/s for the native reference, 91,798 for compact and 98,669 for streaming. With one-byte fragments they were 5,015, 12,607 and 4,612. Compact's contiguous cost relative to streaming was about 7% in this run; one-byte throughput was about 2.7 times streaming. The retained-backing results were unchanged.
+
+The cost varies across runs, and promotion changed the candidate code paths. These observations do not isolate the cause of that variation or establish a production speedup. The captured environment remained Node v26.13.0, Linux x64, WSL2 kernel 6.18.54.1-microsoft-standard-WSL2, Ryzen 5 3600 and 12 logical processors. Broader workloads and repeated end-to-end measurements remain under #18.
