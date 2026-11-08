@@ -4,6 +4,7 @@ import { connectPortable, type PacketTransport, type PortableOptions } from './p
 import type { ClientFactory } from './session.js';
 import type { NodeMessage } from './nodeMessage.js';
 import { NodePacketInput } from './nodePacketInput.js';
+import { resolveSubscriptionLimits } from './subscriptionExchanges.js';
 import { resolveTimeout } from './timeout.js';
 import { resolvePublicationLimits } from './publicationAdmission.js';
 import { allowsNativeWrite, resolveNativeWriteLimits, type NativeWriteLimits } from './nativeWriteBudget.js';
@@ -39,6 +40,7 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
 
   const timeoutMs = resolveTimeout(options.timeoutMs);
   const publicationLimits = resolvePublicationLimits(options);
+  const subscriptionLimits = resolveSubscriptionLimits(options);
   const writeLimits = resolveNativeWriteLimits(options);
 
   const input = new NodePacketInput(options.maxPacketBytes);
@@ -127,7 +129,7 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
       socket.once('close', failed);
     });
     clearTimeout(timer);
-    const client = await connectPortable(transport, { ...options, ...publicationLimits, timeoutMs });
+    const client = await connectPortable(transport, { ...options, ...publicationLimits, ...subscriptionLimits, timeoutMs });
     if (isAborted()) throw abortReason();
     return client;
   } catch (error) {

@@ -8,6 +8,7 @@ import type { NodeMessage } from './nodeMessage.js';
 import { NodePacketInput } from './nodePacketInput.js';
 import { resolveWebSocketMessageLimit } from './websocketLimits.js';
 import { resolveTimeout } from './timeout.js';
+import { resolveSubscriptionLimits } from './subscriptionExchanges.js';
 import { resolvePublicationLimits } from './publicationAdmission.js';
 import { allowsNativeWrite, resolveNativeWriteLimits, type NativeWriteLimits } from './nativeWriteBudget.js';
 
@@ -45,6 +46,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
   const writeLimits = resolveNativeWriteLimits(options);
   resolveTimeout(timeoutMs);
   const publicationLimits = resolvePublicationLimits(options);
+  const subscriptionLimits = resolveSubscriptionLimits(options);
   const maxWebSocketMessageBytes = resolveWebSocketMessageLimit(options.maxWebSocketMessageBytes);
   const input = new NodePacketInput(options.maxPacketBytes);
 
@@ -148,7 +150,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
       socket.once('close', failed);
     });
     if (socket.protocol !== 'mqtt') throw new Error('MQTT WebSocket subprotocol was not negotiated');
-    const client = await connectPortable(transport, { ...options, ...publicationLimits, timeoutMs });
+    const client = await connectPortable(transport, { ...options, ...publicationLimits, ...subscriptionLimits, timeoutMs });
     if (isAborted()) throw abortReason();
     return client;
   } catch (error) {
