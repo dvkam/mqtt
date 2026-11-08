@@ -15,7 +15,7 @@ The byte count includes the first header byte, Remaining Length encoding, two-by
 
 A reservation starts synchronously before transport work, including reentrant callbacks. It ends when that actual send promise settles or the send throws. An operation timeout retires the session but does not free a reservation for a still-pending send. A late completion releases only its original reservation and cannot reactivate the session. Applications may retry a capacity rejection after an earlier send settles. They must create a new factory after terminal failure.
 
-Publication reservations do not consume the shared client's acknowledgment slot or disconnect path. A full publication pool therefore permits core control work. Native TCP and WebSocket writes retain their existing ordering; this change adds no scheduler and lets no control packet overtake a partial native write.
+Publication reservations do not consume the client's subscription registry, unnumbered ping slot or disconnect path. A full publication pool therefore permits core control work. Native TCP and WebSocket writes retain their existing ordering; this change adds no scheduler and lets no control packet overtake a partial native write.
 
 This pool measures unsettled packet-transport sends. Browser sends settle after native admission, so browser-owned queued bytes can outlive their publication reservations. The separate [native write budget and control reserve](native-write-reserve.md) uses each supported adapter's observed queue. TCP callbacks, custom transport promises, native buffers, application-held strings and total process memory are distinct quantities. Custom adapters must report send settlement honestly; this pool cannot bound buffers they retain after settlement.
 

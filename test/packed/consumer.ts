@@ -31,6 +31,8 @@ export async function checkTcpDeclarations(signal: AbortSignal) {
     host: '127.0.0.1',
     maxPacketBytes: 4096,
     clientId: 'consumer',
+    maxPendingSubscriptions: 4,
+    maxPendingSubscriptionBytes: 4096,
     signal,
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
     onMessage(packet) {
@@ -48,6 +50,8 @@ export async function checkWebSocketDeclarations(signal: AbortSignal) {
   const factory = createWebSocketClient({
     url: new URL('wss://localhost/mqtt'),
     clientId: 'consumer',
+    maxPendingSubscriptions: 4,
+    maxPendingSubscriptionBytes: 4096,
     maxWebSocketMessageBytes: 4096,
     maxPacketBytes: 4096,
     signal,
@@ -68,6 +72,8 @@ export async function checkBrowserClientDeclarations(signal: AbortSignal) {
   const client = await createBrowserClient({
     url: 'wss://localhost/mqtt',
     clientId: 'consumer',
+    maxPendingSubscriptions: 4,
+    maxPendingSubscriptionBytes: 4096,
     maxWebSocketMessageBytes: 4096,
     signal,
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.

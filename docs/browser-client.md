@@ -32,6 +32,8 @@ The preview opens an MQTT 5 clean session with Keep Alive set to zero. It suppor
 
 The shared session rejects empty subscription filters, misplaced wildcards, NUL, lone UTF-16 surrogates and filters exceeding 65,535 UTF-8 bytes before reserving an identifier or sending. Invalid input leaves an active session usable. An existing terminal failure retains precedence. Valid Unicode pairs, byte-order marks and exact byte-limit filters preserve their original text. Publishing applies the same string limits and rejects both wildcard characters before sending. Invalid publication input leaves the session usable. Topic aliases and shared-subscription negotiation remain outside this API.
 
+Subscriptions can run concurrently with independent identifiers. The [subscription guide](concurrent-subscriptions.md) defines maxPendingSubscriptions, maxPendingSubscriptionBytes, acknowledgment ownership and refusal behavior.
+
 The optional signal applies while opening and during the active connection. Cancellation rejects pending operations and prevents later writes. Cancellation that wins before the final connection handoff rejects `connect`.
 
 A peer close completes the decoder. If MQTT input ends inside a packet, pending operations reject with the truncation error. A clean packet boundary retains the transport close reason. Local disconnect, cancellation and earlier errors keep their original outcome, even with partial input. Decoder completion runs once and does not wait for another message.

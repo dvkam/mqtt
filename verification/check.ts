@@ -99,6 +99,14 @@ const models: readonly VerificationCase[] = [
   ['NativeWriteReserve', 'NativeWriteReserveTotal', 'BoundedProjection'],
   ['NativeWriteReserve', 'NativeWriteReserveHeadroom', 'PublicationHeadroom'],
   ['NativeWriteReserve', 'NativeWriteReserveInvalid', 'ValidObservation'],
+  ['SubscriptionOwnership', 'SubscriptionOwnership'],
+  ['SubscriptionOwnership', 'SubscriptionOwnershipItems', 'BoundedItems'],
+  ['SubscriptionOwnership', 'SubscriptionOwnershipBytes', 'BoundedBytes'],
+  ['SubscriptionOwnership', 'SubscriptionOwnershipReuse', 'OwnedUntilComplete'],
+  ['SubscriptionOwnership', 'SubscriptionOwnershipEarly', 'NoEarlyRelease'],
+  ['SubscriptionOwnership', 'SubscriptionOwnershipKind', 'NoWrongKind'],
+  ['SubscriptionOwnership', 'SubscriptionOwnershipStale', 'OwnedUntilComplete'],
+  ['SubscriptionOwnership', 'SubscriptionOwnershipRetired', 'NoAdmissionAfterRetirement'],
 ];
 
 for (const [model, configuration, expectedInvariant] of models) {

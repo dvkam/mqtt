@@ -2,6 +2,7 @@ import { openBrowserTransport } from './browserTransport.js';
 import { encodePacket, PacketDecoder, type UserProperty, type WirePacket } from './codec.js';
 import { connectPortable, type PacketTransport } from './portable.js';
 import type { ClientFactory, ClientSession } from './session.js';
+import { resolveSubscriptionLimits, type SubscriptionLimits } from './subscriptionExchanges.js';
 import { resolvePublicationLimits, type PublicationLimits } from './publicationAdmission.js';
 import { resolveNativeWriteLimits, type NativeWriteLimits } from './nativeWriteBudget.js';
 
@@ -17,7 +18,7 @@ export interface BrowserMessage {
 
 export type BrowserSession = ClientSession;
 
-export interface BrowserClientOptions extends PublicationLimits, NativeWriteLimits {
+export interface BrowserClientOptions extends PublicationLimits, SubscriptionLimits, NativeWriteLimits {
   url: string | URL;
   clientId: string;
   username?: string;
@@ -45,6 +46,7 @@ export function createBrowserClient(options: BrowserClientOptions): ClientFactor
 async function openClient(options: BrowserClientOptions): Promise<BrowserSession> {
   const timeoutMs = options.timeoutMs;
   const publicationLimits = resolvePublicationLimits(options);
+  const subscriptionLimits = resolveSubscriptionLimits(options);
   const writeLimits = resolveNativeWriteLimits(options);
   const decoder = new PacketDecoder({ maxPacketBytes: options.maxPacketBytes });
   let deliver: Parameters<PacketTransport<BrowserMessage>['listen']>[0] | undefined;
@@ -174,6 +176,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
   };
   const client = await connectPortable(transport, {
     ...publicationLimits,
+    ...subscriptionLimits,
     clientId: options.clientId,
     username: options.username,
     timeoutMs,
