@@ -56,6 +56,23 @@ async function broker(reply: (packet: Packet) => Packet | undefined) {
   };
 }
 
+test('reasoned broker DISCONNECT rejects ping and closes TCP before fixture cleanup', async () => {
+  const peer = await broker((packet: Readonly<Pick<Packet, 'cmd'>>) => {
+    if (packet.cmd === 'connect') return connack;
+    if (packet.cmd === 'pingreq') return { cmd: 'disconnect', reasonCode: 0x8e };
+    return undefined;
+  });
+  try {
+    const client = await createTcpClient(peer.options).connect();
+    const closed = once(peer.events, 'peer-close');
+    await expect(client.ping()).rejects.toMatchObject({ message: 'MQTT broker disconnected', code: 0x8e });
+    await closed;
+    expect(peer.commands).toEqual(['connect', 'pingreq']);
+  } finally {
+    await peer.close();
+  }
+});
+
 test('opens no TCP connection during construction and one when connect is called', async () => {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
   const peer = await broker((packet) => (packet.cmd === 'connect' ? connack : undefined));

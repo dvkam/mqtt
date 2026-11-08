@@ -66,6 +66,9 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
           case 'pingresp':
             deliver?.(packet);
             break;
+          case 'disconnect':
+            deliver?.({ cmd: 'disconnect', reasonCode: 0 });
+            break;
           case 'publish':
             deliver?.({
               cmd: 'publish',
@@ -78,7 +81,6 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
             });
             break;
           case 'connect':
-          case 'disconnect':
           case 'pingreq':
           case 'subscribe':
           default:

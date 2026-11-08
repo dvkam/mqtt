@@ -41,6 +41,14 @@ async function peer(reasonCode = 0, dropPing = false) {
   return {
     url: 'ws://127.0.0.1:' + address.port,
     packets,
+    async disconnect() {
+      const closed: Promise<unknown[]>[] = [];
+      for (const socket of server.clients) {
+        closed.push(once(socket, 'close'));
+        socket.send(Buffer.from([0xe0, 0]));
+      }
+      await Promise.all(closed);
+    },
     async close() {
       for (const socket of server.clients) socket.terminate();
       await new Promise<void>((resolve) => {
@@ -70,6 +78,17 @@ test('runs a public browser MQTT session with native codec and binary message pa
     await client.disconnect();
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
     expect(broker.packets.map(({ cmd }) => cmd)).toEqual(['connect', 'subscribe', 'publish', 'pingreq', 'disconnect']);
+  } finally {
+    await broker.close();
+  }
+});
+
+test('routes normal broker DISCONNECT through the shared session', async () => {
+  const broker = await peer();
+  try {
+    const client = await createBrowserClient({ url: broker.url, clientId: 'broker-disconnect' }).connect();
+    await broker.disconnect();
+    await expect(client.ping()).rejects.toMatchObject({ message: 'MQTT broker disconnected', code: 0 });
   } finally {
     await broker.close();
   }

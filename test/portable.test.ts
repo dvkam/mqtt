@@ -86,6 +86,49 @@ test('a later captured transport close cannot replace the first active failure',
   await expect(client.publish('a', 'late')).rejects.toBe(reason);
 });
 
+test.each([undefined, 0, 0x8e])('broker DISCONNECT %s owns the terminal result before native close', async (reasonCode) => {
+  const broker = peer();
+  const close = vi.spyOn(broker.transport, 'close');
+  const onMessage = vi.fn<(packet: unknown) => void>();
+  const client = await connectPortable(broker.transport, { clientId: 'broker-disconnect', onMessage });
+  const pending = client.ping().catch((reason: unknown) => reason);
+  broker.receive({ cmd: 'disconnect', reasonCode });
+  const later = client.publish('a', 'late').catch((reason: unknown) => reason);
+  expect(broker.packets).toHaveLength(2);
+  broker.receive({ cmd: 'publish', topic: 'a', payload: 'suffix', qos: 0, dup: false, retain: false });
+  broker.receive({ cmd: 'disconnect', reasonCode: 0x80 });
+  broker.close(new Error('trailing native close'));
+  const reason = await pending;
+  expect(reason).toMatchObject({ message: 'MQTT broker disconnected', code: reasonCode ?? 0 });
+  await expect(later).resolves.toBe(reason);
+  await expect(client.subscribe('a')).rejects.toBe(reason);
+  expect(onMessage).not.toHaveBeenCalled();
+  expect(close).toHaveBeenCalledExactlyOnceWith(true);
+});
+
+test('broker DISCONNECT retires an idle session without a pending exchange', async () => {
+  const broker = peer();
+  const close = vi.spyOn(broker.transport, 'close');
+  const client = await connectPortable(broker.transport, { clientId: 'idle-disconnect' });
+  broker.receive({ cmd: 'disconnect' });
+  await expect(client.publish('a', 'late')).rejects.toMatchObject({ message: 'MQTT broker disconnected', code: 0 });
+  expect(broker.packets).toHaveLength(1);
+  expect(close).toHaveBeenCalledExactlyOnceWith(true);
+});
+
+test('DISCONNECT after CONNACK but before handoff rejects the opening attempt', async () => {
+  const broker = peer();
+  // oxlint-disable-next-line typescript/require-await -- The fixture delivers the two broker packets synchronously before send completion.
+  broker.transport.send = async () => {
+    broker.receive({ cmd: 'connack', reasonCode: 0, sessionPresent: false });
+    broker.receive({ cmd: 'disconnect', reasonCode: 0x8e });
+  };
+  await expect(connectPortable(broker.transport, { clientId: 'opening-disconnect' })).rejects.toMatchObject({
+    message: 'MQTT broker disconnected',
+    code: 0x8e,
+  });
+});
+
 function peer() {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
   let receive: (packet: Packet) => void;
