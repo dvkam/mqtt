@@ -1,11 +1,11 @@
-import { generate, parser } from 'mqtt-packet';
+import { generate } from 'mqtt-packet';
 import type { Agent } from 'node:http';
 import type { SecureContextOptions } from 'node:tls';
 import WebSocket from 'ws';
 import { connectPortable, type PacketTransport, type PortableOptions } from './portable.js';
 import type { ClientFactory } from './session.js';
 import type { NodeMessage } from './nodeMessage.js';
-import { nodePacketListener } from './nodePacketListener.js';
+import { NodePacketInput } from './nodePacketInput.js';
 import { resolveWebSocketMessageLimit } from './websocketLimits.js';
 
 export interface WebSocketClientOptions extends PortableOptions<NodeMessage>, Pick<SecureContextOptions, 'ca' | 'cert' | 'key'> {
@@ -46,6 +46,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
     throw new RangeError('MQTT WebSocket timeout must be positive and fit in a timer');
   }
   const maxWebSocketMessageBytes = resolveWebSocketMessageLimit(options.maxWebSocketMessageBytes);
+  const input = new NodePacketInput(options.maxPacketBytes);
 
   const socket = new WebSocket(options.url, 'mqtt', {
     agent,
@@ -59,32 +60,28 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
   });
   socket.binaryType = 'nodebuffer';
   const codec = { protocolVersion: 5 };
-  const decoder = parser(codec);
   const closed = new Promise<void>((resolve) => {
     socket.once('close', () => {
-      signal?.removeEventListener('abort', abort);
-      resolve();
+      try {
+        input.remoteEnd(new Error('MQTT WebSocket closed'));
+      } finally {
+        signal?.removeEventListener('abort', abort);
+        resolve();
+      }
     });
   });
-  let socketError: Error | undefined;
-  let failSession: ((reason: Readonly<Error>) => void) | undefined;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
   socket.on('error', (error) => {
-    socketError ??= error;
-    if ('code' in error && error.code === 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH') {
-      failSession?.(socketError);
-      socket.terminate();
-    }
+    terminate(error);
   });
   const terminate = (error: Readonly<Error>) => {
-    socketError ??= error;
+    input.retire('error', error);
+    signal?.removeEventListener('abort', abort);
     socket.terminate();
   };
   const abort = () => {
-    const reason = socketError ?? abortReason();
-    socketError = reason;
-    failSession?.(reason);
-    terminate(reason);
+    input.retire('abort', input.reason ?? abortReason());
+    socket.terminate();
   };
   signal?.addEventListener('abort', abort, { once: true });
   if (isAborted()) abort();
@@ -94,18 +91,14 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
       terminate(new Error('MQTT WebSocket requires binary messages'));
       return;
     }
-    try {
-      decoder.parse(data);
-    } catch (error) {
-      terminate(error instanceof Error ? error : new Error('MQTT WebSocket packet handler failed'));
-    }
+    const reason = input.push(data);
+    if (reason) terminate(reason);
   });
-  decoder.on('error', terminate);
 
   const transport: PacketTransport<NodeMessage> = {
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
     async send(packet) {
-      if (socket.readyState !== WebSocket.OPEN) throw socketError ?? new Error('MQTT WebSocket closed');
+      if (socket.readyState !== WebSocket.OPEN) throw input.reason ?? new Error('MQTT WebSocket closed');
       const bytes = generate(packet, codec);
       if (socket.bufferedAmount + bytes.byteLength > maxBufferedBytes) {
         throw new Error('WebSocket write budget exceeded');
@@ -118,20 +111,10 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
       });
     },
     listen(onPacket, onClose) {
-      failSession = onClose;
-      const failed = () => {
-        onClose(socketError ?? new Error('MQTT WebSocket closed'));
-      };
-      const received = nodePacketListener(onPacket);
-      decoder.on('packet', received);
-      socket.on('close', failed);
-      return () => {
-        if (failSession === onClose) failSession = undefined;
-        decoder.off('packet', received);
-        socket.off('close', failed);
-      };
+      return input.listen(onPacket, onClose);
     },
     async close(force) {
+      input.detachCore();
       if (socket.readyState === WebSocket.CLOSED) return;
       if (force === true) socket.terminate();
       else socket.close();
@@ -154,7 +137,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
       };
       const failed = () => {
         socket.off('open', opened);
-        reject(socketError ?? new Error('MQTT WebSocket closed before opening'));
+        reject(input.reason ?? new Error('MQTT WebSocket closed before opening'));
       };
       socket.once('open', opened);
       socket.once('close', failed);
