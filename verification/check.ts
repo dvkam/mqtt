@@ -85,6 +85,11 @@ const models: readonly VerificationCase[] = [
   ['TimeoutAdmission', 'TimeoutAdmission'],
   ['TimeoutAdmission', 'TimeoutAdmissionValidate', 'ValidateBeforeAcquire'],
   ['TimeoutAdmission', 'TimeoutAdmissionSnapshot', 'RetainAcceptedDeadline'],
+  ['OperationTimeout', 'OperationTimeout'],
+  ['OperationTimeout', 'OperationTimeoutDefer', 'NoAdmissionAfterTimeout'],
+  ['OperationTimeout', 'OperationTimeoutSingle', 'AllPendingRetired'],
+  ['OperationTimeout', 'OperationTimeoutDuplicate', 'OneForcedClose'],
+  ['OperationTimeout', 'OperationTimeoutOverwrite', 'FirstTimeoutCause'],
 ];
 
 for (const [model, configuration, expectedInvariant] of models) {
