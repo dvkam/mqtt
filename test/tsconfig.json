@@ -19,6 +19,7 @@
     "./packed/*.ts",
     "./experiments/*.ts",
     "./bench/*.mjs",
+    "./bench/*.ts",
     "../sample/*.ts",
     "../lint/*.ts",
     "../verification/*.ts"
