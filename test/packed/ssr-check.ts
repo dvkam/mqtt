@@ -41,7 +41,7 @@ export async function checkSsrConsumer(root: string) {
     if (run.error) throw run.error;
     assert.equal(run.status, 0, run.stdout + run.stderr);
     assert.equal(run.stderr, '');
-    assert.equal(run.stdout.trim(), JSON.stringify({ connectType: 'function', distinctFactories: true }));
+    assert.equal(run.stdout, JSON.stringify({ connectType: 'function', distinctFactories: true }) + '\n');
     console.log('packed Vite SSR ' + mode + ' import and construction passed');
   }
 }

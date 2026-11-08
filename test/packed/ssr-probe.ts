@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 for (const name of ['WebSocket', 'window', 'document', 'navigator']) {
   assert.equal(Reflect.deleteProperty(globalThis, name), true);
 }
+let fetchCalls = 0;
 Object.defineProperty(globalThis, 'fetch', {
   value() {
+    fetchCalls++;
     throw new Error('SSR attempted network I/O before connect');
   },
 });
@@ -18,5 +20,6 @@ function hasInspector(value: unknown): value is { inspectFactory: () => unknown 
 }
 assert.ok(hasInspector(loaded), 'Expected the SSR factory inspector');
 const result = loaded.inspectFactory();
+assert.equal(fetchCalls, 0, 'SSR attempted fetch before connect');
 assert.deepEqual(result, { connectType: 'function', distinctFactories: true });
 console.log(JSON.stringify(result));
