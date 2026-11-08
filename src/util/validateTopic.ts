@@ -24,7 +24,7 @@ export function validateTopic(topic: string) {
   }
   const levels: string[] = topic.split('/');
 
-  for (const [i, level] of levels.entries()) {
+  for (const [levelIndex, level] of levels.entries()) {
     // If SLWC, MUST occupy entire level.
     if (level === '+') {
       continue;
@@ -32,7 +32,7 @@ export function validateTopic(topic: string) {
 
     if (level === '#') {
       // Validate MLWC at end of topic filter.
-      return i === levels.length - 1;
+      return levelIndex === levels.length - 1;
     }
 
     // Level must not contain more than one MLWC or SLWC character.

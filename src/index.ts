@@ -33,9 +33,9 @@ async function connect(options: ConnectOptions) {
     );
   }
 
-  const validationErr: Error | undefined = _validateProtocol(options);
-  if (validationErr) {
-    throw validationErr;
+  const validationError: Error | undefined = _validateProtocol(options);
+  if (validationError) {
+    throw validationError;
   }
 
   const client = new MqttClient(options);
@@ -44,9 +44,9 @@ async function connect(options: ConnectOptions) {
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- TLS options retain their native mutable certificate and key buffers.
-function _validateProtocol(opts: Readonly<ConnectOptions>): Error | undefined {
-  if (opts.tlsOptions && 'cert' in opts.tlsOptions && 'key' in opts.tlsOptions) {
-    const urlProtocol = opts.brokerUrl?.protocol;
+function _validateProtocol(options: Readonly<ConnectOptions>): Error | undefined {
+  if (options.tlsOptions && 'cert' in options.tlsOptions && 'key' in options.tlsOptions) {
+    const urlProtocol = options.brokerUrl?.protocol;
     if (urlProtocol !== undefined && urlProtocol !== '') {
       if (!protocols.secure.includes(urlProtocol)) {
         const protocolError: Error = formatSecureProtocolError(urlProtocol);

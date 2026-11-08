@@ -46,17 +46,17 @@ try {
 async function measurePublishes(client) {
   const payload = Buffer.alloc(256);
   const publish = () => client.publishAsync('baseline/qos1', payload, { qos: 1 });
-  for (let i = 0; i < 200; i++) await publish();
+  for (let warmupIndex = 0; warmupIndex < 200; warmupIndex++) await publish();
   for (let round = 0; round < 3; round++) {
     const start = performance.now();
     const latencies = [];
-    for (let i = 0; i < 2000; i++) {
+    for (let publicationIndex = 0; publicationIndex < 2000; publicationIndex++) {
       const sent = performance.now();
       await publish();
       latencies.push(performance.now() - sent);
     }
     const throughput = (2000 * 1000) / (performance.now() - start);
-    latencies.sort((a, b) => a - b);
+    latencies.sort((leftMilliseconds, rightMilliseconds) => leftMilliseconds - rightMilliseconds);
     console.log(JSON.stringify({ round, throughput, p99Ms: latencies[1979] }));
   }
 }

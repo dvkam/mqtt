@@ -111,8 +111,8 @@ test('ignores a queued application frame delivered after transport failure', asy
   const client = await connectPortable(broker.transport, {
     clientId: 'late-frame',
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onMessage: (p) => {
-      messages.push(p);
+    onMessage: (packet) => {
+      messages.push(packet);
     },
   });
   const reason = new Error('transport closed');
