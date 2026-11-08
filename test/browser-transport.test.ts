@@ -69,6 +69,100 @@ class Socket extends EventTarget {
   }
 }
 
+test.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2_147_483_648])(
+  'rejects receive capacity %s before opening',
+  async (capacity) => {
+    const constructing = vi.fn<() => never>(() => {
+      throw new Error('Unexpected WebSocket opening');
+    });
+    vi.stubGlobal('WebSocket', constructing);
+    await expect(
+      openBrowserTransport('ws://localhost', {
+        maxWebSocketMessageBytes: capacity,
+        onBytes() {},
+        onClose() {},
+      }),
+    ).rejects.toThrow(RangeError);
+    expect(constructing).not.toHaveBeenCalled();
+  },
+);
+
+test('admits the exact aggregate limit and empty binary messages', async () => {
+  vi.stubGlobal('WebSocket', Socket);
+  const received: number[][] = [];
+  const transport = await openBrowserTransport('ws://localhost', {
+    maxWebSocketMessageBytes: 4,
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The callback receives the transport's native mutable byte view.
+    onBytes(bytes) {
+      received.push([...bytes]);
+    },
+    onClose() {},
+  });
+  Socket.instance.dispatchEvent(new MessageEvent('message', { data: Uint8Array.of(0xd0, 0, 0xd0, 0).buffer }));
+  Socket.instance.dispatchEvent(new MessageEvent('message', { data: new ArrayBuffer() }));
+  expect(received).toEqual([[0xd0, 0, 0xd0, 0], []]);
+  const closing = transport.close();
+  Socket.instance.dispatchEvent(new Event('close'));
+  await closing;
+});
+
+test.each([1, 2_147_483_647])('accepts supported receive capacity %s', async (capacity) => {
+  vi.stubGlobal('WebSocket', Socket);
+  const onBytes = vi.fn<(bytes: unknown) => void>();
+  const transport = await openBrowserTransport('ws://localhost', { maxWebSocketMessageBytes: capacity, onBytes, onClose() {} });
+  Socket.instance.dispatchEvent(new MessageEvent('message', { data: Uint8Array.of(0).buffer }));
+  expect(onBytes).toHaveBeenCalledExactlyOnceWith(Uint8Array.of(0));
+  const closing = transport.close();
+  Socket.instance.dispatchEvent(new Event('close'));
+  await closing;
+});
+
+test('rejects excess before byte delivery and preserves the first failure against late events', async () => {
+  vi.stubGlobal('WebSocket', Socket);
+  const onBytes = vi.fn<(bytes: unknown) => void>();
+  const onClose = vi.fn<(reason: unknown, kind: unknown) => void>();
+  const controller = new AbortController();
+  const transport = await openBrowserTransport('ws://localhost', {
+    maxWebSocketMessageBytes: 4,
+    onBytes,
+    onClose,
+    signal: controller.signal,
+  });
+  const captured = getEventListeners(Socket.instance, 'message')[0];
+  if (captured === undefined) throw new Error('Expected message callback');
+  Socket.instance.dispatchEvent(new MessageEvent('message', { data: new ArrayBuffer(5) }));
+  expect(onBytes).not.toHaveBeenCalled();
+  const failure: unknown = onClose.mock.calls[0]?.[0];
+  expect(failure).toBeInstanceOf(RangeError);
+  expect(failure).toMatchObject({ message: 'WebSocket receive message limit exceeded' });
+  expect(onClose.mock.calls[0]?.[1]).toBe('error');
+  expect(Socket.instance.close).toHaveBeenCalledTimes(1);
+  captured.call(Socket.instance, new MessageEvent('message', { data: Uint8Array.of(0xd0, 0).buffer }));
+  Socket.instance.dispatchEvent(new Event('error'));
+  controller.abort(new Error('later abort'));
+  Socket.instance.dispatchEvent(new Event('close'));
+  await transport.close();
+  expect(onBytes).not.toHaveBeenCalled();
+  expect(onClose).toHaveBeenCalledTimes(1);
+  expect(getEventListeners(Socket.instance, 'message')).toEqual([]);
+  expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
+  expect(() => {
+    transport.send(Uint8Array.of(0xc0, 0));
+  }).toThrow(failure);
+});
+
+test('the default rejects a message above one MiB before byte delivery', async () => {
+  vi.stubGlobal('WebSocket', Socket);
+  const onBytes = vi.fn<(bytes: unknown) => void>();
+  const onClose = vi.fn<(reason: unknown, kind: unknown) => void>();
+  const transport = await openBrowserTransport('ws://localhost', { onBytes, onClose });
+  Socket.instance.dispatchEvent(new MessageEvent('message', { data: new ArrayBuffer(1024 * 1024 + 1) }));
+  expect(onBytes).not.toHaveBeenCalled();
+  expect(onClose.mock.calls[0]?.[0]).toBeInstanceOf(RangeError);
+  Socket.instance.dispatchEvent(new Event('close'));
+  await transport.close();
+});
+
 test.each(['remote', 'local', 'abort', 'error'] as const)('reports the first %s retirement kind exactly once', async (kind) => {
   vi.stubGlobal('WebSocket', Socket);
   const controller = new AbortController();

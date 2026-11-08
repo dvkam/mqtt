@@ -18,6 +18,7 @@ interface BrowserTransportOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
   maxBufferedBytes?: number;
+  maxWebSocketMessageBytes?: number;
 }
 
 export async function openBrowserTransport(
@@ -26,9 +27,19 @@ export async function openBrowserTransport(
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- This transport boundary uses native sockets, signals and mutable byte views.
   options: BrowserTransportOptions,
 ): Promise<BrowserTransport> {
-  const { onBytes, onClose, signal, timeoutMs = 3000, maxBufferedBytes = 1024 * 1024 } = options;
+  const {
+    onBytes,
+    onClose,
+    signal,
+    timeoutMs = 3000,
+    maxBufferedBytes = 1024 * 1024,
+    maxWebSocketMessageBytes = 1024 * 1024,
+  } = options;
   if (!Number.isSafeInteger(maxBufferedBytes) || maxBufferedBytes <= 0) {
     throw new RangeError('WebSocket write budget must be a positive safe integer');
+  }
+  if (!Number.isInteger(maxWebSocketMessageBytes) || maxWebSocketMessageBytes < 1 || maxWebSocketMessageBytes > 2_147_483_647) {
+    throw new RangeError('WebSocket receive message limit must be an integer from 1 to 2147483647');
   }
   const socket = await openMqttWebSocket(url, { signal, timeoutMs });
   let failure: Error | undefined;
@@ -77,6 +88,10 @@ export async function openBrowserTransport(
     if (failure) return;
     if (!(event.data instanceof ArrayBuffer)) {
       retire(new Error('MQTT WebSocket requires binary messages'), 'error');
+      return;
+    }
+    if (event.data.byteLength > maxWebSocketMessageBytes) {
+      retire(new RangeError('WebSocket receive message limit exceeded'), 'error');
       return;
     }
     try {

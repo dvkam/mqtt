@@ -9,7 +9,8 @@
       "/trace.js": ["./packed/browser.mjs"],
       "/probe.js": ["./packed/websocket-browser.mjs"],
       "/session.js": ["./packed/websocket-session.mjs"],
-      "/streams.js": ["./packed/stream-comparison.ts"]
+      "/streams.js": ["./packed/stream-comparison.ts"],
+      "/receive.js": ["./packed/receive-client.ts"]
     }
   },
   "include": [

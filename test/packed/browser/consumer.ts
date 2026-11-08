@@ -17,6 +17,7 @@ export type BrowserOwnsTls = RequireTrue<
 const options: BrowserClientOptions = {
   url: 'wss://localhost/mqtt',
   clientId: 'packed-browser-types',
+  maxWebSocketMessageBytes: 4096,
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The consumer verifies the original mutable Uint8Array callback contract.
   onMessage(message) {
     const bytes: Uint8Array = message.payload;
@@ -27,6 +28,7 @@ export const factory: ClientFactory = createBrowserClient(options);
 
 export async function checkTransportCloseKind() {
   return openBrowserTransport('wss://localhost/mqtt', {
+    maxWebSocketMessageBytes: 4096,
     onBytes() {},
     onClose(_reason: Readonly<Error>, kind) {
       const closeKind: BrowserCloseKind = kind;
