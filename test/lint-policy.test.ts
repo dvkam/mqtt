@@ -29,9 +29,9 @@ function lintFixture(contents: string, extension: 'ts' | 'mjs', configuration = 
   try {
     if (configuration === 'repository') {
       execFileSync('git', ['init', '--quiet'], { cwd: directory });
-      mkdirSync(join(directory, 'verification'));
+      mkdirSync(join(directory, 'verification', '.lint-policy'), { recursive: true });
     }
-    const filename = join(directory, configuration === 'repository' ? 'verification' : '', `probe.${extension}`);
+    const filename = join(directory, configuration === 'repository' ? 'verification/.lint-policy' : '', `probe.${extension}`);
     writeFileSync(filename, contents);
     const result = spawnSync(
       process.execPath,
