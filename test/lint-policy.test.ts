@@ -44,6 +44,8 @@ function lintFixture(contents: string, extension: 'ts' | 'mjs', configuration = 
               'oxlint.config.mjs',
               '--format',
               'json',
+              '--debug',
+              'files',
               'src',
               'test',
               'sample',
@@ -54,11 +56,23 @@ function lintFixture(contents: string, extension: 'ts' | 'mjs', configuration = 
       { cwd: configuration === 'repository' ? directory : process.cwd(), encoding: 'utf8', timeout: 15000 },
     );
     if (result.error) throw result.error;
+    if (configuration === 'discovery') {
+      return {
+        status: result.status,
+        diagnostics: [],
+        files: result.stdout
+          .trim()
+          .split(/\r?\n/)
+          .filter(Boolean)
+          .map((filename) => resolve(filename)),
+        fixture: filename,
+      };
+    }
     const report: unknown = JSON.parse(result.stdout);
     if (typeof report !== 'object' || report === null || !('diagnostics' in report) || !Array.isArray(report.diagnostics))
       throw new Error('Expected Oxlint diagnostics');
     const diagnostics: unknown[] = report.diagnostics;
-    return { status: result.status, diagnostics };
+    return { status: result.status, diagnostics, files: [], fixture: filename };
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -88,8 +102,15 @@ test.each(['oxlint.config.mjs', 'compiler'])('rejects explicit any through %s', 
   ).toHaveLength(4);
 });
 
-test.each(['discovery', 'default-policy'])('an active negative fixture does not enter %s', (configuration) => {
-  const result = lintFixture('export type InvalidFixture = any;', 'ts', configuration);
+test('an active negative fixture does not enter Oxlint file discovery', () => {
+  const result = lintFixture('export type InvalidFixture = any;', 'ts', 'discovery');
+  expect(result.status).toBe(0);
+  expect(result.files).toContain(resolve('test/lint-policy.test.ts'));
+  expect(result.files).not.toContain(resolve(result.fixture));
+});
+
+test('an active negative fixture does not enter default policy discovery', () => {
+  const result = lintFixture('export type InvalidFixture = any;', 'ts', 'default-policy');
   expect(result.status).toBe(0);
   expect(result.diagnostics).toEqual([]);
 });
