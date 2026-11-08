@@ -42,6 +42,8 @@ The runnable [TypeScript sample](sample/sample.ts) also receives an echoed messa
 
 For Node WS/WSS, use `createWebSocketClient` from `mqtt` with a broker URL. This adapter uses `ws` and accepts CA, client certificate and caller-supplied agent options. See the [transport comparison](docs/websocket-comparison.md) for TLS, proxy, backpressure and close behavior, including limitations of the experimental native Node WebSocket probe.
 
+Both Node factories accept an optional signal for the connection attempt and active session. Abort rejects pending and immediate later operations with the original Error reason, or an AbortError for a non-Error reason, and starts native teardown. An established terminal failure keeps precedence. Normal closure releases the signal listener. An application message facade's cancellation remains local to that facade; the connection signal owns the connection.
+
 ## Browser WebSocket
 
 The broker must expose an MQTT WebSocket endpoint. Browser TLS trust, client certificates and proxy settings belong to the browser.
