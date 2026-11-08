@@ -17,7 +17,7 @@ export interface MessageQueue {
   push: (message: Readonly<BrowserMessage>) => void;
   close(): void;
   fail(reason: unknown): void;
-  iterate(): AsyncIterableIterator<BrowserMessage>;
+  iterate(): AsyncIterableIterator<BrowserMessage, undefined, undefined>;
   stream(): ReadableStream<BrowserMessage>;
   snapshot(): QueueSnapshot;
 }
@@ -38,7 +38,7 @@ export function createMessageQueue(limits: Readonly<QueueLimits>): MessageQueue 
   let pending:
     | {
         // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Iterator results carry the consumer's owned mutable payload.
-        resolve: (result: IteratorResult<BrowserMessage>) => void;
+        resolve: (result: IteratorResult<BrowserMessage, undefined>) => void;
         reject: (reason: unknown) => void;
       }
     | undefined;
@@ -65,7 +65,7 @@ export function createMessageQueue(limits: Readonly<QueueLimits>): MessageQueue 
     waiting?.reject(reason);
     notifyTerminal?.();
   };
-  const claim = (): AsyncIterableIterator<BrowserMessage> => {
+  const claim = (): AsyncIterableIterator<BrowserMessage, undefined, undefined> => {
     if (claimed) throw new Error('A message consumer already owns this queue');
     claimed = true;
     return {
@@ -81,7 +81,7 @@ export function createMessageQueue(limits: Readonly<QueueLimits>): MessageQueue 
         }
         if (state !== 'open') return { done: true, value: undefined };
         if (pending !== undefined) throw new Error('A message read is already pending');
-        return new Promise<IteratorResult<BrowserMessage>>((resolve, reject) => {
+        return new Promise<IteratorResult<BrowserMessage, undefined>>((resolve, reject) => {
           pending = { resolve, reject };
         });
       },
