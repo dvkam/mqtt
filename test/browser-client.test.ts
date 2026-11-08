@@ -95,7 +95,7 @@ test('keeps the opening timeout when caller options change during the browser ha
     const client = await opening;
     await client.ping();
     await client.disconnect();
-    expect(broker.packets.map(({ cmd }: Readonly<Packet>) => cmd)).toEqual(['connect', 'pingreq', 'disconnect']);
+    expect(broker.packets.map(({ cmd }: Readonly<Pick<Packet, 'cmd'>>) => cmd)).toEqual(['connect', 'pingreq', 'disconnect']);
   } finally {
     await broker.close();
   }
