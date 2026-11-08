@@ -1,5 +1,7 @@
+const topicEncoder = new TextEncoder();
+
 /**
- * Validate a topic to see if it's valid or not.
+ * Validate a Topic Filter's MQTT string and wildcard syntax.
  * Topics can support Multi-level wildcards (‘#’ U+0023) and single-level wildcards (‘+’ U+002B).
  *
  * The multi-level wildcard character MUST be specified either on its own or following a topic level separator.
@@ -18,8 +20,13 @@
  * @returns {Boolean} If the topic is valid, returns true. Otherwise, returns false.
  */
 export function validateTopic(topic: string) {
-  // Topic must be at least 1 character.
-  if (topic.length === 0) {
+  if (
+    topic.length === 0 ||
+    topic.length > 65_535 ||
+    topic.includes('\u0000') ||
+    /[\uD800-\uDFFF]/u.test(topic) ||
+    topicEncoder.encode(topic).byteLength > 65_535
+  ) {
     return false;
   }
   const levels: string[] = topic.split('/');

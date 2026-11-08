@@ -2,6 +2,32 @@ import type { Packet } from 'mqtt-packet';
 import { expect, test, vi } from 'vitest';
 import { connectPortable, type PacketTransport } from '../src/portable.js';
 
+test.each(['', 'a\u0000b', '\uD800', 'a'.repeat(65_536), 'é'.repeat(32_768), 'sport/#/score'])(
+  'rejects an invalid subscription before sending and keeps the session active',
+  async (filter) => {
+    const broker = peer();
+    const client = await connectPortable(broker.transport, { clientId: 'invalid-filter' });
+    await expect(client.subscribe(filter)).rejects.toThrow('Invalid MQTT topic filter');
+    expect(broker.packets).toEqual([expect.objectContaining({ cmd: 'connect' })]);
+    await client.subscribe('valid/+');
+    expect(broker.packets[1]).toMatchObject({ cmd: 'subscribe', messageId: 1 });
+    const ping = client.ping();
+    broker.receive({ cmd: 'pingresp' });
+    await ping;
+    await client.disconnect();
+    expect(broker.packets[broker.packets.length - 1]).toMatchObject({ cmd: 'disconnect' });
+  },
+);
+
+test('invalid subscription input cannot replace an established terminal failure', async () => {
+  const broker = peer();
+  const client = await connectPortable(broker.transport, { clientId: 'closed-invalid-filter' });
+  const reason = new Error('connection retired');
+  broker.close(reason);
+  await expect(client.subscribe('a\u0000b')).rejects.toBe(reason);
+  expect(broker.packets).toEqual([expect.objectContaining({ cmd: 'connect' })]);
+});
+
 function peer() {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
   let receive: (packet: Packet) => void;
