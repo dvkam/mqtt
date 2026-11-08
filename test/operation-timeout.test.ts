@@ -1,8 +1,10 @@
 import type { Packet } from 'mqtt-packet';
 import { Socket } from 'node:net';
+import { getEventListeners } from 'node:events';
 import { afterEach, expect, test, vi } from 'vitest';
 import { connectPortable, type PacketTransport } from '../src/portable.js';
 import { createTcpClient } from '../src/tcpClient.js';
+import { createWebSocketClient } from '../src/websocketClient.js';
 import { startCancellationPeer } from './experiments/node-cancellation-peer.js';
 
 afterEach(() => {
@@ -115,11 +117,17 @@ test('a completed publication stays successful and clears its timeout', async ()
 
 test('TCP publication timeout destroys a socket with a held write and fences immediate retry', async () => {
   const peer = await startCancellationPeer('tcp');
+  const controller = new AbortController();
   const writes = vi.spyOn(Socket.prototype, 'write');
   let owner: Socket | undefined;
   let restore: (() => void) | undefined;
   try {
-    const client = await createTcpClient({ ...peer, clientId: 'held-timeout', timeoutMs: 1000 }).connect();
+    const client = await createTcpClient({
+      ...peer,
+      clientId: 'held-timeout',
+      timeoutMs: 1000,
+      signal: controller.signal,
+    }).connect();
     const connected: unknown = writes.mock.contexts.find(
       (candidate: unknown) => candidate instanceof Socket && candidate.remotePort === peer.port,
     );
@@ -138,6 +146,7 @@ test('TCP publication timeout destroys a socket with a held write and fences imm
     const reason = await pending;
     expect(reason).toMatchObject({ message: 'MQTT operation timed out' });
     expect(owner.destroyed).toBe(true);
+    expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
     await expect(retry).resolves.toBe(reason);
     await peer.peerClosed;
     expect(blocked).toHaveBeenCalledTimes(1);
@@ -147,6 +156,27 @@ test('TCP publication timeout destroys a socket with a held write and fences imm
     writes.mockRestore();
     restore?.();
     owner?.destroy();
+    await peer.close();
+  }
+});
+
+test.each(['tcp', 'websocket'] as const)('%s timeout releases cancellation before waiting for native close', async (kind) => {
+  const peer = await startCancellationPeer(kind);
+  const controller = new AbortController();
+  try {
+    const options = { ...peer, clientId: 'timeout-cleanup', timeoutMs: 1000, signal: controller.signal };
+    const client = await (kind === 'tcp' ? createTcpClient(options) : createWebSocketClient(options)).connect();
+    vi.useFakeTimers();
+    const pending = client.ping().catch((reason: unknown) => reason);
+    vi.advanceTimersByTime(1000);
+    const reason = await pending;
+    expect(reason).toMatchObject({ message: 'MQTT operation timed out' });
+    expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
+    controller.abort(new Error('late abort'));
+    await expect(client.publish('a', 'late')).rejects.toBe(reason);
+    await peer.peerClosed;
+  } finally {
+    vi.useRealTimers();
     await peer.close();
   }
 });
