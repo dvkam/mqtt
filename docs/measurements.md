@@ -15,3 +15,5 @@ Keep workload, environment, tool versions, individual observations, summary and 
 The compact runner now uses the private production decoder described in [TCP packet input](tcp-packet-input.md) and [Node WebSocket packet input](websocket-packet-input.md). Historical prototype runs remain pinned in the measurement record. Decoder-only throughput excludes the input helper, session and native socket.
 
 Local timing observations do not become CI thresholds automatically. #18 owns repeatable bundle, throughput, latency and memory baselines. #56 owns portable encoder allocation profiling. #75 owns the Node framing comparison and adoption decision. A passing protocol exchange or a small bundle does not establish a general performance advantage.
+
+The [historical dependency removal observations](baseline/dependency-removal.md) preserve PR #59's installed-tree, bundle and broker checks, including the correction that the after tree came from an incremental update.
