@@ -1,5 +1,6 @@
 import type { IConnectPacket, IPublishPacket, Packet } from 'mqtt-packet';
 import type { ClientSession } from './session.js';
+import { validateTopic } from './util/validateTopic.js';
 
 type PublishMessage = Omit<IPublishPacket, 'payload'> & { payload: unknown };
 type IncomingPacket<Message extends PublishMessage> = Exclude<Packet, IPublishPacket> | Message;
@@ -76,6 +77,8 @@ class PortableClient<Message extends PublishMessage> {
 
   async subscribe(topic: string): Promise<void> {
     if (this.closing) throw new Error('Client is closing');
+    if (this.failure) throw this.failure;
+    if (!validateTopic(topic)) throw new Error('Invalid MQTT topic filter');
     const messageId = this.messageId === 65_535 ? 1 : this.messageId + 1;
     this.messageId = messageId;
     await this.exchange(
