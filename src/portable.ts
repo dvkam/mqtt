@@ -130,7 +130,12 @@ class PortableClient<Message extends PublishMessage> {
     const ack = new Promise<Acknowledgment>((resolve) => {
       // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
       this.pendingAck = (reply) => {
-        if (matches(reply)) resolve(reply);
+        if (matches(reply)) {
+          if (reply.cmd === 'connack' && reply.reasonCode !== 0) {
+            this.fail(Object.assign(new Error('MQTT acknowledgment refused'), { code: reply.reasonCode }));
+          }
+          resolve(reply);
+        }
       };
     });
     try {
