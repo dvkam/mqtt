@@ -40,6 +40,14 @@ export async function trace() {
     },
   };
   const client = await connectPortable(transport, options);
+  await client.subscribe('ci/\u0000invalid').then(
+    () => {
+      throw new Error('Expected invalid filter rejection');
+    },
+    (/** @type {unknown} */ error) => {
+      if (!(error instanceof Error) || error.message !== 'Invalid MQTT topic filter') throw error;
+    },
+  );
   await client.subscribe('ci/echo');
   await client.publish('ci/echo', 'hello');
   await client.disconnect();

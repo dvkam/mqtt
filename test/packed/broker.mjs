@@ -35,6 +35,7 @@ const factory =
     : createTcpClient({ ...options, host: '127.0.0.1', port: Number(process.env['MQTT_TEST_PORT']) });
 const client = await factory.connect();
 try {
+  await assert.rejects(client.subscribe('ci/\u0000invalid'), /Invalid MQTT topic filter/);
   await client.subscribe('ci/echo');
   await client.ping();
   const samples = [];
