@@ -34,6 +34,7 @@ class PortableClient<Message extends PublishMessage> {
   private readonly pendingOperations = new Set<(error: Error) => void>();
   private failure?: Error;
   private closing?: Promise<void>;
+  private forcedClose?: Promise<void>;
   private readonly unlisten: (() => void) | undefined;
   private messageId = 0;
   private active = false;
@@ -113,8 +114,12 @@ class PortableClient<Message extends PublishMessage> {
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
   async abort(error: Error): Promise<void> {
-    this.fail(error);
-    await this.transport.close(true);
+    try {
+      this.fail(error);
+    } finally {
+      this.forcedClose ??= Promise.resolve().then(async () => this.transport.close(true));
+      await this.forcedClose;
+    }
   }
 
   private async end(): Promise<void> {
@@ -172,7 +177,8 @@ class PortableClient<Message extends PublishMessage> {
       rejectOnClose = reject;
       this.pendingOperations.add(reject);
       timer = setTimeout(() => {
-        reject(new Error('MQTT operation timed out'));
+        if (this.failure) return;
+        void this.abort(new Error('MQTT operation timed out')).catch(() => {});
       }, this.timeoutMs);
     });
     try {
