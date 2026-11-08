@@ -8,10 +8,12 @@ import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
 import { startProtocolPeer } from '../experiments/protocol-peer.ts';
+import { checkSsrConsumer } from './ssr-check.ts';
 
 const inputRoot = process.argv[2];
 assert.ok(inputRoot !== undefined && inputRoot !== '', 'Expected packed consumer directory');
 const root = resolve(inputRoot);
+await checkSsrConsumer(root);
 cpSync(new URL('./browser', import.meta.url), resolve(root, 'browser'), { recursive: true });
 execFileSync(
   process.execPath,
