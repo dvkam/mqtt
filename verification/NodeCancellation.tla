@@ -14,12 +14,14 @@ Abort == /\ ~cancelled /\ cancelled' = TRUE
          /\ UNCHANGED <<phase, sent>>
 Send == /\ phase = "active" /\ ~retired /\ sent < 2 /\ sent' = sent + 1
         /\ UNCHANGED <<phase, attached, cancelled, retired>>
-Retire == /\ phase = "active" /\ ~retired /\ retired' = TRUE
+Retire == /\ phase # "closed" /\ ~retired /\ retired' = TRUE
           /\ UNCHANGED <<phase, attached, cancelled, sent>>
+ReleaseRetired == /\ phase # "closed" /\ retired /\ attached /\ attached' = FALSE
+                  /\ UNCHANGED <<phase, cancelled, retired, sent>>
 NativeClose == /\ phase # "closed" /\ phase' = "closed" /\ retired' = TRUE
                /\ attached' = IF Fault = "cleanup" THEN attached ELSE FALSE
                /\ UNCHANGED <<cancelled, sent>>
-Next == Transfer \/ Abort \/ Send \/ Retire \/ NativeClose
+Next == Transfer \/ Abort \/ Send \/ Retire \/ ReleaseRetired \/ NativeClose
 Spec == Init /\ [][Next]_vars
 ActiveOwnsSignal == (phase = "active" /\ ~cancelled /\ ~retired) => attached
 AbortRetiresActive == (phase = "active" /\ cancelled) => retired

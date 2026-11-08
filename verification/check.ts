@@ -70,6 +70,18 @@ const models: readonly VerificationCase[] = [
   ['NodePacketAdmission', 'NodePacketAdmissionPoison', 'PermanentFailure'],
   ['NodePacketAdmission', 'NodePacketAdmissionRetire', 'RetirementFenced'],
   ['NodePacketAdmission', 'NodePacketAdmissionEof', 'RejectTruncatedCompletion'],
+  ['NodeInputLifecycle', 'NodeInputLifecycle'],
+  ['NodeInputLifecycle', 'NodeInputLifecycleReplay', 'ReplayInstalled'],
+  ['NodeInputLifecycle', 'NodeInputLifecycleStop', 'RetirementStopsDecoder'],
+  ['NodeInputLifecycle', 'NodeInputLifecycleLate', 'NoDecoderReadAfterTerminal'],
+  ['NodeInputLifecycle', 'NodeInputLifecycleOrder', 'NotificationOwnsCause'],
+  ['NodeInputLifecycle', 'NodeInputLifecycleEof', 'RemoteTruncation'],
+  ['NodeInputLifecycle', 'NodeInputLifecycleRepeat', 'FinishAtMostOnce'],
+  ['NodeInputLifecycle', 'NodeInputLifecycleOverwrite', 'PreserveInputCause'],
+  ['NodeInputLifecycle', 'NodeInputLifecycleLeak', 'NoSyntheticLeak'],
+  ['ConnectRefusal', 'ConnectRefusal'],
+  ['ConnectRefusal', 'ConnectRefusalDefer', 'FirstTerminalReason'],
+  ['ConnectRefusal', 'ConnectRefusalOverwrite', 'FirstTerminalReason'],
 ];
 
 for (const [model, configuration, expectedInvariant] of models) {
