@@ -3,6 +3,7 @@ import { encodePacket, PacketDecoder, type UserProperty, type WirePacket } from 
 import { connectPortable, type PacketTransport } from './portable.js';
 import type { ClientFactory, ClientSession } from './session.js';
 import { resolvePublicationLimits, type PublicationLimits } from './publicationAdmission.js';
+import { resolveNativeWriteLimits, type NativeWriteLimits } from './nativeWriteBudget.js';
 
 export interface BrowserMessage {
   cmd: 'publish';
@@ -16,13 +17,12 @@ export interface BrowserMessage {
 
 export type BrowserSession = ClientSession;
 
-export interface BrowserClientOptions extends PublicationLimits {
+export interface BrowserClientOptions extends PublicationLimits, NativeWriteLimits {
   url: string | URL;
   clientId: string;
   username?: string;
   signal?: AbortSignal;
   timeoutMs?: number;
-  maxBufferedBytes?: number;
   maxPacketBytes?: number;
   maxWebSocketMessageBytes?: number;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
@@ -45,6 +45,7 @@ export function createBrowserClient(options: BrowserClientOptions): ClientFactor
 async function openClient(options: BrowserClientOptions): Promise<BrowserSession> {
   const timeoutMs = options.timeoutMs;
   const publicationLimits = resolvePublicationLimits(options);
+  const writeLimits = resolveNativeWriteLimits(options);
   const decoder = new PacketDecoder({ maxPacketBytes: options.maxPacketBytes });
   let deliver: Parameters<PacketTransport<BrowserMessage>['listen']>[0] | undefined;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
@@ -53,7 +54,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
   const bytes = await openBrowserTransport(options.url, {
     signal: options.signal,
     timeoutMs,
-    maxBufferedBytes: options.maxBufferedBytes,
+    ...writeLimits,
     maxWebSocketMessageBytes: options.maxWebSocketMessageBytes,
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
     onBytes(chunk) {
@@ -150,7 +151,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
         default:
           throw new Error('Unsupported browser client operation');
       }
-      bytes.send(encodePacket(encoded));
+      bytes.send(encodePacket(encoded), packet.cmd === 'publish' ? 'publication' : 'control');
     },
     listen(onPacket, onClose) {
       deliver = onPacket;

@@ -290,3 +290,45 @@ test('closes TCP and rejects pending work when a message callback throws', async
     await peer.close();
   }
 });
+
+test('reserves native TCP bytes for ping without overtaking corked publication data', async () => {
+  const peer = await broker((packet: Readonly<Pick<Packet, 'cmd'>>) => {
+    if (packet.cmd === 'connect') return connack;
+    if (packet.cmd === 'pingreq') return { cmd: 'pingresp' };
+    return undefined;
+  });
+  const writes = vi.spyOn(Socket.prototype, 'write');
+  let owner: Socket | undefined;
+  try {
+    const options = { ...peer.options, maxBufferedBytes: 32, reservedControlBytes: 8 };
+    const opening = createTcpClient(options).connect();
+    options.maxBufferedBytes = 1;
+    options.reservedControlBytes = 1;
+    const client = await opening;
+    const connected: unknown = writes.mock.contexts.find(
+      (candidate: unknown) => candidate instanceof Socket && candidate.remotePort === peer.options.port,
+    );
+    writes.mockRestore();
+    if (!(connected instanceof Socket)) throw new Error('Expected TCP client socket');
+    owner = connected;
+    owner.cork();
+    const published = client.publish('a', 'x'.repeat(18)).catch((reason: unknown) => reason);
+    expect(owner.writableLength).toBe(24);
+    const excess = client.publish('a', '').catch((reason: unknown) => reason);
+    expect(owner.writableLength).toBe(24);
+    await expect(excess).resolves.toMatchObject({ message: 'TCP write budget exceeded' });
+    const ping = client.ping();
+    expect(owner.writableLength).toBe(26);
+    expect(peer.commands).toEqual(['connect']);
+    owner.uncork();
+    await expect(published).resolves.toBeUndefined();
+    await ping;
+    expect(peer.commands).toEqual(['connect', 'publish', 'pingreq']);
+    await client.disconnect();
+  } finally {
+    writes.mockRestore();
+    owner?.uncork();
+    owner?.destroy();
+    await peer.close();
+  }
+});
