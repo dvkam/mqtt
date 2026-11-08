@@ -12,6 +12,7 @@ Keep workload, environment, tool versions, individual observations, summary and 
 | Bounded Node framing | [Individual measurements](baseline/node-framing-measurements.md) and [design](node-framing-experiment.md) | Compact assembly, streaming gate and native reference |
 | Node parser occupancy | [Individual observations](baseline/node-framing-occupancy.md) | Native fragment bytes/items and compact assembly capacity; no allocation or timing claim |
 | Mixed traffic preview | [Six observations](baseline/mixed-traffic-probe.md) and [method](mixed-traffic-probe.md) | QoS 0 bursts, capacity rejection, ping, subscriptions, delayed echoes and same-process metrics |
+| Concurrent subscriptions | [CI observations](baseline/concurrent-subscriptions-checks.md) | Individual packed-broker echo timings and fixture bundle sizes; no controlled performance comparison |
 
 The compact runner now uses the private production decoder described in [TCP packet input](tcp-packet-input.md) and [Node WebSocket packet input](websocket-packet-input.md). Historical prototype runs remain pinned in the measurement record. Decoder-only throughput excludes the input helper, session and native socket.
 
