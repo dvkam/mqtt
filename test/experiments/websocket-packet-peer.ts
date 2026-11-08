@@ -77,6 +77,9 @@ export async function startWebSocketPacketPeer(mode: string) {
         } else if (mode === 'native-limit-partial') {
           socket.send(Uint8Array.of(0x30, 6, 0));
           socket.send(new Uint8Array(9));
+        } else if (mode === 'mqtt-split') {
+          socket.send(Uint8Array.of(0xd0));
+          socket.send(Uint8Array.of(0));
         } else socket.send(Uint8Array.of(0xd0, 0));
       }
       if (packet.cmd === 'disconnect') socket.close();

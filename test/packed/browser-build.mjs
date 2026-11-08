@@ -78,6 +78,8 @@ try {
 }
 cpSync(new URL('./tcp-packet-client.ts', import.meta.url), resolve(root, 'packed/tcp-packet-client.ts'));
 execFileSync(process.execPath, [resolve(root, 'packed/tcp-packet-client.ts')], { stdio: 'inherit', timeout: 15_000 });
+cpSync(new URL('./websocket-packet-client.ts', import.meta.url), resolve(root, 'packed/websocket-packet-client.ts'));
+execFileSync(process.execPath, [resolve(root, 'packed/websocket-packet-client.ts')], { stdio: 'inherit', timeout: 15_000 });
 if (engines.length > 0) {
   const playwright = await import('playwright');
   const peer = await startProtocolPeer();

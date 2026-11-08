@@ -1,6 +1,8 @@
 import { expect, test, vi } from 'vitest';
 import { getEventListeners } from 'node:events';
+import WebSocket from 'ws';
 import { createWebSocketClient } from '../src/index.js';
+import { NodePacketDecoder } from '../src/nodePacketDecoder.js';
 import { startWebSocketPacketPeer } from './experiments/websocket-packet-peer.js';
 
 test.each([0, 1, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 268_435_461])(
@@ -85,15 +87,22 @@ test.each(['exact', 'mqtt-split', 'ws-fragments'])('WS %s preserves compact muta
   }
 });
 
-test.each(['eof-connect', 'eof-ping', 'eof-body'])('WS %s reports truncated MQTT input', async (mode) => {
+test('WS remote EOF rejects a partial CONNACK', async () => {
+  const peer = await startWebSocketPacketPeer('eof-connect');
+  try {
+    await expect(createWebSocketClient({ ...peer, clientId: 'eof-connect' }).connect()).rejects.toThrow(
+      'Truncated MQTT packet at end of input',
+    );
+  } finally {
+    await peer.close();
+  }
+});
+
+test.each(['eof-ping', 'eof-body'])('WS %s reports truncated MQTT input', async (mode) => {
   const peer = await startWebSocketPacketPeer(mode);
   try {
-    const opening = createWebSocketClient({ ...peer, clientId: mode }).connect();
-    if (mode === 'eof-connect') await expect(opening).rejects.toThrow('Truncated MQTT packet at end of input');
-    else {
-      const client = await opening;
-      await expect(client.ping()).rejects.toThrow('Truncated MQTT packet at end of input');
-    }
+    const client = await createWebSocketClient({ ...peer, clientId: mode }).connect();
+    await expect(client.ping()).rejects.toThrow('Truncated MQTT packet at end of input');
   } finally {
     await peer.close();
   }
@@ -110,9 +119,10 @@ test('WS refusal keeps its reason ahead of partial input at close', async () => 
 
 test('WS callback abort stops the coalesced publication suffix', async () => {
   const peer = await startWebSocketPacketPeer('callback-abort');
+  const allocations = vi.spyOn(Buffer, 'allocUnsafeSlow');
   const controller = new AbortController();
   const reason = new Error('publication abort');
-  const onMessage = vi.fn(() => {
+  const onMessage = vi.fn<() => void>(() => {
     controller.abort(reason);
   });
   try {
@@ -122,9 +132,33 @@ test('WS callback abort stops the coalesced publication suffix', async () => {
       signal: controller.signal,
       onMessage,
     }).connect();
+    allocations.mockClear();
     await expect(client.ping()).rejects.toBe(reason);
     await expect(client.publish('a', 'late')).rejects.toBe(reason);
     expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(allocations).toHaveBeenCalledTimes(1);
+  } finally {
+    allocations.mockRestore();
+    await peer.close();
+  }
+});
+
+test('WS timeout keeps its cause with partial input and releases cancellation', async () => {
+  const peer = await startWebSocketPacketPeer('partial-timeout');
+  const controller = new AbortController();
+  try {
+    const client = await createWebSocketClient({
+      ...peer,
+      clientId: 'timeout',
+      signal: controller.signal,
+      timeoutMs: 100,
+    }).connect();
+    const reason = await client.ping().catch((failure: unknown) => failure);
+    expect(reason).toMatchObject({ message: 'MQTT operation timed out' });
+    await expect(client.publish('a', 'late')).rejects.toBe(reason);
+    await vi.waitFor(() => {
+      expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
+    });
   } finally {
     await peer.close();
   }
@@ -142,21 +176,59 @@ test('WS delivers a publication prefix before rejecting a declared excess', asyn
   }
 });
 
-test.each(['abort', 'disconnect'])('WS %s owns partial input without later truncation', async (action) => {
+test('WS abort owns partial input without later truncation', async () => {
   const peer = await startWebSocketPacketPeer('partial-active');
   const controller = new AbortController();
   try {
-    const client = await createWebSocketClient({ ...peer, clientId: action, signal: controller.signal }).connect();
+    const client = await createWebSocketClient({ ...peer, clientId: 'abort', signal: controller.signal }).connect();
     await client.ping();
-    if (action === 'abort') {
-      const reason = new Error('active abort');
-      controller.abort(reason);
-      await expect(client.publish('a', 'late')).rejects.toBe(reason);
-    } else await client.disconnect();
+    const reason = new Error('active abort');
+    controller.abort(reason);
+    await expect(client.publish('a', 'late')).rejects.toBe(reason);
     await vi.waitFor(() => {
       expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
     });
   } finally {
+    await peer.close();
+  }
+});
+
+test('WS disconnect owns partial input without later truncation', async () => {
+  const peer = await startWebSocketPacketPeer('partial-active');
+  const controller = new AbortController();
+  const completion = vi.spyOn(NodePacketDecoder.prototype, 'finish');
+  try {
+    const client = await createWebSocketClient({ ...peer, clientId: 'disconnect', signal: controller.signal }).connect();
+    await client.ping();
+    await expect(client.disconnect()).resolves.toBeUndefined();
+    expect(completion).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
+    });
+  } finally {
+    completion.mockRestore();
+    await peer.close();
+  }
+});
+
+test('WS packet rejection terminates the native client before peer cleanup', async () => {
+  const peer = await startWebSocketPacketPeer('limit-ping');
+  const emissions = vi.spyOn(WebSocket.prototype, 'emit');
+  let owner: WebSocket | undefined;
+  try {
+    const client = await createWebSocketClient({ ...peer, clientId: 'terminate', maxPacketBytes: 8 }).connect();
+    const connected: unknown = emissions.mock.contexts.find(
+      (candidate: unknown) => candidate instanceof WebSocket && candidate.url === new URL(peer.url).href,
+    );
+    if (!(connected instanceof WebSocket)) throw new Error('Expected connected WebSocket');
+    owner = connected;
+    await expect(client.ping()).rejects.toThrow('MQTT packet allocation limit exceeded');
+    await vi.waitFor(() => {
+      expect(connected.readyState).toBe(WebSocket.CLOSED);
+    });
+  } finally {
+    emissions.mockRestore();
+    owner?.terminate();
     await peer.close();
   }
 });
