@@ -47,22 +47,21 @@ test.each([
     }).connect();
     let failure: unknown;
     let later: unknown;
+    const immediateFailures: Promise<unknown>[] = [];
     if (mode === 'oversized-connect') failure = await opening.catch((reason: unknown) => reason);
     else {
       const client = await opening;
-      const immediateFailures: Promise<unknown>[] = [];
       const owner: unknown = emit.mock.contexts.find((context: unknown) => context instanceof WebSocket && context.url === url);
-      expect(owner).toBeInstanceOf(WebSocket);
       if (!(owner instanceof WebSocket)) throw new Error('Expected connected client socket');
       owner.once('error', () => {
         immediateFailures.push(client.subscribe('late').catch((reason: unknown) => reason));
       });
       emit.mockClear();
       failure = await (mode === 'suback-overflow' ? client.subscribe('a') : client.ping()).catch((reason: unknown) => reason);
-      expect(await Promise.all(immediateFailures)).toEqual([failure]);
       later = await client.publish('a', 'late').catch((reason: unknown) => reason);
     }
     expect(failure).toBeInstanceOf(RangeError);
+    expect(await Promise.all(immediateFailures)).toEqual(mode === 'oversized-connect' ? [] : [failure]);
     expect(failure).toMatchObject({ code: 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH' });
     expect(later).toBe(mode === 'oversized-connect' ? undefined : failure);
     expect(onMessage).not.toHaveBeenCalled();
