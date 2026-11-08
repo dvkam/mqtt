@@ -52,6 +52,9 @@ const models: readonly VerificationCase[] = [
   ['StreamTerminal', 'StreamTerminalClose', 'EmptyCompletion'],
   ['StreamTerminal', 'StreamTerminalFailure', 'FailureSettles'],
   ['StreamTerminal', 'StreamTerminalHandoff', 'PreserveHandedMessage'],
+  ['WebSocketReceive', 'WebSocketReceive'],
+  ['WebSocketReceive', 'WebSocketReceiveBudget', 'BoundedReceive'],
+  ['WebSocketReceive', 'WebSocketReceiveLate', 'NoLateReceive'],
 ];
 
 for (const [model, configuration, expectedInvariant] of models) {
