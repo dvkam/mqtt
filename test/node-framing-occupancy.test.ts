@@ -13,7 +13,7 @@ test('the measurement entry runs directly with the current Node runtime', () => 
     timeout: 15_000,
   });
   expect(result.error).toBeUndefined();
-  expect(result.status, result.stderr).toBe(0);
+  expect(result.status).toBe(0);
   const rows = result.stdout.trim().split('\n');
   expect(rows).toHaveLength(8);
   for (const line of rows) {
@@ -73,6 +73,30 @@ test('partial admitted compact input exposes assembly capacity before its body a
     });
     decoder.stop(new Error('test retirement'));
     expect(observation.snapshot()).toMatchObject({ currentAssemblyCapacity: 0, currentNativeBytes: 0 });
+  } finally {
+    observation.restore();
+  }
+});
+
+test('zero-body packet counts assembly capacity before immediate flush', () => {
+  let packets = 0;
+  const decoder = new NodePacketDecoder({
+    maxPacketBytes: 2,
+    onPacket() {
+      packets++;
+    },
+  });
+  const observation = observeFramingOccupancy(decoder, 'compact');
+  try {
+    decoder.push(Uint8Array.of(0xd0, 0));
+    expect(packets).toBe(1);
+    expect(observation.snapshot()).toMatchObject({
+      peakNativeBytes: 1,
+      peakNativeFragments: 1,
+      peakAssemblyCapacity: 1,
+      currentAssemblyCapacity: 0,
+    });
+    decoder.finish();
   } finally {
     observation.restore();
   }
