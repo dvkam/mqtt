@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
 import { startProtocolPeer } from '../experiments/protocol-peer.ts';
 import { checkSsrConsumer } from './ssr-check.ts';
+import { startReceivePeer } from '../experiments/receive-peer.ts';
 
 const inputRoot = process.argv[2];
 assert.ok(inputRoot !== undefined && inputRoot !== '', 'Expected packed consumer directory');
@@ -50,7 +51,9 @@ console.log(JSON.stringify({ browserBytes: Buffer.byteLength(code), gzipBytes: g
 cpSync(new URL('../experiments', import.meta.url), resolve(root, 'experiments'), { recursive: true });
 mkdirSync(resolve(root, 'packed'), { recursive: true });
 cpSync(new URL('./stream-comparison.ts', import.meta.url), resolve(root, 'packed/stream-comparison.ts'));
+cpSync(new URL('./receive-client.ts', import.meta.url), resolve(root, 'packed/receive-client.ts'));
 const comparisonCode = await bundleBrowser('packed/stream-comparison.ts');
+const receiveCode = await bundleBrowser('packed/receive-client.ts');
 const queueCode = await bundleBrowser('experiments/message-queue.ts');
 console.log(
   JSON.stringify({
@@ -64,10 +67,12 @@ const engines = process.argv.slice(3);
 if (engines.length > 0) {
   const playwright = await import('playwright');
   const peer = await startProtocolPeer();
+  const receivePeer = await startReceivePeer();
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
   const server = createServer((request, response) => {
     if (request.url === '/trace.js') response.writeHead(200, { 'Content-Type': 'text/javascript' }).end(code);
     else if (request.url === '/streams.js') response.writeHead(200, { 'Content-Type': 'text/javascript' }).end(comparisonCode);
+    else if (request.url === '/receive.js') response.writeHead(200, { 'Content-Type': 'text/javascript' }).end(receiveCode);
     else response.writeHead(200, { 'Content-Type': 'text/html' }).end('<!doctype html>');
   });
   server.listen(0, '127.0.0.1');
@@ -102,6 +107,25 @@ if (engines.length > 0) {
         ]);
         assert.deepEqual(comparison.terminal, { idleClosed: true, idleFailure: true, handed: true });
         console.log(JSON.stringify({ engine, ...comparison }));
+        const receive = await page.evaluate(async (url) => (await import('/receive.js')).probeReceive(url), receivePeer.url);
+        assert.deepEqual(
+          receive.accepted,
+          ['exact', 'ws-fragments', 'mqtt-split', 'coalesced'].map((mode) => ({
+            mode,
+            messages: mode === 'coalesced' ? ['hi', 'hi'] : ['hi'],
+          })),
+        );
+        assert.deepEqual(
+          receive.rejected,
+          ['oversized-connect', 'suback-overflow', 'ping-overflow', 'partial-overflow', 'ws-fragments-overflow'].map((mode) => ({
+            mode,
+            rangeError: true,
+            message: 'WebSocket receive message limit exceeded',
+            sameFailure: true,
+            delivered: 0,
+          })),
+        );
+        console.log(engine + ' packed receive limits passed');
         console.log(engine + ' ' + browser.version() + ' passed');
       } finally {
         await browser.close();
@@ -110,5 +134,6 @@ if (engines.length > 0) {
   } finally {
     server.close();
     await peer.close();
+    await receivePeer.close();
   }
 }

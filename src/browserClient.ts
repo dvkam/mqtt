@@ -23,6 +23,7 @@ export interface BrowserClientOptions {
   timeoutMs?: number;
   maxBufferedBytes?: number;
   maxPacketBytes?: number;
+  maxWebSocketMessageBytes?: number;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
   onMessage?: (message: BrowserMessage) => void;
 }
@@ -50,6 +51,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
     signal: options.signal,
     timeoutMs: options.timeoutMs,
     maxBufferedBytes: options.maxBufferedBytes,
+    maxWebSocketMessageBytes: options.maxWebSocketMessageBytes,
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
     onBytes(chunk) {
       for (const packet of decoder.push(chunk)) {

@@ -11,6 +11,7 @@ const client = await createBrowserClient({
   timeoutMs: 3000,
   maxBufferedBytes: 1024 * 1024,
   maxPacketBytes: 1024 * 1024,
+  maxWebSocketMessageBytes: 1024 * 1024,
   onMessage(message) {
     console.log(message.topic, message.payload.byteLength);
   },
@@ -36,6 +37,8 @@ The optional signal applies while opening and during the active connection. Canc
 A peer close completes the decoder. If MQTT input ends inside a packet, pending operations reject with the truncation error. A clean packet boundary retains the transport close reason. Local disconnect, cancellation and earlier errors keep their original outcome, even with partial input. Decoder completion runs once and does not wait for another message.
 
 Write admission and per-packet receive allocation have separate budgets. A successful publish means local send admission. The session does not claim broker receipt for QoS 0.
+
+The browser client also limits aggregate incoming WebSocket messages with maxWebSocketMessageBytes. The default is one MiB. A larger batch retires the connection before decoder entry, including a batch whose prefix contains a valid acknowledgment. Pending operations and later writes receive the original RangeError. It takes precedence over partial MQTT input discarded during cleanup. The byte transport guide defines its supported range, fragmentation behavior and memory exclusions. Per-packet maxPacketBytes still applies to MQTT assembled across multiple admitted messages.
 
 A failed ping retires the session before another ping can reuse the acknowledgment slot. Forced retirement starts native close but settles locally, so a silent peer adds no second native-close deadline to the operation timeout. Eventual native-close failure is observed in the background. Graceful disconnect still waits for native closure or its deadline.
 
