@@ -5,6 +5,7 @@ import type { ClientFactory } from './session.js';
 import type { NodeMessage } from './nodeMessage.js';
 import { NodePacketInput } from './nodePacketInput.js';
 import { resolveTimeout } from './timeout.js';
+import { resolvePublicationLimits } from './publicationAdmission.js';
 
 export interface TcpClientOptions extends PortableOptions<NodeMessage> {
   host: string;
@@ -36,6 +37,7 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
   if (isAborted()) throw abortReason();
 
   const timeoutMs = resolveTimeout(options.timeoutMs);
+  const publicationLimits = resolvePublicationLimits(options);
 
   const input = new NodePacketInput(options.maxPacketBytes);
   const socket = createConnection({ host: options.host, port: options.port ?? 1883 });
@@ -116,7 +118,7 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
       socket.once('close', failed);
     });
     clearTimeout(timer);
-    const client = await connectPortable(transport, { ...options, timeoutMs });
+    const client = await connectPortable(transport, { ...options, ...publicationLimits, timeoutMs });
     if (isAborted()) throw abortReason();
     return client;
   } catch (error) {

@@ -20,6 +20,7 @@ for (const mode of ['limit-ping', 'prefix-subscribe', 'fragmented-limit', 'eof-b
     const client = await createTcpClient({
       ...peer,
       clientId: mode,
+      maxPendingPublishBytes: 16 * 1024 * 1024,
       maxPacketBytes: mode === 'fragmented-limit' ? 130 : 8,
     }).connect();
     const operation =

@@ -107,10 +107,18 @@ test('rejects refused browser CONNECT and closes the attempt', async () => {
 
 test('keeps the opening timeout when caller options change during the browser handshake', async () => {
   const broker = await peer();
-  const options = { url: broker.url, clientId: 'stable-handshake', timeoutMs: 3000 };
+  const options = {
+    url: broker.url,
+    clientId: 'stable-handshake',
+    timeoutMs: 3000,
+    maxPendingPublishes: 1,
+    maxPendingPublishBytes: 128,
+  };
   try {
     const opening = createBrowserClient(options).connect();
     options.timeoutMs = Infinity;
+    options.maxPendingPublishes = 0;
+    options.maxPendingPublishBytes = 0;
     const client = await opening;
     await client.ping();
     await client.disconnect();

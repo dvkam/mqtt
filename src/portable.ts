@@ -2,6 +2,7 @@ import type { IConnectPacket, IPublishPacket, Packet } from 'mqtt-packet';
 import type { ClientSession } from './session.js';
 import { validateTopic } from './util/validateTopic.js';
 import { resolveTimeout } from './timeout.js';
+import { PublicationAdmission, type PublicationLimits } from './publicationAdmission.js';
 
 type PublishMessage = Omit<IPublishPacket, 'payload'> & { payload: unknown };
 type IncomingPacket<Message extends PublishMessage> = Exclude<Packet, IPublishPacket> | Message;
@@ -15,7 +16,7 @@ export interface PacketTransport<Message extends PublishMessage = IPublishPacket
   close(force?: boolean): Promise<void>;
 }
 
-export interface PortableOptions<Message extends PublishMessage = IPublishPacket> {
+export interface PortableOptions<Message extends PublishMessage = IPublishPacket> extends PublicationLimits {
   clientId: string;
   username?: IConnectPacket['username'];
   password?: IConnectPacket['password'];
@@ -39,10 +40,12 @@ class PortableClient<Message extends PublishMessage> {
   private messageId = 0;
   private active = false;
   private readonly timeoutMs: number;
+  private readonly publications: PublicationAdmission;
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
   constructor(transport: PacketTransport<Message>, options: PortableOptions<Message>) {
     this.timeoutMs = resolveTimeout(options.timeoutMs);
+    this.publications = new PublicationAdmission(options);
     this.transport = transport;
     this.options = options;
     this.unlisten = transport.listen(
@@ -100,7 +103,14 @@ class PortableClient<Message extends PublishMessage> {
     if (this.closing) throw new Error('Client is closing');
     if (this.failure) throw this.failure;
     if (topic.includes('+') || topic.includes('#') || !validateTopic(topic)) throw new Error('Invalid MQTT topic name');
-    await this.run(async () => this.transport.send({ cmd: 'publish', topic, payload, qos: 0, dup: false, retain: false }));
+    const release = this.publications.reserve(topic, payload);
+    await this.run(async () => {
+      try {
+        await this.transport.send({ cmd: 'publish', topic, payload, qos: 0, dup: false, retain: false });
+      } finally {
+        release();
+      }
+    });
   }
 
   async ping(): Promise<void> {
