@@ -100,3 +100,34 @@ test.each(['tcp', 'websocket'] as const)('%s rejects an already aborted signal w
     await peer.close();
   }
 });
+
+test.each(['tcp', 'websocket'] as const)('%s cancellation during option access sends no CONNECT', async (kind) => {
+  const peer = await startCancellationPeer(kind);
+  const controller = new AbortController();
+  const reason = new Error('cancel during setup');
+  class CancellingURL extends URL {
+    override get protocol() {
+      controller.abort(reason);
+      return super.protocol;
+    }
+  }
+  const factory =
+    kind === 'tcp'
+      ? createTcpClient({
+          get host() {
+            controller.abort(reason);
+            return peer.host;
+          },
+          port: peer.port,
+          clientId: 'setup-cancel',
+          signal: controller.signal,
+        })
+      : createWebSocketClient({ url: new CancellingURL(peer.url), clientId: 'setup-cancel', signal: controller.signal });
+  try {
+    await expect(factory.connect()).rejects.toBe(reason);
+    expect(peer.commands).toEqual([]);
+    expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
+  } finally {
+    await peer.close();
+  }
+});
