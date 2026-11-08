@@ -65,6 +65,7 @@ export async function startTcpPacketPeer(mode: string) {
         else if (mode === 'partial-timeout') socket.write(Uint8Array.of(0x30, 6, 0));
         else if (mode === 'callback-abort') socket.write(Uint8Array.from([...publication, ...publication]));
         else if (mode === 'publish-prefix-limit') socket.write(Uint8Array.from([...publication, ...excess]));
+        else if (mode === 'transfer-prefix-ping') socket.write(Uint8Array.from([...publication, 0xd0, 0]));
         else socket.write(Uint8Array.of(0xd0, 0));
       }
       if (packet.cmd === 'disconnect') socket.end();

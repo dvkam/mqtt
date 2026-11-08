@@ -203,3 +203,28 @@ test('TCP ping timeout retains its reason with partial input and releases cancel
     await peer.close();
   }
 });
+
+test('TCP payload transfer cannot detach the coalesced protocol input', async () => {
+  const peer = await startTcpPacketPeer('transfer-prefix-ping');
+  let transferred: Uint8Array | undefined;
+  try {
+    const client = await createTcpClient({
+      ...peer,
+      clientId: 'transfer-payload',
+      maxPacketBytes: 8,
+      onMessage(packet: unknown) {
+        if (typeof packet !== 'object' || packet === null || !('payload' in packet) || !Buffer.isBuffer(packet.payload))
+          throw new Error('Expected Buffer payload');
+        const buffer = packet.payload.buffer;
+        if (!(buffer instanceof ArrayBuffer)) throw new Error('Expected ordinary backing buffer');
+        const view = new Uint8Array(buffer, packet.payload.byteOffset, packet.payload.byteLength);
+        transferred = structuredClone(view, { transfer: [buffer] });
+      },
+    }).connect();
+    await expect(client.ping()).resolves.toBeUndefined();
+    expect(transferred).toEqual(Uint8Array.of(104, 105));
+    await client.disconnect();
+  } finally {
+    await peer.close();
+  }
+});
