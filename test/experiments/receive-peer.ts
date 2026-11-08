@@ -32,13 +32,26 @@ export async function startReceivePeer() {
         socket.send(mode === 'suback-overflow' ? Buffer.concat([reply, publication]) : reply);
       }
       if (packet.cmd === 'pingreq') {
+        if (mode === 'default-overflow') {
+          const batch = new Uint8Array(1024 * 1024 + 2);
+          batch.set([0xd0, 0]);
+          for (let offset = 2; offset < batch.length; offset += publication.length) batch.set(publication, offset);
+          socket.send(batch);
+          return;
+        }
         if (mode === 'partial-overflow') socket.send(Uint8Array.of(0x30));
-        if (mode === 'ping-overflow' || mode === 'partial-overflow' || mode === 'ws-fragments-overflow') {
+        if (
+          mode === 'ping-overflow' ||
+          mode === 'partial-overflow' ||
+          mode === 'ws-fragments-overflow' ||
+          mode === 'stalled-close'
+        ) {
           const excess = Uint8Array.from([0xd0, 0, ...publication]);
           if (mode === 'ws-fragments-overflow') {
             socket.send(excess.subarray(0, 5), { fin: false });
             socket.send(excess.subarray(5), { fin: true });
           } else socket.send(excess);
+          if (mode === 'stalled-close') socket.pause();
         } else socket.send(Uint8Array.of(0xd0, 0));
       }
       if (packet.cmd === 'publish') {
