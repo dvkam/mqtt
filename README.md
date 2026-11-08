@@ -83,6 +83,8 @@ See the [browser client profile](docs/browser-client.md) and [byte transport con
 
 The [deadline guide](docs/deadlines.md) defines timeout validation, captured settings and the limits of relative operation budgets.
 
+The [outgoing admission guide](docs/outgoing-admission.md) defines publication count and wire-byte limits. Defaults allow 32 unsettled publication sends within 1 MiB. Capacity rejection occurs before sending and leaves the session usable.
+
 - The supported clients open MQTT 5 clean sessions with Keep Alive set to zero. They support ordinary QoS 0 subscriptions, text publishing, received binary payloads, explicit ping and graceful disconnect.
 - Await subscribe and ping operations before starting another acknowledgment exchange. A failed ping retires the connection because a later PINGRESP cannot identify which request it answers.
 - Any operation timeout retires the session and starts forced cleanup. Later work cannot send. Already-admitted QoS 0 bytes may still reach the broker; a timeout does not prove non-delivery. The deadline guide explains custom transport cleanup requirements.
