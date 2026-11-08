@@ -14,7 +14,7 @@ The peer is a scripted protocol fixture, not an independent broker. Mosquitto re
 
 ## Observation boundaries
 
-Send latency ends when the public publication promise settles. Echo latency starts at the publication attempt and ends after fixed observer work, before the bookkeeping receive call. Observer latency includes payload validation, decoding, fixed work and bookkeeping. Control latency ends at the public control response. Percentiles use nearest rank over successful samples. Capacity rejections have counts but no success latency samples.
+Send and echo timestamps start at the ledger attempt, before payload construction. Send latency ends when the public publication promise settles. Echo latency starts at that same attempt and ends after fixed observer work, before the bookkeeping receive call. Observer latency includes payload validation, decoding, fixed work and bookkeeping. Control latency starts after the burst, immediately before the control API call, and ends at its public response. Percentiles use nearest rank over successful samples. Capacity rejections have counts but no success latency samples.
 
 The probe tracks actual per-round map size and clears it after verification. The peak is 16 entries; the final count must be zero. This verifies bounded round bookkeeping. The probe retains latency arrays across rounds, so process memory includes history proportional to the number of rounds.
 
