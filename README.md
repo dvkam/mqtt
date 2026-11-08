@@ -81,6 +81,8 @@ See the [browser client profile](docs/browser-client.md) and [byte transport con
 
 ## Supported profile and limits
 
+The [deadline guide](docs/deadlines.md) defines timeout validation, captured settings and the limits of relative operation budgets.
+
 - The supported clients open MQTT 5 clean sessions with Keep Alive set to zero. They support ordinary QoS 0 subscriptions, text publishing, received binary payloads, explicit ping and graceful disconnect.
 - Await subscribe and ping operations before starting another acknowledgment exchange. A failed ping retires the connection because a later PINGRESP cannot identify which request it answers.
 - Successful QoS 0 publication reports local send completion or admission according to the adapter. It does not prove broker receipt or durable storage.
