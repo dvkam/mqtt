@@ -11,6 +11,6 @@ Keep workload, environment, tool versions, individual observations, summary and 
 | Receive-limit validation | [8 November observations](baseline/receive-validation-measurements.md) | Individual broker smoke timings, browser delivery and fixture bundle sizes |
 | Bounded Node framing | [Individual measurements](baseline/node-framing-measurements.md) and [design](node-framing-experiment.md) | Compact assembly, streaming gate and native reference |
 
-The compact runner now uses the private production decoder described in [TCP packet input](tcp-packet-input.md). Historical prototype runs remain pinned in the measurement record. Decoder-only throughput excludes the input helper, session and native socket.
+The compact runner now uses the private production decoder described in [TCP packet input](tcp-packet-input.md) and [Node WebSocket packet input](websocket-packet-input.md). Historical prototype runs remain pinned in the measurement record. Decoder-only throughput excludes the input helper, session and native socket.
 
 Local timing observations do not become CI thresholds automatically. #18 owns repeatable bundle, throughput, latency and memory baselines. #56 owns portable encoder allocation profiling. #75 owns the Node framing comparison and adoption decision. A passing protocol exchange or a small bundle does not establish a general performance advantage.

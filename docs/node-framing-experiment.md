@@ -1,10 +1,14 @@
 # Bounded Node decoding experiment
 
-The compact candidate is now the private decoder behind [supported TCP packet admission](tcp-packet-input.md). Streaming remains an experimental comparator. No storage-policy option or decoder entry point is published. WS/WSS integration and the remaining protocol-capacity work stay open under [#75](https://github.com/dvkam/mqtt/issues/75) and #9.
+The compact candidate is now the private decoder behind [supported TCP packet admission](tcp-packet-input.md) and [Node WS/WSS input](websocket-packet-input.md). Streaming remains an experimental comparator. No storage-policy option or decoder entry point is published. Broader malformed-packet rules and property limits remain under #9; the admission comparison and adoption decision are tracked in [#75](https://github.com/dvkam/mqtt/issues/75).
 
 ## What the experiment preserves
 
 The pinned mqtt-packet 9.0.2 parser reports invalid CONNACK flags from byte 0x21 alone and invalid QoS from byte 0x36 alone. A fourth Remaining Length continuation fails without a body. It accepts a nonminimal zero encoded as 0x80, 0x00. Some reserved-command errors wait for the body. Tests retain these distinctions rather than importing the portable codec's narrower allowlist.
+
+Source inspection found no supported pre-allocation packet cap in the installed 9.0.2 parser. Its parse method appends incoming bytes to BufferList before advancing header, length and payload states. A configured protocolVersion selects interpretation; it does not impose the wrapper's admission budget. The inspected [upstream parser](https://github.com/mqttjs/mqtt-packet/blob/dd17095bbe52ac28bc96c831e69b0db4371da5a5/parser.js) has the same append-before-parse structure.
+
+That upstream commit still declares version 9.0.2 but is not byte-identical to the installed published package. Its parser also changes omitted AUTH reason handling and repeated user-property handling when an earlier value is empty. Those differences need fixed-wire characterization under #9 before any upgrade or broader profile claim. The measurements and compatibility corpus use the installed package, not an unrecorded replacement with upstream master.
 
 The wrapper forwards a compact copy of the first byte to the retained parser. It collects at most four length bytes and validates total wire size, including the actual encoded header, before admitting the body. A malformed fourth continuation is passed to the retained parser for its native error. Native error events and thrown callbacks become permanent wrapper failures.
 
@@ -24,7 +28,7 @@ The budget covers declared packet bytes and owned assembly, not decoded objects,
 
 All observations, workload details, environment and reproduction commands are in [the measurement record](baseline/node-framing-measurements.md). Raw profiler JSONL remains local. The measured tradeoff favors compact ownership under high fragmentation while adding cost to contiguous input. Heap samples omit external ArrayBuffer allocation and are not peak-memory measurements.
 
-TCP now uses compact assembly, with public and packed tests for limits, pending acknowledgments, callback abort, EOF and Buffer ownership. The current benchmark and characterization suite use that production decoder directly for compact cases. Keep streaming as an experimental comparator. WS/WSS still needs the same integration evidence. Extend workloads beyond the measured 256-byte payload before setting performance thresholds. #75 remains open for that work and the final adoption decision.
+TCP and Node WS/WSS now use compact assembly, with public and packed tests for limits, pending acknowledgments, callback abort, EOF and Buffer ownership. The current benchmark and characterization suite use that production decoder directly for compact cases. Keep streaming as an experimental comparator. Extend workloads beyond the measured 256-byte payload before setting performance thresholds under #18. This adoption preserves the sampled Node profile rather than replacing it with the portable codec's narrower profile.
 
 The checked upstream commit dd17095bbe52ac28bc96c831e69b0db4371da5a5 identifies itself as 9.0.2. Its v10 roadmap describes a separate transport-independent codec and a compatibility wrapper. This experiment retains the current decoder and does not claim a comparison with v10. [Pinned upstream package](https://github.com/mqttjs/mqtt-packet/blob/dd17095bbe52ac28bc96c831e69b0db4371da5a5/package.json) · [v10 roadmap](https://github.com/mqttjs/mqtt-packet/issues/159)
 
@@ -33,3 +37,16 @@ The checked upstream commit dd17095bbe52ac28bc96c831e69b0db4371da5a5 identifies 
 Run `pnpm test test/bounded-node-decoder.test.ts`. The first passthrough run failed 19 of 28 tests; the streaming-copy regression also failed before the alternative was added. The expanded suite includes limits, early errors, wire compatibility, compact backing ownership, cancellation, EOF, reentrancy and failure identity.
 
 NodePacketAdmission models both policies with a three-unit total-wire bound, two decode attempts and a fixed two-unit header abstraction. It now maps compact behavior to the private production decoder and streaming behavior to the experimental module. It checks admission before body storage, complete input before payload decoding, permanent failure, retirement and truncated EOF. Native header interpretation, byte contents, backing-buffer ownership, Error identity, parser detachment, reentrant calls and physical connection closure remain concrete-test and review responsibilities. NodeInputLifecycle covers the TCP composition separately.
+
+## Remaining measurement acceptance
+
+The public integration and admission decision do not complete every measurement requested in #75. Keep that issue open for the following accounting work.
+
+| Requested evidence | Current record | Status |
+| --- | --- | --- |
+| Temporary allocations | Sampled V8 heap bytes in all three runs; temporary external ArrayBuffer allocation is excluded | Partial |
+| Retained payload storage | Exact backing size for the 256-byte retained payload in every run | Measured for this workload |
+| In-progress occupancy | Compact owns one admitted remainder; streaming uses the native fragment list, but peak fragment/item occupancy is not instrumented | Open in #75 |
+| Browser graph impact | Packed raw/gzip fixture observations before and after both integrations | Measured for these fixtures |
+
+No application queue was added by the input helper. That fact does not substitute for measuring parser fragments or temporary external storage. Compare compact and streaming under the same admitted packet profile, including partial and highly fragmented packets. Keep the native unbounded parser as contextual evidence. Record logical byte/item accounting separately from process memory, and preserve instrumentation overhead and GC limits. Broader performance thresholds remain #18; these missing measurements remain #75.

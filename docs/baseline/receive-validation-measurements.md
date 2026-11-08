@@ -91,3 +91,31 @@ Each Chromium mode again delivered 2,000 ordered messages with checksum 1,999,00
 | Isolated experimental queue module | 3114 | 1276 |
 
 The portable tracer grew by 151 raw bytes and 23 gzip bytes after the core refusal fix. The stream-comparison fixture grew by 151 raw bytes. These fixtures include consumer code and are not whole-package sizes. The queue module's raw size stayed unchanged. Local transcripts are tcp-packet-packed-final.log and tcp-packet-ws-session-final.log outside the checkout. These observations do not establish a performance regression or improvement; #18 owns controlled comparisons and thresholds.
+
+## WebSocket packet integration validation
+
+The WS/WSS integration run used source 3a20cc5273777e5e964c36a5d5812872e861f6f2 with the same pinned tools and host. Both public Node adapters now use compact packet admission. The broker consumer sets maxPacketBytes to 4096 for TCP and WS/WSS. The new installed WebSocket probe passed declaration-only limits, one-byte messages, fragmented lengths, pending-ACK excess, partial EOF and compact mutable Buffer ownership. Existing TCP, native message-limit, SSR, Chromium, certificate, cancellation and proxy probes also passed.
+
+| Transport fixture | Echoes | Echoes/s | Reported p99 ms |
+| --- | ---: | ---: | ---: |
+| TCP | 100 | 5346.676 | 0.756158 |
+| WS | 5 | 1154.623 | 2.381660 |
+| Direct WSS | 5 | 1871.011 | 1.177236 |
+| WSS with client certificate | 5 | 2676.896 | 0.674655 |
+| WSS through CONNECT proxy | 1 | 928.117 | 1.064342 |
+
+| Mode | Elapsed ms | Messages/s | Delivery p99 ms | Peak queued messages | Peak accounted bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Callback | 7.2 | 277777.778 | 0 | 0 | 0 |
+| Iterator | 12.5 | 160000.000 | 1.0 | 15 | 3870 |
+| Web Streams | 11.4 | 175438.596 | 0.7 | 16 | 4128 |
+
+Each Chromium mode delivered 2,000 ordered messages with checksum 1,999,000. Break, cancel and overflow cleared queued entries and left protocol ownership intact. All terminal probes passed. This queue workload excludes the MQTT codec and broker, so its timing does not measure the Node decoder change.
+
+| Bundled fixture | Raw bytes | Gzip bytes |
+| --- | ---: | ---: |
+| Portable tracer plus test consumer | 5830 | 1951 |
+| Full stream-comparison fixture | 27236 | Not measured |
+| Isolated experimental queue module | 3114 | 1276 |
+
+Raw fixture sizes match the previous run. The portable fixture's one-byte gzip variation is recorded without attributing a cause or declaring a regression. Browser graph checks still reject Node built-ins and external imports. These fixtures are not whole-package size measurements. Local transcripts are ws-packet-packed.log and ws-packet-ws-session.log outside the checkout. The earlier sampling and small-run limits apply; these observations set no threshold or transport ranking.

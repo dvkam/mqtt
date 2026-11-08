@@ -45,7 +45,9 @@ TCP now defaults to a 1 MiB incoming packet limit. The [packet-input guide](docs
 
 For Node WS/WSS, use `createWebSocketClient` from `mqtt` with a broker URL. This adapter uses `ws` and accepts CA, client certificate and caller-supplied agent options. See the [transport comparison](docs/websocket-comparison.md) for TLS, proxy, backpressure and close behavior, including limitations of the experimental native Node WebSocket probe.
 
-Both WebSocket clients default to a 1 MiB limit per incoming WebSocket message. Set `maxWebSocketMessageBytes` to an integer from 1 through 2,147,483,647 to change it. This includes coalesced MQTT packets in that message. The Node adapter enforces the limit through ws; the browser checks after native assembly. It is separate from the browser codec's packet allocation limit.
+Node WS/WSS also defaults to a 1 MiB incoming MQTT packet limit. Set `maxPacketBytes` independently of the WebSocket-message limit. The [packet-input guide](docs/websocket-packet-input.md) covers fragmented input, compact Buffer ownership and failure outcomes.
+
+Both WebSocket clients default to a 1 MiB limit per incoming WebSocket message. Set `maxWebSocketMessageBytes` to an integer from 1 through 2,147,483,647 to change it. This includes coalesced MQTT packets in that message. The Node adapter enforces the limit through ws; the browser checks after native assembly. Each client also has a separate MQTT packet limit.
 
 Both Node factories accept an optional signal for the connection attempt and active session. During an active session, abort rejects pending publish, subscribe and ping calls with the original Error reason, or an AbortError for a non-Error reason, and starts native teardown. Immediate later work is rejected too. Existing closing checks and established active-session failures keep precedence. Normal closure releases the signal listener. An application message facade's cancellation remains local to that facade; the connection signal owns the connection.
 
@@ -106,6 +108,6 @@ Read the [contribution guide](.github/contributing.md). CI runs tests, strict co
 
 The [verification guide](.agents/skills/verify-mqtt-lifecycle/SKILL.md) describes bounded lifecycle models and their limits. Models supplement regression and integration tests; they do not prove the entire implementation correct.
 
-The [measurement index](docs/measurements.md) links workloads, individual observations, environments and reproduction commands. The [Node framing experiment](docs/node-framing-experiment.md) remains test-only while its packet-admission and ownership tradeoffs are evaluated.
+The [measurement index](docs/measurements.md) links workloads, individual observations, environments and reproduction commands. The [Node framing comparison](docs/node-framing-experiment.md) records why supported TCP and WS/WSS input use compact assembly. The streaming alternative remains test-only.
 
 The [playground](https://github.com/dvkam/mqtt/issues/21), [human and agent API reference](https://github.com/dvkam/mqtt/issues/22), and remaining [documentation, license and conduct work](https://github.com/dvkam/mqtt/issues/48) are tracked separately. Upstream attribution remains in source headers. This preview has not settled its publishing identity.
