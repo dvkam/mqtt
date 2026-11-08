@@ -2,6 +2,39 @@ import type { Packet } from 'mqtt-packet';
 import { expect, test, vi } from 'vitest';
 import { connectPortable, type PacketTransport } from '../src/portable.js';
 
+test.each(['', '+', 'a/#', 'a+b', 'a\u0000b', '\uD800', '\uDC00', 'a'.repeat(65_536), 'é'.repeat(32_768)])(
+  'rejects an invalid publication before transport send and keeps the session active',
+  async (topic) => {
+    const broker = peer();
+    const client = await connectPortable(broker.transport, { clientId: 'invalid-topic' });
+    await expect(client.publish(topic, 'payload')).rejects.toThrow('Invalid MQTT topic name');
+    expect(broker.packets).toEqual([expect.objectContaining({ cmd: 'connect' })]);
+    await client.publish('valid/topic', 'next');
+    expect(broker.packets[1]).toMatchObject({ cmd: 'publish', topic: 'valid/topic', payload: 'next' });
+    await client.disconnect();
+  },
+);
+
+test.each(['/', 'a//b', '$SYS/status', '😀', '\uFEFFtopic', 'a'.repeat(65_535), `${'é'.repeat(32_767)}a`])(
+  'preserves a valid publication topic without normalization',
+  async (topic) => {
+    const broker = peer();
+    const client = await connectPortable(broker.transport, { clientId: 'valid-topic' });
+    await client.publish(topic, 'payload');
+    expect(broker.packets[1]).toMatchObject({ cmd: 'publish', topic });
+    await client.disconnect();
+  },
+);
+
+test('invalid publication input cannot replace an established terminal failure', async () => {
+  const broker = peer();
+  const client = await connectPortable(broker.transport, { clientId: 'closed-invalid-topic' });
+  const reason = new Error('connection retired');
+  broker.close(reason);
+  await expect(client.publish('#', 'payload')).rejects.toBe(reason);
+  expect(broker.packets).toEqual([expect.objectContaining({ cmd: 'connect' })]);
+});
+
 test.each(['', 'a\u0000b', '\uD800', 'a'.repeat(65_536), 'é'.repeat(32_768), 'sport/#/score'])(
   'rejects an invalid subscription before sending and keeps the session active',
   async (filter) => {
