@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { NodePacketDecoder } from '../../src/nodePacketDecoder.js';
-import { StreamingNodeDecoder } from '../experiments/streaming-node-decoder.js';
-import { observeFramingOccupancy } from '../experiments/node-framing-occupancy.js';
+import { NodePacketDecoder } from '../../src/nodePacketDecoder.ts';
+import { StreamingNodeDecoder } from '../experiments/streaming-node-decoder.ts';
+import { observeFramingOccupancy } from '../experiments/node-framing-occupancy.ts';
 
 const wire = Uint8Array.from([0x30, 0x84, 2, 0, 1, 97, 0, ...new Uint8Array(256).fill(120)]);
 for (const strategy of ['compact', 'streaming'] as const) {

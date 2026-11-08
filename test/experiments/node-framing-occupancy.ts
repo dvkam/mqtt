@@ -1,5 +1,5 @@
-import { NodePacketDecoder } from '../../src/nodePacketDecoder.js';
-import { StreamingNodeDecoder } from './streaming-node-decoder.js';
+import { NodePacketDecoder } from '../../src/nodePacketDecoder.ts';
+import { StreamingNodeDecoder } from './streaming-node-decoder.ts';
 
 const observed = new WeakSet();
 

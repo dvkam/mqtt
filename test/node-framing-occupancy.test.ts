@@ -7,15 +7,21 @@ import { observeFramingOccupancy } from './experiments/node-framing-occupancy.js
 
 const wire = Uint8Array.from([0x30, 0x84, 2, 0, 1, 97, 0, ...new Uint8Array(256).fill(120)]);
 
-test('the measurement entry runs directly with the pinned Node runtime', () => {
-  const result = spawnSync(process.execPath, [fileURLToPath(new URL('./bench/node-framing-occupancy.ts', import.meta.url))], { encoding: 'utf8', timeout: 15_000 });
+test('the measurement entry runs directly with the current Node runtime', () => {
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('./bench/node-framing-occupancy.ts', import.meta.url))], {
+    encoding: 'utf8',
+    timeout: 15_000,
+  });
   expect(result.error).toBeUndefined();
   expect(result.status, result.stderr).toBe(0);
   const rows = result.stdout.trim().split('\n');
   expect(rows).toHaveLength(8);
   for (const line of rows) {
     const row: unknown = JSON.parse(line);
-    expect(row).toMatchObject({ wireBytes: 263, afterRetirement: { currentNativeBytes: 0, currentNativeFragments: 0, currentAssemblyCapacity: 0 } });
+    expect(row).toMatchObject({
+      wireBytes: 263,
+      afterRetirement: { currentNativeBytes: 0, currentNativeFragments: 0, currentAssemblyCapacity: 0 },
+    });
   }
 }, 20_000);
 
