@@ -1,6 +1,6 @@
 # Bounded Node decoding experiment
 
-The compact candidate is now the private decoder behind [supported TCP packet admission](tcp-packet-input.md). Streaming remains an experimental comparator. No storage-policy option or decoder entry point is published. WS/WSS integration and the remaining protocol-capacity work stay open under [#75](https://github.com/dvkam/mqtt/issues/75) and #9.
+The compact candidate is now the private decoder behind [supported TCP packet admission](tcp-packet-input.md) and [Node WS/WSS input](websocket-packet-input.md). Streaming remains an experimental comparator. No storage-policy option or decoder entry point is published. Broader malformed-packet rules and property limits remain under #9; the admission comparison and adoption decision are tracked in [#75](https://github.com/dvkam/mqtt/issues/75).
 
 ## What the experiment preserves
 
@@ -24,7 +24,7 @@ The budget covers declared packet bytes and owned assembly, not decoded objects,
 
 All observations, workload details, environment and reproduction commands are in [the measurement record](baseline/node-framing-measurements.md). Raw profiler JSONL remains local. The measured tradeoff favors compact ownership under high fragmentation while adding cost to contiguous input. Heap samples omit external ArrayBuffer allocation and are not peak-memory measurements.
 
-TCP now uses compact assembly, with public and packed tests for limits, pending acknowledgments, callback abort, EOF and Buffer ownership. The current benchmark and characterization suite use that production decoder directly for compact cases. Keep streaming as an experimental comparator. WS/WSS still needs the same integration evidence. Extend workloads beyond the measured 256-byte payload before setting performance thresholds. #75 remains open for that work and the final adoption decision.
+TCP and Node WS/WSS now use compact assembly, with public and packed tests for limits, pending acknowledgments, callback abort, EOF and Buffer ownership. The current benchmark and characterization suite use that production decoder directly for compact cases. Keep streaming as an experimental comparator. Extend workloads beyond the measured 256-byte payload before setting performance thresholds under #18. This adoption preserves the sampled Node profile rather than replacing it with the portable codec's narrower profile.
 
 The checked upstream commit dd17095bbe52ac28bc96c831e69b0db4371da5a5 identifies itself as 9.0.2. Its v10 roadmap describes a separate transport-independent codec and a compatibility wrapper. This experiment retains the current decoder and does not claim a comparison with v10. [Pinned upstream package](https://github.com/mqttjs/mqtt-packet/blob/dd17095bbe52ac28bc96c831e69b0db4371da5a5/package.json) · [v10 roadmap](https://github.com/mqttjs/mqtt-packet/issues/159)
 
