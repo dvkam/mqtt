@@ -47,6 +47,7 @@ export async function checkWebSocketDeclarations(signal: AbortSignal) {
   const factory = createWebSocketClient({
     url: new URL('wss://localhost/mqtt'),
     clientId: 'consumer',
+    maxWebSocketMessageBytes: 4096,
     signal,
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
     onMessage(packet) {

@@ -6,6 +6,7 @@ import { connectPortable, type PacketTransport, type PortableOptions } from './p
 import type { ClientFactory } from './session.js';
 import type { NodeMessage } from './nodeMessage.js';
 import { nodePacketListener } from './nodePacketListener.js';
+import { resolveWebSocketMessageLimit } from './websocketLimits.js';
 
 export interface WebSocketClientOptions extends PortableOptions<NodeMessage>, Pick<SecureContextOptions, 'ca' | 'cert' | 'key'> {
   url: string | URL;
@@ -13,6 +14,7 @@ export interface WebSocketClientOptions extends PortableOptions<NodeMessage>, Pi
   headers?: Record<string, string>;
   signal?: AbortSignal;
   maxBufferedBytes?: number;
+  maxWebSocketMessageBytes?: number;
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
@@ -42,6 +44,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
   if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647) {
     throw new RangeError('MQTT WebSocket timeout must be positive and fit in a timer');
   }
+  const maxWebSocketMessageBytes = resolveWebSocketMessageLimit(options.maxWebSocketMessageBytes);
 
   const socket = new WebSocket(options.url, 'mqtt', {
     agent,
@@ -51,6 +54,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
     headers,
     handshakeTimeout: timeoutMs,
     perMessageDeflate: false,
+    maxPayload: maxWebSocketMessageBytes,
   });
   socket.binaryType = 'nodebuffer';
   const codec = { protocolVersion: 5 };
@@ -66,6 +70,10 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
   socket.on('error', (error) => {
     socketError ??= error;
+    if ('code' in error && error.code === 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH') {
+      failSession?.(socketError);
+      socket.terminate();
+    }
   });
   const terminate = (error: Readonly<Error>) => {
     socketError ??= error;

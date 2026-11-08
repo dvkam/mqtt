@@ -33,7 +33,7 @@ const key =
 const agent = proxy !== undefined && proxy !== '' ? new Agent({ proxyEnv: { HTTPS_PROXY: proxy, NO_PROXY: '' } }) : undefined;
 const factory =
   url !== undefined && url !== ''
-    ? createWebSocketClient({ ...options, url, ca, cert, key, agent })
+    ? createWebSocketClient({ ...options, url, ca, cert, key, agent, maxWebSocketMessageBytes: 4096 })
     : createTcpClient({ ...options, host: '127.0.0.1', port: Number(process.env['MQTT_TEST_PORT']) });
 const client = await factory.connect();
 try {

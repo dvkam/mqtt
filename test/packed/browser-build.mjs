@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { cpSync, mkdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
@@ -64,6 +64,18 @@ console.log(
 );
 
 const engines = process.argv.slice(3);
+cpSync(new URL('./node-receive.ts', import.meta.url), resolve(root, 'packed/node-receive.ts'));
+const nodeReceivePeer = await startReceivePeer();
+try {
+  const child = spawn(process.execPath, [resolve(root, 'packed/node-receive.ts'), nodeReceivePeer.url], {
+    stdio: 'inherit',
+    timeout: 10_000,
+  });
+  const [status] = /** @type {unknown[]} */ (await once(child, 'exit'));
+  assert.equal(status, 0, 'Packed Node receive contract failed');
+} finally {
+  await nodeReceivePeer.close();
+}
 if (engines.length > 0) {
   const playwright = await import('playwright');
   const peer = await startProtocolPeer();

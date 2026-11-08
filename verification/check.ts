@@ -59,6 +59,11 @@ const models: readonly VerificationCase[] = [
   ['NodeCancellation', 'NodeCancellationDetach', 'ActiveOwnsSignal'],
   ['NodeCancellation', 'NodeCancellationNotify', 'AbortRetiresActive'],
   ['NodeCancellation', 'NodeCancellationCleanup', 'ClosedReleasesSignal'],
+  ['NodeReceive', 'NodeReceive'],
+  ['NodeReceive', 'NodeReceiveValidate', 'InvalidConfigNoConstruction'],
+  ['NodeReceive', 'NodeReceiveForward', 'BoundedNativeReceive'],
+  ['NodeReceive', 'NodeReceiveNotify', 'ErrorRetiresCore'],
+  ['NodeReceive', 'NodeReceiveTerminate', 'ErrorRequestsTermination'],
 ];
 
 for (const [model, configuration, expectedInvariant] of models) {

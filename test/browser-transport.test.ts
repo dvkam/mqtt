@@ -156,6 +156,9 @@ test('the default rejects a message above one MiB before byte delivery', async (
   const onBytes = vi.fn<(bytes: unknown) => void>();
   const onClose = vi.fn<(reason: unknown, kind: unknown) => void>();
   const transport = await openBrowserTransport('ws://localhost', { onBytes, onClose });
+  Socket.instance.dispatchEvent(new MessageEvent('message', { data: new ArrayBuffer(1024 * 1024) }));
+  expect(onBytes).toHaveBeenCalledTimes(1);
+  onBytes.mockClear();
   Socket.instance.dispatchEvent(new MessageEvent('message', { data: new ArrayBuffer(1024 * 1024 + 1) }));
   expect(onBytes).not.toHaveBeenCalled();
   expect(onClose.mock.calls[0]?.[0]).toBeInstanceOf(RangeError);
