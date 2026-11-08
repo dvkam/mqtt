@@ -29,6 +29,7 @@ export async function checkDeclarations(transport: PacketTransport) {
 export async function checkTcpDeclarations(signal: AbortSignal) {
   const tcp = createTcpClient({
     host: '127.0.0.1',
+    maxPacketBytes: 4096,
     clientId: 'consumer',
     signal,
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.

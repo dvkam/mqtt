@@ -27,6 +27,7 @@ const client = await createTcpClient({
   host: '127.0.0.1',
   port: 1883,
   clientId: 'readme-node',
+  maxPacketBytes: 1024 * 1024,
 }).connect();
 
 try {
@@ -39,6 +40,8 @@ try {
 ```
 
 The runnable [TypeScript sample](sample/sample.ts) also receives an echoed message and bounds its wait. See its [broker instructions](docs/legacy-fixture-migration.md#run-the-example).
+
+TCP now defaults to a 1 MiB incoming packet limit. The [packet-input guide](docs/tcp-packet-input.md) defines configuration, compact Buffer ownership, EOF and failure behavior. Larger incoming packets need an explicit limit.
 
 For Node WS/WSS, use `createWebSocketClient` from `mqtt` with a broker URL. This adapter uses `ws` and accepts CA, client certificate and caller-supplied agent options. See the [transport comparison](docs/websocket-comparison.md) for TLS, proxy, backpressure and close behavior, including limitations of the experimental native Node WebSocket probe.
 

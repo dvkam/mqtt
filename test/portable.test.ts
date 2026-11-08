@@ -28,6 +28,31 @@ test('invalid subscription input cannot replace an established terminal failure'
   expect(broker.packets).toEqual([expect.objectContaining({ cmd: 'connect' })]);
 });
 
+test('a matching refused CONNACK owns the result before a synchronous trailing close', async () => {
+  const broker = peer();
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The transport retains its mutable packet callback contract.
+  broker.transport.send = async (packet) => {
+    if (packet.cmd === 'connect') {
+      broker.receive({ cmd: 'connack', sessionPresent: false, reasonCode: 135 });
+      broker.close(new Error('trailing input closed'));
+    }
+    await Promise.resolve();
+  };
+  await expect(connectPortable(broker.transport, { clientId: 'refused-before-close' })).rejects.toMatchObject({
+    message: 'MQTT acknowledgment refused',
+    code: 135,
+  });
+});
+
+test('a later captured transport close cannot replace the first active failure', async () => {
+  const broker = peer();
+  const client = await connectPortable(broker.transport, { clientId: 'first-close-wins' });
+  const reason = new Error('first transport failure');
+  broker.close(reason);
+  broker.close(new Error('later transport failure'));
+  await expect(client.publish('a', 'late')).rejects.toBe(reason);
+});
+
 function peer() {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
   let receive: (packet: Packet) => void;

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { Session } from 'node:inspector/promises';
 import { availableParallelism, cpus, release } from 'node:os';
 import { generate, parser } from 'mqtt-packet';
-import { BoundedNodeDecoder } from '../experiments/bounded-node-decoder.ts';
+import { StreamingNodeDecoder } from '../experiments/streaming-node-decoder.ts';
+import { NodePacketDecoder } from '../../src/nodePacketDecoder.ts';
 
 type Strategy = 'reference' | 'compact' | 'streaming';
 const strategies: readonly Strategy[] = ['reference', 'compact', 'streaming'];
@@ -25,7 +26,8 @@ const wire = generate(
 );
 
 function createDecoder(strategy: Strategy, onPacket: (packet: unknown) => void) {
-  if (strategy !== 'reference') return new BoundedNodeDecoder({ maxPacketBytes: wire.length, assembly: strategy, onPacket });
+  if (strategy === 'compact') return new NodePacketDecoder({ maxPacketBytes: wire.length, onPacket });
+  if (strategy === 'streaming') return new StreamingNodeDecoder({ maxPacketBytes: wire.length, onPacket });
   const decoder = parser({ protocolVersion: 5 });
   decoder.on('packet', onPacket);
   decoder.on('error', (reason: unknown) => {
