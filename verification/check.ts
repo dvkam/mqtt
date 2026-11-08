@@ -95,6 +95,10 @@ const models: readonly VerificationCase[] = [
   ['PublicationAdmission', 'PublicationAdmissionBytes', 'BoundedBytes'],
   ['PublicationAdmission', 'PublicationAdmissionRelease', 'PendingCovered'],
   ['PublicationAdmission', 'PublicationAdmissionControl', 'ControlAvailable'],
+  ['NativeWriteReserve', 'NativeWriteReserve'],
+  ['NativeWriteReserve', 'NativeWriteReserveTotal', 'BoundedProjection'],
+  ['NativeWriteReserve', 'NativeWriteReserveHeadroom', 'PublicationHeadroom'],
+  ['NativeWriteReserve', 'NativeWriteReserveInvalid', 'ValidObservation'],
 ];
 
 for (const [model, configuration, expectedInvariant] of models) {
