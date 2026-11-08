@@ -142,7 +142,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
       socket.once('close', failed);
     });
     if (socket.protocol !== 'mqtt') throw new Error('MQTT WebSocket subprotocol was not negotiated');
-    const client = await connectPortable(transport, options);
+    const client = await connectPortable(transport, { ...options, timeoutMs });
     if (isAborted()) throw abortReason();
     return client;
   } catch (error) {

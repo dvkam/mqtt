@@ -4,6 +4,7 @@ import { createTcpClient } from '../src/tcpClient.js';
 import { connectPortable, type PacketTransport } from '../src/portable.js';
 import { createWebSocketClient } from '../src/websocketClient.js';
 import { openMqttWebSocket } from '../src/websocket.js';
+import { startCancellationPeer } from './experiments/node-cancellation-peer.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -12,6 +13,22 @@ afterEach(() => {
 });
 
 const invalidTimeouts = [0, -1, 0.5, 1.5, Number.NaN, Infinity, -Infinity, 2_147_483_648];
+
+test.each(['tcp', 'websocket'] as const)('%s retains its deadline across transport-to-session handoff', async (kind) => {
+  const peer = await startCancellationPeer(kind);
+  const options = { ...peer, clientId: 'stable-opening', timeoutMs: 3000 };
+  try {
+    const opening = (kind === 'tcp' ? createTcpClient(options) : createWebSocketClient(options)).connect();
+    options.timeoutMs = Infinity;
+    const client = await opening;
+    await client.publish('a', 'hello');
+    await client.disconnect();
+    await peer.peerClosed;
+    expect(peer.commands).toEqual(['connect', 'publish', 'disconnect']);
+  } finally {
+    await peer.close();
+  }
+});
 
 test.each(invalidTimeouts)('rejects TCP timeout %s before endpoint access', async (timeoutMs) => {
   const endpoint = vi.fn<() => never>(() => {

@@ -115,7 +115,7 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
       socket.once('close', failed);
     });
     clearTimeout(timer);
-    const client = await connectPortable(transport, options);
+    const client = await connectPortable(transport, { ...options, timeoutMs });
     if (isAborted()) throw abortReason();
     return client;
   } catch (error) {

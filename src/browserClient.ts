@@ -42,6 +42,7 @@ export function createBrowserClient(options: BrowserClientOptions): ClientFactor
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
 async function openClient(options: BrowserClientOptions): Promise<BrowserSession> {
+  const timeoutMs = options.timeoutMs;
   const decoder = new PacketDecoder({ maxPacketBytes: options.maxPacketBytes });
   let deliver: Parameters<PacketTransport<BrowserMessage>['listen']>[0] | undefined;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
@@ -49,7 +50,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
   let failure: Error | undefined;
   const bytes = await openBrowserTransport(options.url, {
     signal: options.signal,
-    timeoutMs: options.timeoutMs,
+    timeoutMs,
     maxBufferedBytes: options.maxBufferedBytes,
     maxWebSocketMessageBytes: options.maxWebSocketMessageBytes,
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
@@ -169,7 +170,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
   const client = await connectPortable(transport, {
     clientId: options.clientId,
     username: options.username,
-    timeoutMs: options.timeoutMs,
+    timeoutMs,
     onMessage: options.onMessage,
   });
   if (options.signal?.aborted === true) {
