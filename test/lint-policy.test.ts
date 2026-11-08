@@ -30,9 +30,22 @@ function lintFixture(contents: string, extension: 'ts' | 'mjs', configuration = 
     writeFileSync(filename, contents);
     const result = spawnSync(
       process.execPath,
-      configuration === 'compiler' || configuration === 'repository'
-        ? ['lint/typePolicy.ts', ...(configuration === 'repository' ? [] : [filename])]
-        : ['node_modules/oxlint/bin/oxlint', '-c', configuration, '--format', 'json', filename],
+      configuration === 'compiler' || configuration === 'repository' || configuration === 'default-policy'
+        ? ['lint/typePolicy.ts', ...(configuration === 'compiler' ? [filename] : [])]
+        : configuration === 'discovery'
+          ? [
+              'node_modules/oxlint/bin/oxlint',
+              '-c',
+              'oxlint.config.mjs',
+              '--format',
+              'json',
+              'src',
+              'test',
+              'sample',
+              'lint',
+              'verification',
+            ]
+          : ['node_modules/oxlint/bin/oxlint', '-c', configuration, '--format', 'json', filename],
       { encoding: 'utf8', timeout: 15000 },
     );
     if (result.error) throw result.error;
@@ -68,6 +81,12 @@ test.each(['oxlint.config.mjs', 'compiler'])('rejects explicit any through %s', 
   expect(
     errorsFor(result.diagnostics, configuration === 'compiler' ? 'type-policy(no-any)' : 'typescript(no-explicit-any)'),
   ).toHaveLength(4);
+});
+
+test.each(['discovery', 'default-policy'])('an active negative fixture does not enter %s', (configuration) => {
+  const result = lintFixture('export type InvalidFixture = any;', 'ts', configuration);
+  expect(result.status).toBe(0);
+  expect(result.diagnostics).toEqual([]);
 });
 
 test.each(['compiler'])('rejects literal and nested JSDoc escapes through %s', (configuration) => {
