@@ -1,14 +1,15 @@
 import { createConnection } from 'node:net';
-import { generate, parser } from 'mqtt-packet';
+import { generate } from 'mqtt-packet';
 import { connectPortable, type PacketTransport, type PortableOptions } from './portable.js';
 import type { ClientFactory } from './session.js';
 import type { NodeMessage } from './nodeMessage.js';
-import { nodePacketListener } from './nodePacketListener.js';
+import { NodePacketInput } from './nodePacketInput.js';
 
 export interface TcpClientOptions extends PortableOptions<NodeMessage> {
   host: string;
   port?: number;
   signal?: AbortSignal;
+  maxPacketBytes?: number;
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
@@ -33,39 +34,42 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
   };
   if (isAborted()) throw abortReason();
 
+  const input = new NodePacketInput(options.maxPacketBytes);
   const socket = createConnection({ host: options.host, port: options.port ?? 1883 });
   const codec = { protocolVersion: 5 };
-  const decoder = parser(codec);
-  let socketError: Error | undefined;
-  let failSession: ((reason: Readonly<Error>) => void) | undefined;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
   socket.on('error', (error) => {
-    socketError = error;
+    input.retire('error', error);
+    signal?.removeEventListener('abort', abort);
   });
   const closed = new Promise<void>((resolve) => {
     socket.once('close', () => {
-      signal?.removeEventListener('abort', abort);
-      resolve();
+      try {
+        input.remoteEnd(new Error('TCP socket closed'));
+      } finally {
+        signal?.removeEventListener('abort', abort);
+        resolve();
+      }
     });
   });
-  const abort = () => {
-    const reason = socketError ?? abortReason();
-    socketError = reason;
-    failSession?.(reason);
+  socket.once('end', () => {
+    signal?.removeEventListener('abort', abort);
+    const reason = input.remoteEnd(new Error('TCP socket closed'));
     socket.destroy(reason);
+  });
+  const abort = () => {
+    input.retire('abort', input.reason ?? abortReason());
+    socket.destroy(input.reason);
   };
   signal?.addEventListener('abort', abort, { once: true });
   if (isAborted()) abort();
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
   socket.on('data', (chunk) => {
-    try {
-      decoder.parse(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
-    } catch (error) {
-      socket.destroy(error instanceof Error ? error : new Error('TCP packet handler failed'));
+    const reason = input.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+    if (reason) {
+      signal?.removeEventListener('abort', abort);
+      socket.destroy(reason);
     }
-  });
-  decoder.on('error', (error: unknown) => {
-    socket.destroy(error instanceof Error ? error : new Error('MQTT parser failed'));
   });
 
   const transport: PacketTransport<NodeMessage> = {
@@ -79,20 +83,10 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
       });
     },
     listen(onPacket, onClose) {
-      failSession = onClose;
-      const closed = () => {
-        onClose(socketError ?? new Error('TCP socket closed'));
-      };
-      const received = nodePacketListener(onPacket);
-      decoder.on('packet', received);
-      socket.on('close', closed);
-      return () => {
-        if (failSession === onClose) failSession = undefined;
-        decoder.off('packet', received);
-        socket.off('close', closed);
-      };
+      return input.listen(onPacket, onClose);
     },
     async close(force) {
+      input.detachCore();
       if (!socket.destroyed) {
         if (force === true) socket.destroy();
         else socket.destroySoon();
@@ -112,7 +106,7 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
       };
       const failed = () => {
         socket.off('connect', connected);
-        reject(socketError ?? new Error('TCP socket closed before connecting'));
+        reject(input.reason ?? new Error('TCP socket closed before connecting'));
       };
       socket.once('connect', connected);
       socket.once('close', failed);

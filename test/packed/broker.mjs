@@ -34,7 +34,7 @@ const agent = proxy !== undefined && proxy !== '' ? new Agent({ proxyEnv: { HTTP
 const factory =
   url !== undefined && url !== ''
     ? createWebSocketClient({ ...options, url, ca, cert, key, agent, maxWebSocketMessageBytes: 4096 })
-    : createTcpClient({ ...options, host: '127.0.0.1', port: Number(process.env['MQTT_TEST_PORT']) });
+    : createTcpClient({ ...options, host: '127.0.0.1', port: Number(process.env['MQTT_TEST_PORT']), maxPacketBytes: 4096 });
 const client = await factory.connect();
 try {
   await assert.rejects(client.subscribe('ci/\u0000invalid'), /Invalid MQTT topic filter/);
