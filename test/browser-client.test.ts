@@ -204,3 +204,28 @@ test('ping timeout retires locally without waiting for a second native-close dea
   await expect(result).resolves.toMatchObject({ message: 'MQTT operation timed out' });
   await vi.advanceTimersByTimeAsync(50);
 });
+
+test('browser publication pressure leaves native admission room for ping and disconnect', async () => {
+  const broker = await peer();
+  try {
+    const options = { url: broker.url, clientId: 'reserve', maxBufferedBytes: 32, reservedControlBytes: 8 };
+    const opening = createBrowserClient(options).connect();
+    options.maxBufferedBytes = 1;
+    options.reservedControlBytes = 1;
+    const client = await opening;
+    const queued = vi.spyOn(WebSocket.prototype, 'bufferedAmount', 'get').mockReturnValue(18);
+    await client.publish('a', '');
+    queued.mockReturnValue(24);
+    await expect(client.publish('a', '')).rejects.toThrow('WebSocket write budget exceeded');
+    await client.ping();
+    await client.disconnect();
+    expect(broker.packets.map(({ cmd }: Readonly<Pick<Packet, 'cmd'>>) => cmd)).toEqual([
+      'connect',
+      'publish',
+      'pingreq',
+      'disconnect',
+    ]);
+  } finally {
+    await broker.close();
+  }
+});

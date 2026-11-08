@@ -1,24 +1,24 @@
 import { openMqttWebSocket } from './websocket.js';
 import { resolveWebSocketMessageLimit } from './websocketLimits.js';
+import { allowsNativeWrite, resolveNativeWriteLimits, type NativeWriteLimits, type WriteTraffic } from './nativeWriteBudget.js';
 
 export type BrowserCloseKind = 'remote' | 'local' | 'abort' | 'error';
 
 export interface BrowserTransport {
   /** Admission to the native send queue. Completion does not imply broker receipt. */
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- This transport boundary uses native sockets, signals and mutable byte views.
-  send(bytes: Uint8Array<ArrayBuffer>): void;
+  send(bytes: Uint8Array<ArrayBuffer>, traffic?: WriteTraffic): void;
   /** Retire immediately. Reject on a close deadline or a throwing onClose observer. */
   close(): Promise<void>;
 }
 
-interface BrowserTransportOptions {
+interface BrowserTransportOptions extends NativeWriteLimits {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- This transport boundary uses native sockets, signals and mutable byte views.
   onBytes: (bytes: Uint8Array<ArrayBuffer>) => void;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- This transport boundary uses native sockets, signals and mutable byte views.
   onClose: (reason: Error, kind: BrowserCloseKind) => void;
   signal?: AbortSignal;
   timeoutMs?: number;
-  maxBufferedBytes?: number;
   maxWebSocketMessageBytes?: number;
 }
 
@@ -28,17 +28,8 @@ export async function openBrowserTransport(
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- This transport boundary uses native sockets, signals and mutable byte views.
   options: BrowserTransportOptions,
 ): Promise<BrowserTransport> {
-  const {
-    onBytes,
-    onClose,
-    signal,
-    timeoutMs = 3000,
-    maxBufferedBytes = 1024 * 1024,
-    maxWebSocketMessageBytes: configuredReceiveLimit,
-  } = options;
-  if (!Number.isSafeInteger(maxBufferedBytes) || maxBufferedBytes <= 0) {
-    throw new RangeError('WebSocket write budget must be a positive safe integer');
-  }
+  const { onBytes, onClose, signal, timeoutMs = 3000, maxWebSocketMessageBytes: configuredReceiveLimit } = options;
+  const writeLimits = resolveNativeWriteLimits(options);
   const maxWebSocketMessageBytes = resolveWebSocketMessageLimit(configuredReceiveLimit);
   const socket = await openMqttWebSocket(url, { signal, timeoutMs });
   let failure: Error | undefined;
@@ -109,10 +100,11 @@ export async function openBrowserTransport(
   }
   return {
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- This transport boundary uses native sockets, signals and mutable byte views.
-    send(bytes) {
+    send(bytes, traffic = 'control') {
       if (failure) throw failure;
       if (socket.readyState !== WebSocket.OPEN) throw new Error('MQTT WebSocket closed');
-      if (bytes.byteLength > maxBufferedBytes - socket.bufferedAmount) throw new Error('WebSocket write budget exceeded');
+      if (!allowsNativeWrite(writeLimits, socket.bufferedAmount, bytes.byteLength, traffic))
+        throw new Error('WebSocket write budget exceeded');
       socket.send(bytes);
     },
     // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.

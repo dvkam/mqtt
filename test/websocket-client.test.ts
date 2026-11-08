@@ -1,7 +1,8 @@
 import { once } from 'node:events';
+import { Socket } from 'node:net';
 import { generate, parser, type Packet } from 'mqtt-packet';
-import { expect, test } from 'vitest';
-import { WebSocketServer } from 'ws';
+import { expect, test, vi } from 'vitest';
+import { WebSocket, WebSocketServer } from 'ws';
 import { createWebSocketClient } from '../src/index.js';
 
 async function peer(earlyPublish = false) {
@@ -39,6 +40,7 @@ async function peer(earlyPublish = false) {
         socket.send(generate({ cmd: 'connack', reasonCode: 0, sessionPresent: false }, codec));
       }
       if (packet.cmd === 'subscribe') socket.terminate();
+      if (packet.cmd === 'pingreq') socket.send(generate({ cmd: 'pingresp' }, codec));
     });
   });
   return {
@@ -117,6 +119,85 @@ test('terminates an unresponsive peer when the local close deadline expires', as
     expect(elapsed).toBeLessThan(1500);
     await expect(client.publish('close', 'late')).rejects.toThrow('closing');
   } finally {
+    await broker.close();
+  }
+});
+
+test('Node WebSocket publication pressure leaves native admission room for control', async () => {
+  const broker = await peer();
+  let restore: (() => void) | undefined;
+  try {
+    const options = { url: broker.url, clientId: 'reserve', maxBufferedBytes: 32, reservedControlBytes: 8 };
+    const opening = createWebSocketClient(options).connect();
+    options.maxBufferedBytes = 1;
+    options.reservedControlBytes = 1;
+    const client = await opening;
+    const queued = vi.spyOn(WebSocket.prototype, 'bufferedAmount', 'get').mockReturnValue(12);
+    restore = () => {
+      queued.mockRestore();
+    };
+    await client.publish('a', '');
+    queued.mockReturnValue(24);
+    await expect(client.publish('a', '')).rejects.toThrow('WebSocket write budget exceeded');
+    await client.ping();
+    queued.mockReturnValue(0);
+    await client.disconnect();
+    expect(broker.packets.map(({ cmd }: Readonly<Pick<Packet, 'cmd'>>) => cmd)).toEqual([
+      'connect',
+      'publish',
+      'pingreq',
+      'disconnect',
+    ]);
+  } finally {
+    restore?.();
+    await broker.close();
+  }
+});
+
+test.each([
+  [0, 6, 6],
+  [119, 125, 6],
+  [120, 126, 8],
+  [65_527, 65_535, 8],
+  [65_528, 65_536, 14],
+])('Node WS reserves framed bytes for payload length %s', async (payloadLength, mqttBytes, headerBytes) => {
+  const broker = await peer();
+  const writes = vi.spyOn(Socket.prototype, 'write');
+  let owner: Socket | undefined;
+  try {
+    const address = broker.server.address();
+    if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
+    const frameBytes = mqttBytes + headerBytes;
+    const client = await createWebSocketClient({
+      url: broker.url,
+      clientId: 'a',
+      maxBufferedBytes: frameBytes + 16,
+      reservedControlBytes: 16,
+    }).connect();
+    const connected: unknown = writes.mock.contexts.find(
+      (candidate: unknown) => candidate instanceof Socket && candidate.remotePort === address.port,
+    );
+    writes.mockRestore();
+    if (!(connected instanceof Socket)) throw new Error('Expected WS client socket');
+    owner = connected;
+    owner.cork();
+    const excess = client.publish('a', 'x'.repeat(payloadLength + 1)).catch((reason: unknown) => reason);
+    expect(owner.writableLength).toBe(0);
+    await expect(excess).resolves.toMatchObject({ message: 'WebSocket write budget exceeded' });
+    const publication = client.publish('a', 'x'.repeat(payloadLength)).catch((reason: unknown) => reason);
+    expect(owner.writableLength).toBe(frameBytes);
+    const ping = client.ping();
+    expect(owner.writableLength).toBe(frameBytes + 8);
+    expect(broker.packets.map(({ cmd }: Readonly<Pick<Packet, 'cmd'>>) => cmd)).toEqual(['connect']);
+    owner.uncork();
+    await expect(publication).resolves.toBeUndefined();
+    await ping;
+    expect(broker.packets.map(({ cmd }: Readonly<Pick<Packet, 'cmd'>>) => cmd)).toEqual(['connect', 'publish', 'pingreq']);
+    await client.disconnect();
+  } finally {
+    writes.mockRestore();
+    owner?.uncork();
+    owner?.destroy();
     await broker.close();
   }
 });

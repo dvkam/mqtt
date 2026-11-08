@@ -323,3 +323,89 @@ test('close is idempotent and reports a stalled native close at its deadline', a
   expect(onClose).toHaveBeenCalledTimes(1);
   expect(getEventListeners(Socket.instance, 'close')).toEqual([]);
 });
+
+test('raw browser writes preserve the full budget unless classified as publication', async () => {
+  vi.stubGlobal('WebSocket', Socket);
+  const transport = await openBrowserTransport('ws://unused', {
+    maxBufferedBytes: 8,
+    reservedControlBytes: 3,
+    onBytes() {},
+    onClose() {},
+  });
+  transport.send(new Uint8Array(8));
+  expect(() => {
+    transport.send(new Uint8Array(6), 'publication');
+  }).toThrow('budget');
+  transport.send(new Uint8Array(5), 'publication');
+  Socket.instance.bufferedAmount = 5;
+  transport.send(new Uint8Array(3), 'control');
+  expect(() => {
+    transport.send(Uint8Array.of(0), 'publication');
+  }).toThrow('budget');
+  Socket.instance.bufferedAmount = 8;
+  expect(() => {
+    transport.send(Uint8Array.of(0), 'control');
+  }).toThrow('budget');
+  expect(Socket.instance.send).toHaveBeenCalledTimes(3);
+  const closing = transport.close();
+  Socket.instance.readyState = Socket.CLOSED;
+  Socket.instance.dispatchEvent(new Event('close'));
+  await closing;
+});
+
+test.each([NaN, Infinity, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])('rejects invalid native bufferedAmount %s', async (queued) => {
+  vi.stubGlobal('WebSocket', Socket);
+  const transport = await openBrowserTransport('ws://unused', { onBytes() {}, onClose() {} });
+  Socket.instance.bufferedAmount = queued;
+  expect(() => {
+    transport.send(Uint8Array.of(0xc0, 0));
+  }).toThrow('budget');
+  expect(Socket.instance.send).not.toHaveBeenCalled();
+  const closing = transport.close();
+  Socket.instance.readyState = Socket.CLOSED;
+  Socket.instance.dispatchEvent(new Event('close'));
+  await closing;
+});
+
+test.each([
+  [1, undefined, 1],
+  [2, undefined, 2],
+  [3, undefined, 3],
+  [4, undefined, 3],
+  [8, 0, 8],
+  [8, 8, 0],
+] as const)(
+  'uses total %s and reserve %s for raw publication capacity',
+  async (maxBufferedBytes, reservedControlBytes, ceiling) => {
+    vi.stubGlobal('WebSocket', Socket);
+    const transport = await openBrowserTransport('ws://unused', {
+      maxBufferedBytes,
+      reservedControlBytes,
+      onBytes() {},
+      onClose() {},
+    });
+    transport.send(new Uint8Array(ceiling), 'publication');
+    expect(() => {
+      transport.send(new Uint8Array(ceiling + 1), 'publication');
+    }).toThrow('budget');
+    transport.send(new Uint8Array(maxBufferedBytes), 'control');
+    const closing = transport.close();
+    Socket.instance.readyState = Socket.CLOSED;
+    Socket.instance.dispatchEvent(new Event('close'));
+    await closing;
+  },
+);
+
+test('established browser failure wins over a later invalid native counter', async () => {
+  vi.stubGlobal('WebSocket', Socket);
+  const transport = await openBrowserTransport('ws://unused', { onBytes() {}, onClose() {} });
+  Socket.instance.dispatchEvent(new Event('error'));
+  Socket.instance.bufferedAmount = NaN;
+  expect(() => {
+    transport.send(Uint8Array.of(0xc0, 0), 'control');
+  }).toThrow('MQTT WebSocket failed');
+  const closing = transport.close();
+  Socket.instance.readyState = Socket.CLOSED;
+  Socket.instance.dispatchEvent(new Event('close'));
+  await closing;
+});

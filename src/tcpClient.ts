@@ -6,8 +6,9 @@ import type { NodeMessage } from './nodeMessage.js';
 import { NodePacketInput } from './nodePacketInput.js';
 import { resolveTimeout } from './timeout.js';
 import { resolvePublicationLimits } from './publicationAdmission.js';
+import { allowsNativeWrite, resolveNativeWriteLimits, type NativeWriteLimits } from './nativeWriteBudget.js';
 
-export interface TcpClientOptions extends PortableOptions<NodeMessage> {
+export interface TcpClientOptions extends PortableOptions<NodeMessage>, NativeWriteLimits {
   host: string;
   port?: number;
   signal?: AbortSignal;
@@ -38,6 +39,7 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
 
   const timeoutMs = resolveTimeout(options.timeoutMs);
   const publicationLimits = resolvePublicationLimits(options);
+  const writeLimits = resolveNativeWriteLimits(options);
 
   const input = new NodePacketInput(options.maxPacketBytes);
   const socket = createConnection({ host: options.host, port: options.port ?? 1883 });
@@ -81,8 +83,15 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
     // oxlint-disable-next-line typescript/promise-function-async, typescript/prefer-readonly-parameter-types -- Forward the existing promise without adding an async wrapper. The TCP adapter uses native signals, sockets and shared packet buffers.
     send(packet) {
       return new Promise((resolve, reject) => {
+        const bytes = generate(packet, codec);
+        if (
+          !allowsNativeWrite(writeLimits, socket.writableLength, bytes.length, packet.cmd === 'publish' ? 'publication' : 'control')
+        ) {
+          reject(new Error('TCP write budget exceeded'));
+          return;
+        }
         // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
-        socket.write(generate(packet, codec), (error) => {
+        socket.write(bytes, (error) => {
           error ? reject(error) : resolve();
         });
       });

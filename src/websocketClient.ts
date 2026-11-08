@@ -9,13 +9,14 @@ import { NodePacketInput } from './nodePacketInput.js';
 import { resolveWebSocketMessageLimit } from './websocketLimits.js';
 import { resolveTimeout } from './timeout.js';
 import { resolvePublicationLimits } from './publicationAdmission.js';
+import { allowsNativeWrite, resolveNativeWriteLimits, type NativeWriteLimits } from './nativeWriteBudget.js';
 
-export interface WebSocketClientOptions extends PortableOptions<NodeMessage>, Pick<SecureContextOptions, 'ca' | 'cert' | 'key'> {
+export interface WebSocketClientOptions
+  extends PortableOptions<NodeMessage>, NativeWriteLimits, Pick<SecureContextOptions, 'ca' | 'cert' | 'key'> {
   url: string | URL;
   agent?: Agent;
   headers?: Record<string, string>;
   signal?: AbortSignal;
-  maxBufferedBytes?: number;
   maxWebSocketMessageBytes?: number;
   maxPacketBytes?: number;
 }
@@ -34,16 +35,14 @@ export function createWebSocketClient(options: Readonly<WebSocketClientOptions>)
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
 async function openClient(options: Readonly<WebSocketClientOptions>) {
-  const { signal, timeoutMs = 3000, maxBufferedBytes = 1024 * 1024, agent, ca, cert, key, headers } = options;
+  const { signal, timeoutMs = 3000, agent, ca, cert, key, headers } = options;
   const isAborted = (): boolean => signal?.aborted === true;
   const abortReason = () => {
     const reason: unknown = signal?.reason;
     return reason instanceof Error ? reason : Object.assign(new Error('MQTT WebSocket aborted'), { name: 'AbortError' });
   };
   if (isAborted()) throw abortReason();
-  if (!Number.isInteger(maxBufferedBytes) || maxBufferedBytes <= 0) {
-    throw new RangeError('WebSocket write budget must be a positive integer');
-  }
+  const writeLimits = resolveNativeWriteLimits(options);
   resolveTimeout(timeoutMs);
   const publicationLimits = resolvePublicationLimits(options);
   const maxWebSocketMessageBytes = resolveWebSocketMessageLimit(options.maxWebSocketMessageBytes);
@@ -101,7 +100,11 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
     async send(packet) {
       if (socket.readyState !== WebSocket.OPEN) throw input.reason ?? new Error('MQTT WebSocket closed');
       const bytes = generate(packet, codec);
-      if (socket.bufferedAmount + bytes.byteLength > maxBufferedBytes) {
+      // Client frames are masked and compression is disabled.
+      const frameBytes = bytes.byteLength + (bytes.byteLength < 126 ? 6 : bytes.byteLength < 65_536 ? 8 : 14);
+      if (
+        !allowsNativeWrite(writeLimits, socket.bufferedAmount, frameBytes, packet.cmd === 'publish' ? 'publication' : 'control')
+      ) {
         throw new Error('WebSocket write budget exceeded');
       }
       await new Promise<void>((resolve, reject) => {
