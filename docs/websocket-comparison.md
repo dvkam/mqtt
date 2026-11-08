@@ -19,6 +19,8 @@ Use the same MQTT bytes and failure schedules for callback, AsyncIterable and We
 
 ## Receive limits
 
+The [receive-limit validation record](baseline/receive-validation-measurements.md) preserves the broker echo timings from this verification. The small WS/WSS samples are smoke output, not transport performance estimates.
+
 Both public WebSocket clients accept `maxWebSocketMessageBytes`. It defaults to 1,048,576 bytes and must be an integer from 1 through 2,147,483,647. An exact-limit message is accepted. The Node adapter now overrides ws's larger default, so applications sending larger coalesced batches must configure this option explicitly.
 
 Node passes the value to ws as `maxPayload`, which checks the complete WebSocket message during assembly. WebSocket protocol fragments share one limit. A rejected message never reaches the MQTT parser. The adapter preserves the native RangeError with code `WS_ERR_UNSUPPORTED_MESSAGE_LENGTH`, rejects pending operations and terminates locally even when the peer stalls its close handshake. Later operations retain the established failure. The browser checks after native assembly and reports its own RangeError; it cannot provide Node's earlier allocation guard or force termination.

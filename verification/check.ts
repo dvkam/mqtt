@@ -64,6 +64,12 @@ const models: readonly VerificationCase[] = [
   ['NodeReceive', 'NodeReceiveForward', 'BoundedNativeReceive'],
   ['NodeReceive', 'NodeReceiveNotify', 'ErrorRetiresCore'],
   ['NodeReceive', 'NodeReceiveTerminate', 'ErrorRequestsTermination'],
+  ['NodePacketAdmission', 'NodePacketAdmission'],
+  ['NodePacketAdmission', 'NodePacketAdmissionBudget', 'BoundedPacketAdmission'],
+  ['NodePacketAdmission', 'NodePacketAdmissionEarly', 'CompleteBeforeDecode'],
+  ['NodePacketAdmission', 'NodePacketAdmissionPoison', 'PermanentFailure'],
+  ['NodePacketAdmission', 'NodePacketAdmissionRetire', 'RetirementFenced'],
+  ['NodePacketAdmission', 'NodePacketAdmissionEof', 'RejectTruncatedCompletion'],
 ];
 
 for (const [model, configuration, expectedInvariant] of models) {

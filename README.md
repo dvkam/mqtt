@@ -103,4 +103,6 @@ Read the [contribution guide](.github/contributing.md). CI runs tests, strict co
 
 The [verification guide](.agents/skills/verify-mqtt-lifecycle/SKILL.md) describes bounded lifecycle models and their limits. Models supplement regression and integration tests; they do not prove the entire implementation correct.
 
+The [measurement index](docs/measurements.md) links workloads, individual observations, environments and reproduction commands. The [Node framing experiment](docs/node-framing-experiment.md) remains test-only while its packet-admission and ownership tradeoffs are evaluated.
+
 The [playground](https://github.com/dvkam/mqtt/issues/21), [human and agent API reference](https://github.com/dvkam/mqtt/issues/22), and remaining [documentation, license and conduct work](https://github.com/dvkam/mqtt/issues/48) are tracked separately. Upstream attribution remains in source headers. This preview has not settled its publishing identity.

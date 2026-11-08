@@ -34,4 +34,6 @@ Run pnpm test for the contract gate. The existing packed browser harness builds 
 
 ## Decision
 
+The [8 November measurement record](baseline/receive-validation-measurements.md) contains the individual delivery timings, queue peaks and bundled fixture sizes. The [measurement index](measurements.md) links the other workloads and their limitations.
+
 Keep callbacks as the default. Retain this bounded queue as a comparison candidate, with an iterator and an optional Streams facade sharing admission and terminal behavior. Do not make Web Streams the transport interface or couple application cancellation to the shared reader. Publish a facade only after source-end coupling, allocation and retained-memory measurements, and the remaining browser contract checks in #54 are complete. Do not add a stream-helper dependency for this prototype.
