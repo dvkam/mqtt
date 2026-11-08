@@ -55,6 +55,10 @@ const models: readonly VerificationCase[] = [
   ['WebSocketReceive', 'WebSocketReceive'],
   ['WebSocketReceive', 'WebSocketReceiveBudget', 'BoundedReceive'],
   ['WebSocketReceive', 'WebSocketReceiveLate', 'NoLateReceive'],
+  ['NodeCancellation', 'NodeCancellation'],
+  ['NodeCancellation', 'NodeCancellationDetach', 'ActiveOwnsSignal'],
+  ['NodeCancellation', 'NodeCancellationNotify', 'AbortRetiresActive'],
+  ['NodeCancellation', 'NodeCancellationCleanup', 'ClosedReleasesSignal'],
 ];
 
 for (const [model, configuration, expectedInvariant] of models) {
