@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { expect, test } from 'vitest';
 import configuration from '../oxlint.config.mjs';
 
@@ -24,14 +25,18 @@ test('enables every type-aware rule supplied by the pinned linter', () => {
 });
 
 function lintFixture(contents: string, extension: 'ts' | 'mjs', configuration = 'compiler') {
-  const directory = mkdtempSync(join(configuration === 'repository' ? 'verification' : 'test', '.lint-policy-'));
+  const directory = mkdtempSync(join(tmpdir(), 'mqtt-lint-policy-'));
   try {
-    const filename = join(directory, `probe.${extension}`);
+    if (configuration === 'repository') {
+      execFileSync('git', ['init', '--quiet'], { cwd: directory });
+      mkdirSync(join(directory, 'verification'));
+    }
+    const filename = join(directory, configuration === 'repository' ? 'verification' : '', `probe.${extension}`);
     writeFileSync(filename, contents);
     const result = spawnSync(
       process.execPath,
       configuration === 'compiler' || configuration === 'repository' || configuration === 'default-policy'
-        ? ['lint/typePolicy.ts', ...(configuration === 'compiler' ? [filename] : [])]
+        ? [resolve('lint/typePolicy.ts'), ...(configuration === 'compiler' ? [filename] : [])]
         : configuration === 'discovery'
           ? [
               'node_modules/oxlint/bin/oxlint',
@@ -46,7 +51,7 @@ function lintFixture(contents: string, extension: 'ts' | 'mjs', configuration = 
               'verification',
             ]
           : ['node_modules/oxlint/bin/oxlint', '-c', configuration, '--format', 'json', filename],
-      { encoding: 'utf8', timeout: 15000 },
+      { cwd: configuration === 'repository' ? directory : process.cwd(), encoding: 'utf8', timeout: 15000 },
     );
     if (result.error) throw result.error;
     const report: unknown = JSON.parse(result.stdout);
