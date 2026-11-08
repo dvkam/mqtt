@@ -4,6 +4,7 @@ import { connectPortable, type PacketTransport, type PortableOptions } from './p
 import type { ClientFactory } from './session.js';
 import type { NodeMessage } from './nodeMessage.js';
 import { NodePacketInput } from './nodePacketInput.js';
+import { resolveTimeout } from './timeout.js';
 
 export interface TcpClientOptions extends PortableOptions<NodeMessage> {
   host: string;
@@ -33,6 +34,8 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
     return reason instanceof Error ? reason : Object.assign(new Error('TCP connection aborted'), { name: 'AbortError' });
   };
   if (isAborted()) throw abortReason();
+
+  const timeoutMs = resolveTimeout(options.timeoutMs);
 
   const input = new NodePacketInput(options.maxPacketBytes);
   const socket = createConnection({ host: options.host, port: options.port ?? 1883 });
@@ -97,7 +100,7 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
 
   const timer = setTimeout(() => {
     socket.destroy(new Error('TCP connection timed out'));
-  }, options.timeoutMs ?? 3000);
+  }, timeoutMs);
   try {
     await new Promise<void>((resolve, reject) => {
       const connected = () => {

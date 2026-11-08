@@ -1,6 +1,7 @@
 import type { IConnectPacket, IPublishPacket, Packet } from 'mqtt-packet';
 import type { ClientSession } from './session.js';
 import { validateTopic } from './util/validateTopic.js';
+import { resolveTimeout } from './timeout.js';
 
 type PublishMessage = Omit<IPublishPacket, 'payload'> & { payload: unknown };
 type IncomingPacket<Message extends PublishMessage> = Exclude<Packet, IPublishPacket> | Message;
@@ -36,9 +37,11 @@ class PortableClient<Message extends PublishMessage> {
   private readonly unlisten: (() => void) | undefined;
   private messageId = 0;
   private active = false;
+  private readonly timeoutMs: number;
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
   constructor(transport: PacketTransport<Message>, options: PortableOptions<Message>) {
+    this.timeoutMs = resolveTimeout(options.timeoutMs);
     this.transport = transport;
     this.options = options;
     this.unlisten = transport.listen(
@@ -168,7 +171,7 @@ class PortableClient<Message extends PublishMessage> {
       this.pendingOperations.add(reject);
       timer = setTimeout(() => {
         reject(new Error('MQTT operation timed out'));
-      }, this.options.timeoutMs ?? 3000);
+      }, this.timeoutMs);
     });
     try {
       return await Promise.race([interrupted, operation()]);
