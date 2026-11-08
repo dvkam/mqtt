@@ -8,6 +8,7 @@ import type { NodeMessage } from './nodeMessage.js';
 import { NodePacketInput } from './nodePacketInput.js';
 import { resolveWebSocketMessageLimit } from './websocketLimits.js';
 import { resolveTimeout } from './timeout.js';
+import { resolvePublicationLimits } from './publicationAdmission.js';
 
 export interface WebSocketClientOptions extends PortableOptions<NodeMessage>, Pick<SecureContextOptions, 'ca' | 'cert' | 'key'> {
   url: string | URL;
@@ -44,6 +45,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
     throw new RangeError('WebSocket write budget must be a positive integer');
   }
   resolveTimeout(timeoutMs);
+  const publicationLimits = resolvePublicationLimits(options);
   const maxWebSocketMessageBytes = resolveWebSocketMessageLimit(options.maxWebSocketMessageBytes);
   const input = new NodePacketInput(options.maxPacketBytes);
 
@@ -143,7 +145,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
       socket.once('close', failed);
     });
     if (socket.protocol !== 'mqtt') throw new Error('MQTT WebSocket subprotocol was not negotiated');
-    const client = await connectPortable(transport, { ...options, timeoutMs });
+    const client = await connectPortable(transport, { ...options, ...publicationLimits, timeoutMs });
     if (isAborted()) throw abortReason();
     return client;
   } catch (error) {

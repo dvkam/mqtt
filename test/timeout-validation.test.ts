@@ -16,10 +16,12 @@ const invalidTimeouts = [0, -1, 0.5, 1.5, Number.NaN, Infinity, -Infinity, 2_147
 
 test.each(['tcp', 'websocket'] as const)('%s retains its deadline across transport-to-session handoff', async (kind) => {
   const peer = await startCancellationPeer(kind);
-  const options = { ...peer, clientId: 'stable-opening', timeoutMs: 3000 };
+  const options = { ...peer, clientId: 'stable-opening', timeoutMs: 3000, maxPendingPublishes: 1, maxPendingPublishBytes: 128 };
   try {
     const opening = (kind === 'tcp' ? createTcpClient(options) : createWebSocketClient(options)).connect();
     options.timeoutMs = Infinity;
+    options.maxPendingPublishes = 0;
+    options.maxPendingPublishBytes = 0;
     const client = await opening;
     await client.publish('a', 'hello');
     await client.disconnect();
@@ -104,9 +106,11 @@ test.each([1, 3000, 2_147_483_647])('uses validated timeout %s for the active se
     },
     async close() {},
   };
-  const options = { clientId: 'stable-timeout', timeoutMs };
+  const options = { clientId: 'stable-timeout', timeoutMs, maxPendingPublishes: 1, maxPendingPublishBytes: 128 };
   const client = await connectPortable(transport, options);
   options.timeoutMs = Infinity;
+  options.maxPendingPublishes = 0;
+  options.maxPendingPublishBytes = 0;
   const timer = vi.spyOn(globalThis, 'setTimeout');
   await client.publish('valid', 'message');
   expect(timer).toHaveBeenCalledWith(expect.any(Function), timeoutMs);

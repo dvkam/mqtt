@@ -2,6 +2,7 @@ import { openBrowserTransport } from './browserTransport.js';
 import { encodePacket, PacketDecoder, type UserProperty, type WirePacket } from './codec.js';
 import { connectPortable, type PacketTransport } from './portable.js';
 import type { ClientFactory, ClientSession } from './session.js';
+import { resolvePublicationLimits, type PublicationLimits } from './publicationAdmission.js';
 
 export interface BrowserMessage {
   cmd: 'publish';
@@ -15,7 +16,7 @@ export interface BrowserMessage {
 
 export type BrowserSession = ClientSession;
 
-export interface BrowserClientOptions {
+export interface BrowserClientOptions extends PublicationLimits {
   url: string | URL;
   clientId: string;
   username?: string;
@@ -43,6 +44,7 @@ export function createBrowserClient(options: BrowserClientOptions): ClientFactor
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
 async function openClient(options: BrowserClientOptions): Promise<BrowserSession> {
   const timeoutMs = options.timeoutMs;
+  const publicationLimits = resolvePublicationLimits(options);
   const decoder = new PacketDecoder({ maxPacketBytes: options.maxPacketBytes });
   let deliver: Parameters<PacketTransport<BrowserMessage>['listen']>[0] | undefined;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
@@ -170,6 +172,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
     },
   };
   const client = await connectPortable(transport, {
+    ...publicationLimits,
     clientId: options.clientId,
     username: options.username,
     timeoutMs,
