@@ -1,13 +1,10 @@
 import { parser, type Packet } from 'mqtt-packet';
 
-export class BoundedNodeDecoder {
+export class StreamingNodeDecoder {
   private decoder: ReturnType<typeof parser> | undefined;
   private readonly maxPacketBytes: number;
-  private readonly assembly: 'compact' | 'streaming';
   private firstByte = true;
   private lengthBytes: number[] = [];
-  private remainder: Buffer<ArrayBuffer> | undefined;
-  private offset = 0;
   private streamingRemaining = 0;
   private failure: Error | undefined;
   private ended = false;
@@ -15,14 +12,13 @@ export class BoundedNodeDecoder {
 
   constructor(
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The retained parser delivers mutable packets and Buffer payloads.
-    options: Readonly<{ maxPacketBytes?: number; assembly?: 'compact' | 'streaming'; onPacket: (packet: Packet) => void }>,
+    options: Readonly<{ maxPacketBytes?: number; onPacket: (packet: Packet) => void }>,
   ) {
-    const capacity = options.maxPacketBytes ?? 1024 * 1024;
+    const { maxPacketBytes: capacity = 1024 * 1024 } = options;
     if (!Number.isInteger(capacity) || capacity < 2 || capacity > 268_435_460) {
       throw new RangeError('MQTT packet capacity must be an integer from 2 to 268435460');
     }
     this.maxPacketBytes = capacity;
-    this.assembly = options.assembly ?? 'compact';
     const decoder = parser({ protocolVersion: 5 });
     this.decoder = decoder;
     decoder.on('packet', options.onPacket);
@@ -31,7 +27,7 @@ export class BoundedNodeDecoder {
     });
   }
 
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native views keep mutable backing storage; compact mode copies admitted data.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The streaming comparator forwards native views with their mutable backing storage.
   push(bytes: Readonly<Uint8Array>): void {
     this.assertOpen();
     if (this.ended) throw new Error('MQTT decoder has ended');
@@ -47,14 +43,6 @@ export class BoundedNodeDecoder {
           const fragment = Buffer.from(bytes.buffer, bytes.byteOffset + index, count);
           index += count;
           this.parse(fragment);
-          continue;
-        }
-        if (this.remainder) {
-          const count = Math.min(this.remainder.length - this.offset, bytes.length - index);
-          this.remainder.set(bytes.subarray(index, index + count), this.offset);
-          this.offset += count;
-          index += count;
-          this.flush();
           continue;
         }
         const digit = bytes[index++]!;
@@ -79,19 +67,11 @@ export class BoundedNodeDecoder {
         }
         const size = 1 + this.lengthBytes.length + remainingLength;
         if (size > this.maxPacketBytes) throw new RangeError('MQTT packet allocation limit exceeded');
-        if (this.assembly === 'streaming') {
-          const length = Buffer.from(this.lengthBytes);
-          this.lengthBytes = [];
-          this.streamingRemaining = remainingLength;
-          if (remainingLength === 0) this.firstByte = true;
-          this.parse(length);
-          continue;
-        }
-        this.remainder = Buffer.allocUnsafeSlow(size - 1);
-        this.remainder.set(this.lengthBytes);
-        this.offset = this.lengthBytes.length;
+        const length = Buffer.from(this.lengthBytes);
         this.lengthBytes = [];
-        this.flush();
+        this.streamingRemaining = remainingLength;
+        if (remainingLength === 0) this.firstByte = true;
+        this.parse(length);
       }
     } catch (reason) {
       throw this.reject(reason);
@@ -112,15 +92,6 @@ export class BoundedNodeDecoder {
     this.reject(reason);
   }
 
-  private flush(): void {
-    if (!this.remainder || this.offset !== this.remainder.length) return;
-    const completed = this.remainder;
-    this.remainder = undefined;
-    this.offset = 0;
-    this.firstByte = true;
-    this.parse(completed);
-  }
-
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The retained parser consumes native Buffer objects.
   private parse(bytes: Buffer): void {
     if (!this.decoder) throw this.failure ?? new Error('MQTT decoder has ended');
@@ -135,9 +106,7 @@ export class BoundedNodeDecoder {
   private reject(reason: unknown): Error {
     this.failure ??= reason instanceof Error ? reason : new Error('MQTT decode failed');
     this.decoder = undefined;
-    this.remainder = undefined;
     this.lengthBytes = [];
-    this.offset = 0;
     this.streamingRemaining = 0;
     this.firstByte = true;
     return this.failure;
