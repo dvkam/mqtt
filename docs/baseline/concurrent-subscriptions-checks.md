@@ -1,6 +1,6 @@
 # Concurrent subscription CI observations
 
-These are individual validation observations from [PR #91's packed-consumer job](https://github.com/dvkam/mqtt/actions/runs/42526164608/job/128870144788) on 8 November 2026. The checked source is `734f210ed3130d87e46d7f8e5a0cce24abdfeba4`, including production commit `55245c701284267b16dec4ec1db01074ab876c99`. The job installed the packed tarball into a clean consumer. Its raw log is retained locally in `work/subscriptions-ci-packed.log`.
+These are individual validation observations from [PR #91's packed-consumer job](https://github.com/dvkam/mqtt/actions/runs/42526164608/job/128870144788) on 8 November 2026. CI checked GitHub's test merge `138ebd0e11fce873fee3da4a21c97915dc68dacc`, combining PR head `734f210ed3130d87e46d7f8e5a0cce24abdfeba4` with base `b5d31db8d9624891ed8939196408e6d57fccefad`. The production change is commit `55245c701284267b16dec4ec1db01074ab876c99`. The job installed the packed tarball into a clean consumer. Its raw log is retained locally in `work/subscriptions-ci-packed.log`.
 
 ## Environment and method
 
