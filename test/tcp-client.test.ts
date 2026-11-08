@@ -200,7 +200,6 @@ test('disconnects once and rejects an outstanding SUBSCRIBE', async () => {
   try {
     const controller = new AbortController();
     const client = await createTcpClient({ ...peer.options, signal: controller.signal }).connect();
-    controller.abort();
     const request = once(peer.events, 'subscribe');
     const subscribed = client.subscribe('tcp/teardown');
     const rejected = (async () => {
@@ -214,6 +213,7 @@ test('disconnects once and rejects an outstanding SUBSCRIBE', async () => {
     await expect(client.publish('tcp/teardown', 'late')).rejects.toThrow('closing');
     expect(peer.commands).toEqual(['connect', 'subscribe', 'disconnect']);
     expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
+    controller.abort();
   } finally {
     await peer.close();
   }

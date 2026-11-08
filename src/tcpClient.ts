@@ -37,17 +37,25 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
   const codec = { protocolVersion: 5 };
   const decoder = parser(codec);
   let socketError: Error | undefined;
+  let failSession: ((reason: Readonly<Error>) => void) | undefined;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
   socket.on('error', (error) => {
     socketError = error;
   });
   const closed = new Promise<void>((resolve) => {
-    socket.once('close', resolve);
+    socket.once('close', () => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    });
   });
   const abort = () => {
-    socket.destroy(abortReason());
+    const reason = socketError ?? abortReason();
+    socketError = reason;
+    failSession?.(reason);
+    socket.destroy(reason);
   };
   signal?.addEventListener('abort', abort, { once: true });
+  if (isAborted()) abort();
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
   socket.on('data', (chunk) => {
     try {
@@ -71,6 +79,7 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
       });
     },
     listen(onPacket, onClose) {
+      failSession = onClose;
       const closed = () => {
         onClose(socketError ?? new Error('TCP socket closed'));
       };
@@ -78,6 +87,7 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
       decoder.on('packet', received);
       socket.on('close', closed);
       return () => {
+        if (failSession === onClose) failSession = undefined;
         decoder.off('packet', received);
         socket.off('close', closed);
       };
@@ -117,6 +127,5 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
     throw error;
   } finally {
     clearTimeout(timer);
-    signal?.removeEventListener('abort', abort);
   }
 }

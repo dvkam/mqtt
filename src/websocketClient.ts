@@ -56,9 +56,13 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
   const codec = { protocolVersion: 5 };
   const decoder = parser(codec);
   const closed = new Promise<void>((resolve) => {
-    socket.once('close', resolve);
+    socket.once('close', () => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    });
   });
   let socketError: Error | undefined;
+  let failSession: ((reason: Readonly<Error>) => void) | undefined;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
   socket.on('error', (error) => {
     socketError ??= error;
@@ -68,9 +72,13 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
     socket.terminate();
   };
   const abort = () => {
-    terminate(abortReason());
+    const reason = socketError ?? abortReason();
+    socketError = reason;
+    failSession?.(reason);
+    terminate(reason);
   };
   signal?.addEventListener('abort', abort, { once: true });
+  if (isAborted()) abort();
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
   socket.on('message', (data, binary) => {
     if (!binary || !Buffer.isBuffer(data)) {
@@ -101,6 +109,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
       });
     },
     listen(onPacket, onClose) {
+      failSession = onClose;
       const failed = () => {
         onClose(socketError ?? new Error('MQTT WebSocket closed'));
       };
@@ -108,6 +117,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
       decoder.on('packet', received);
       socket.on('close', failed);
       return () => {
+        if (failSession === onClose) failSession = undefined;
         decoder.off('packet', received);
         socket.off('close', failed);
       };
@@ -148,7 +158,5 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
     await transport.close(true);
     if (isAborted()) throw abortReason();
     throw error;
-  } finally {
-    signal?.removeEventListener('abort', abort);
   }
 }

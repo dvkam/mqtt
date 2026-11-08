@@ -6,9 +6,11 @@ import { createTcpClient, createWebSocketClient } from 'mqtt';
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
 /** @type {((packet: import('mqtt-packet').IPublishPacket | undefined) => void) | undefined} */
 let receive;
-/** @type {Pick<Parameters<typeof createTcpClient>[0], 'clientId' | 'onMessage'>} */
+const controller = new AbortController();
+/** @type {Pick<Parameters<typeof createTcpClient>[0], 'clientId' | 'onMessage' | 'signal'>} */
 const options = {
   clientId: 'packed-ci',
+  signal: controller.signal,
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
   onMessage(packet) {
     receive?.(packet);
@@ -74,6 +76,15 @@ try {
       p99Ms: samples[Math.ceil(iterations * 0.99) - 1],
     }),
   );
+  const cancellation = new Error('packed active cancellation');
+  const ping = client.ping().catch((/** @type {unknown} */ error) => error);
+  controller.abort(cancellation);
+  await assert.rejects(client.publish('ci/echo', 'must not be sent'), (/** @type {unknown} */ error) => error === cancellation);
+  await assert.rejects(client.subscribe('ci/echo'), (/** @type {unknown} */ error) => error === cancellation);
+  assert.equal(await ping, cancellation);
+  console.log('packed active cancellation passed');
 } finally {
-  await client.disconnect();
+  await client.disconnect().catch((/** @type {unknown} */ error) => {
+    if (!controller.signal.aborted || error !== controller.signal.reason) throw error;
+  });
 }
