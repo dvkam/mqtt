@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { expect, test } from 'vitest';
 import configuration from '../oxlint.config.mjs';
 
@@ -24,23 +25,54 @@ test('enables every type-aware rule supplied by the pinned linter', () => {
 });
 
 function lintFixture(contents: string, extension: 'ts' | 'mjs', configuration = 'compiler') {
-  const directory = mkdtempSync(join(configuration === 'repository' ? 'verification' : 'test', '.lint-policy-'));
+  const directory = mkdtempSync(join(tmpdir(), 'mqtt-lint-policy-'));
   try {
-    const filename = join(directory, `probe.${extension}`);
+    if (configuration === 'repository') {
+      execFileSync('git', ['init', '--quiet'], { cwd: directory });
+      mkdirSync(join(directory, 'verification', '.lint-policy'), { recursive: true });
+    }
+    const filename = join(directory, configuration === 'repository' ? 'verification/.lint-policy' : '', `probe.${extension}`);
     writeFileSync(filename, contents);
     const result = spawnSync(
       process.execPath,
-      configuration === 'compiler' || configuration === 'repository'
-        ? ['lint/typePolicy.ts', ...(configuration === 'repository' ? [] : [filename])]
-        : ['node_modules/oxlint/bin/oxlint', '-c', configuration, '--format', 'json', filename],
-      { encoding: 'utf8', timeout: 15000 },
+      configuration === 'compiler' || configuration === 'repository' || configuration === 'default-policy'
+        ? [resolve('lint/typePolicy.ts'), ...(configuration === 'compiler' ? [filename] : [])]
+        : configuration === 'discovery'
+          ? [
+              'node_modules/oxlint/bin/oxlint',
+              '-c',
+              'oxlint.config.mjs',
+              '--format',
+              'json',
+              '--debug',
+              'files',
+              'src',
+              'test',
+              'sample',
+              'lint',
+              'verification',
+            ]
+          : ['node_modules/oxlint/bin/oxlint', '-c', configuration, '--format', 'json', filename],
+      { cwd: configuration === 'repository' ? directory : process.cwd(), encoding: 'utf8', timeout: 15000 },
     );
     if (result.error) throw result.error;
+    if (configuration === 'discovery') {
+      return {
+        status: result.status,
+        diagnostics: [],
+        files: result.stdout
+          .trim()
+          .split(/\r?\n/)
+          .filter(Boolean)
+          .map((filename) => resolve(filename)),
+        fixture: filename,
+      };
+    }
     const report: unknown = JSON.parse(result.stdout);
     if (typeof report !== 'object' || report === null || !('diagnostics' in report) || !Array.isArray(report.diagnostics))
       throw new Error('Expected Oxlint diagnostics');
     const diagnostics: unknown[] = report.diagnostics;
-    return { status: result.status, diagnostics };
+    return { status: result.status, diagnostics, files: [], fixture: filename };
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -68,6 +100,19 @@ test.each(['oxlint.config.mjs', 'compiler'])('rejects explicit any through %s', 
   expect(
     errorsFor(result.diagnostics, configuration === 'compiler' ? 'type-policy(no-any)' : 'typescript(no-explicit-any)'),
   ).toHaveLength(4);
+});
+
+test('an active negative fixture does not enter Oxlint file discovery', () => {
+  const result = lintFixture('export type InvalidFixture = any;', 'ts', 'discovery');
+  expect(result.status).toBe(0);
+  expect(result.files).toContain(resolve('test/lint-policy.test.ts'));
+  expect(result.files).not.toContain(resolve(result.fixture));
+});
+
+test('an active negative fixture does not enter default policy discovery', () => {
+  const result = lintFixture('export type InvalidFixture = any;', 'ts', 'default-policy');
+  expect(result.status).toBe(0);
+  expect(result.diagnostics).toEqual([]);
 });
 
 test.each(['compiler'])('rejects literal and nested JSDoc escapes through %s', (configuration) => {

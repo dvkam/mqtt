@@ -21,3 +21,5 @@ The policy includes `test/types/attributes.d.ts`, which the current Oxlint parse
 A clean syntax scan does not prove every inferred or third-party type is safe. Strict compiler checks and unsafe-flow lint rules cover the active checked programs. Issue #50 owns narrower public event and stream boundaries. Issue #57 records the inventory, policy tests and review evidence.
 
 The CLI regressions cover valid and invalid annotations, error severity, failing exit codes, review-discovered inline and braceless cases, and a hidden verification fixture discovered by the default repository scan. The pinned compiler API is a beta dependency, so those executable checks must pass when it is updated.
+
+Negative fixtures live in operating-system temporary directories. The default-discovery regression uses a fresh Git repository with a hidden verification fixture. It checks discovery logic; it does not cover every ignore setting in this checkout. Ordinary repository lint can run while these fixtures exist without scanning their deliberately invalid code.
