@@ -1,5 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import { getEventListeners } from 'node:events';
+import { Socket } from 'node:net';
 import { createTcpClient } from '../src/index.js';
 import { startTcpPacketPeer } from './experiments/tcp-packet-peer.js';
 
@@ -161,12 +162,33 @@ test('TCP callback abort stops a coalesced publication suffix and pending ping',
 });
 
 test('TCP readable EOF rejects a blocked write before native close can drain it', async () => {
-  const peer = await startTcpPacketPeer('blocked-write-eof');
+  const peer = await startTcpPacketPeer('controlled-write-eof');
+  const writes = vi.spyOn(Socket.prototype, 'write');
+  let releaseWrite: (() => void) | undefined;
+  let owner: Socket | undefined;
   try {
     const client = await createTcpClient({ ...peer, clientId: 'blocked-write-eof', timeoutMs: 1000 }).connect();
-    await expect(client.publish('a', 'x'.repeat(8 * 1024 * 1024))).rejects.toThrow('Truncated MQTT packet at end of input');
+    const connected: unknown = writes.mock.contexts.find(
+      (candidate: unknown) => candidate instanceof Socket && candidate.remotePort === peer.port,
+    );
+    writes.mockRestore();
+    if (!(connected instanceof Socket)) throw new Error('Expected connected TCP client socket');
+    owner = connected;
+    // Hold stream write completion so the assertion does not depend on the platform's socket buffer size.
+    const blocked = vi.spyOn(owner, '_write').mockImplementation(() => {});
+    releaseWrite = () => {
+      blocked.mockRestore();
+    };
+    const pending = client.publish('a', 'blocked');
+    expect(blocked).toHaveBeenCalledTimes(1);
+    expect(owner.writableLength).toBeGreaterThan(0);
+    peer.endPartial();
+    await expect(pending).rejects.toThrow('Truncated MQTT packet at end of input');
     expect(peer.commands).toEqual(['connect']);
   } finally {
+    writes.mockRestore();
+    releaseWrite?.();
+    owner?.destroy();
     await peer.close();
   }
 });

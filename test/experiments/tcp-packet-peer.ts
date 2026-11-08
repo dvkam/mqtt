@@ -36,8 +36,8 @@ export async function startTcpPacketPeer(mode: string) {
         else if (mode === 'refusal-partial') socket.end(Uint8Array.of(0x20, 3, 0, 135, 0, 0x30));
         else {
           socket.write(connack);
+          if (mode === 'blocked-write-eof' || mode === 'controlled-write-eof') socket.pause();
           if (mode === 'blocked-write-eof') {
-            socket.pause();
             setTimeout(() => {
               if (!socket.destroyed) socket.end(Uint8Array.of(0x30, 6, 0));
             }, 20);
@@ -79,6 +79,9 @@ export async function startTcpPacketPeer(mode: string) {
     host: '127.0.0.1',
     port: address.port,
     commands,
+    endPartial() {
+      for (const socket of sockets) socket.end(Uint8Array.of(0x30, 6, 0));
+    },
     async close() {
       for (const socket of sockets) socket.destroy();
       await new Promise<void>((resolve) => {
