@@ -1,4 +1,5 @@
 import { openMqttWebSocket } from './websocket.js';
+import { resolveWebSocketMessageLimit } from './websocketLimits.js';
 
 export type BrowserCloseKind = 'remote' | 'local' | 'abort' | 'error';
 
@@ -33,14 +34,12 @@ export async function openBrowserTransport(
     signal,
     timeoutMs = 3000,
     maxBufferedBytes = 1024 * 1024,
-    maxWebSocketMessageBytes = 1024 * 1024,
+    maxWebSocketMessageBytes: configuredReceiveLimit,
   } = options;
   if (!Number.isSafeInteger(maxBufferedBytes) || maxBufferedBytes <= 0) {
     throw new RangeError('WebSocket write budget must be a positive safe integer');
   }
-  if (!Number.isInteger(maxWebSocketMessageBytes) || maxWebSocketMessageBytes < 1 || maxWebSocketMessageBytes > 2_147_483_647) {
-    throw new RangeError('WebSocket receive message limit must be an integer from 1 to 2147483647');
-  }
+  const maxWebSocketMessageBytes = resolveWebSocketMessageLimit(configuredReceiveLimit);
   const socket = await openMqttWebSocket(url, { signal, timeoutMs });
   let failure: Error | undefined;
   let observerError: Error | undefined;
