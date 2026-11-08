@@ -39,8 +39,18 @@ test('a matching refused CONNACK owns the result before a synchronous trailing c
     await Promise.resolve();
   };
   await expect(connectPortable(broker.transport, { clientId: 'refused-before-close' })).rejects.toMatchObject({
-    message: 'MQTT acknowledgment refused', code: 135,
+    message: 'MQTT acknowledgment refused',
+    code: 135,
   });
+});
+
+test('a later captured transport close cannot replace the first active failure', async () => {
+  const broker = peer();
+  const client = await connectPortable(broker.transport, { clientId: 'first-close-wins' });
+  const reason = new Error('first transport failure');
+  broker.close(reason);
+  broker.close(new Error('later transport failure'));
+  await expect(client.publish('a', 'late')).rejects.toBe(reason);
 });
 
 function peer() {
