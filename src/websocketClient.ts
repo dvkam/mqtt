@@ -15,6 +15,7 @@ export interface WebSocketClientOptions extends PortableOptions<NodeMessage>, Pi
   signal?: AbortSignal;
   maxBufferedBytes?: number;
   maxWebSocketMessageBytes?: number;
+  maxPacketBytes?: number;
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
