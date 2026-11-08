@@ -249,3 +249,11 @@ The previous-core replay fails the new regressions. Seven additional source faul
 The full suite initially caught a TCP cancellation-listener timing regression. It now passes unchanged after forced TCP/WS closure releases the listener immediately after input retirement. This maps to NodeCancellation.ReleaseRetired; graceful close and final native-close cleanup remain unchanged. All eighteen positive models pass and all fifty-six negative configurations fail their named invariant. Restored source passes 464 tests, strict declarations, lint, formatting and build.
 
 The ping timeout trigger now reaches the existing PingFence retirement before promise continuations. Its bounds and invariants are unchanged. Opening and disconnect still await forced cleanup and require a conforming custom transport to settle close promptly. No model or assertion was weakened to obtain these results. Byte/item admission and control capacity remain open under #11.
+
+## Broker DISCONNECT trigger
+
+Source sync commit: 523a988. A delivered DISCONNECT now invokes the existing synchronous abort path with a generic Error and numeric broker code. Browser routing forwards its codec's supported normal DISCONNECT. Failure storage, pending rejection, listener retirement and forced-close reservation use the existing transitions. No model property, bound or transition changed. All eighteen positive models pass; all fifty-six deliberately broken configurations fail their named invariants.
+
+The old core fails five focused regressions. A restored-source replay also removes browser routing and fails the corrected peer-close regression. The first browser fixture had an invalid server reference; that failure is not counted as protocol evidence. The real TCP test verifies reason 142 and client-initiated peer closure before fixture cleanup. Restored source passes 471 tests, strict types, lint, formatting and build. Both independent same-model reviewers approve after the fixture correction.
+
+Concrete tests establish packet interpretation, code propagation and Error identity. The models do not prove those properties. Browser whole-batch decoding can reject a malformed suffix before delivering a preceding DISCONNECT; the guide preserves this distinction from incremental Node callbacks. Wider reason/property support and protocol direction checks remain under #9 and #16.

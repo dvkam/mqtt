@@ -49,6 +49,10 @@ class PortableClient<Message extends PublishMessage> {
       // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
       (packet) => {
         if (this.failure) return;
+        if (packet.cmd === 'disconnect') {
+          void this.abort(Object.assign(new Error('MQTT broker disconnected'), { code: packet.reasonCode ?? 0 })).catch(() => {});
+          return;
+        }
         if (packet.cmd === 'connack' || packet.cmd === 'suback' || packet.cmd === 'pingresp') this.pendingAck?.(packet);
         if (this.active && !this.closing && packet.cmd === 'publish' && packet.qos === 0) options.onMessage?.(packet);
       },
