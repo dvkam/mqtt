@@ -1,3 +1,5 @@
+import { resolveTimeout } from './timeout.js';
+
 interface WebSocketOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -11,9 +13,7 @@ export async function openMqttWebSocket(
   { signal, timeoutMs = 3000 }: Readonly<WebSocketOptions> = {},
 ) {
   if (signal?.aborted === true) throw signal.reason;
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647) {
-    throw new RangeError('MQTT WebSocket timeout must be positive and fit in a timer');
-  }
+  resolveTimeout(timeoutMs);
   if (typeof WebSocket === 'undefined') throw new Error('MQTT WebSocket requires a native WebSocket implementation');
 
   const socket = new WebSocket(url, 'mqtt');

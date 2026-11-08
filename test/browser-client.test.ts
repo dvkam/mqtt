@@ -86,6 +86,21 @@ test('rejects refused browser CONNECT and closes the attempt', async () => {
   }
 });
 
+test('keeps the opening timeout when caller options change during the browser handshake', async () => {
+  const broker = await peer();
+  const options = { url: broker.url, clientId: 'stable-handshake', timeoutMs: 3000 };
+  try {
+    const opening = createBrowserClient(options).connect();
+    options.timeoutMs = Infinity;
+    const client = await opening;
+    await client.ping();
+    await client.disconnect();
+    expect(broker.packets.map(({ cmd }: Readonly<Pick<Packet, 'cmd'>>) => cmd)).toEqual(['connect', 'pingreq', 'disconnect']);
+  } finally {
+    await broker.close();
+  }
+});
+
 test('active abort settles a pending browser ping and rejects later writes', async () => {
   const broker = await peer(0, true);
   const controller = new AbortController();

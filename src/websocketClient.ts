@@ -7,6 +7,7 @@ import type { ClientFactory } from './session.js';
 import type { NodeMessage } from './nodeMessage.js';
 import { NodePacketInput } from './nodePacketInput.js';
 import { resolveWebSocketMessageLimit } from './websocketLimits.js';
+import { resolveTimeout } from './timeout.js';
 
 export interface WebSocketClientOptions extends PortableOptions<NodeMessage>, Pick<SecureContextOptions, 'ca' | 'cert' | 'key'> {
   url: string | URL;
@@ -42,9 +43,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
   if (!Number.isInteger(maxBufferedBytes) || maxBufferedBytes <= 0) {
     throw new RangeError('WebSocket write budget must be a positive integer');
   }
-  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647) {
-    throw new RangeError('MQTT WebSocket timeout must be positive and fit in a timer');
-  }
+  resolveTimeout(timeoutMs);
   const maxWebSocketMessageBytes = resolveWebSocketMessageLimit(options.maxWebSocketMessageBytes);
   const input = new NodePacketInput(options.maxPacketBytes);
 
@@ -143,7 +142,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
       socket.once('close', failed);
     });
     if (socket.protocol !== 'mqtt') throw new Error('MQTT WebSocket subprotocol was not negotiated');
-    const client = await connectPortable(transport, options);
+    const client = await connectPortable(transport, { ...options, timeoutMs });
     if (isAborted()) throw abortReason();
     return client;
   } catch (error) {

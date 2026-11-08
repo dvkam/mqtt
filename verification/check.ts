@@ -82,6 +82,9 @@ const models: readonly VerificationCase[] = [
   ['ConnectRefusal', 'ConnectRefusal'],
   ['ConnectRefusal', 'ConnectRefusalDefer', 'FirstTerminalReason'],
   ['ConnectRefusal', 'ConnectRefusalOverwrite', 'FirstTerminalReason'],
+  ['TimeoutAdmission', 'TimeoutAdmission'],
+  ['TimeoutAdmission', 'TimeoutAdmissionValidate', 'ValidateBeforeAcquire'],
+  ['TimeoutAdmission', 'TimeoutAdmissionSnapshot', 'RetainAcceptedDeadline'],
 ];
 
 for (const [model, configuration, expectedInvariant] of models) {
