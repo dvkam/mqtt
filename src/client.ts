@@ -61,7 +61,7 @@ export class MqttClient extends EventEmitter {
       ? this._options.customStreamFactory(this._options)
       : connectionFactory(this._options);
 
-    // many drain listeners are needed for qos 1 callbacks if the connection is intermittent
+    // The legacy client raises the listener limit for pending writes. #27 tracks their cleanup.
     this.conn.setMaxListeners(1000);
 
     this._incomingPacketParser = mqttParser(this._options);
@@ -240,7 +240,7 @@ export class MqttClient extends EventEmitter {
     this.connected = true;
   }
 
-  // Replacing private writable-state cleanup is tracked in #27, #42 and #52.
+  // Replacing private writable-state cleanup is tracked in #27.
   onError(error?: Readonly<Error | null>) {
     if (this.connecting) {
       this._packetSequencer.cancelConnect(error ?? new Error('Connection failed'));
@@ -250,13 +250,13 @@ export class MqttClient extends EventEmitter {
     this.errored = true;
     this.conn.removeAllListeners('error');
     this.conn.on('error', () => {});
-    // hack to clean up the write callbacks in case of error
+    // Settle pending legacy write callbacks before destroying the connection.
     this.hackyCleanupWriteCallback();
     this._destroyClient(true);
   }
 
   hackyCleanupWriteCallback() {
-    // _writableState is not part of the public API for Duplex or Socket, so we have to do some typecasting here to work with it as the stream state.
+    // This legacy path reads Node's private write queue. #27 tracks replacing it with public stream APIs.
     // See https://github.com/nodejs/node/issues/445 for information on this.
     const connection = this.conn;
     const state: unknown = '_writableState' in connection ? connection._writableState : undefined;
