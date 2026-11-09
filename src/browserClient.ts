@@ -76,7 +76,8 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
             deliver?.({ cmd: 'puback', messageId: packet.messageId, reasonCode: packet.reasonCode });
             break;
           case 'suback':
-            deliver?.({ cmd: 'suback', messageId: packet.messageId, granted: [...packet.granted] });
+          case 'unsuback':
+            deliver?.({ cmd: packet.cmd, messageId: packet.messageId, granted: [...packet.granted] });
             break;
           case 'pingresp':
             deliver?.(packet);
@@ -99,6 +100,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
           case 'connect':
           case 'pingreq':
           case 'subscribe':
+          case 'unsubscribe':
           default:
             throw new Error('Unexpected MQTT packet from broker: ' + packet.cmd);
         }
@@ -117,6 +119,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
     },
   });
   const transport: PacketTransport<BrowserMessage> = {
+    supportsSharedSubscriptions: false,
     // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- Encoding and admission failures must reject through the packet transport's promise API. The browser adapter preserves native signals and mutable packet payloads.
     async send(packet) {
       let encoded: WirePacket;
@@ -138,6 +141,10 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
             messageId: packet.messageId,
             topics: packet.subscriptions.map(({ topic }: Readonly<{ topic: string }>) => topic),
           };
+          break;
+        case 'unsubscribe':
+          if (packet.messageId === undefined) throw new Error('UNSUBSCRIBE requires a packet identifier');
+          encoded = { cmd: 'unsubscribe', messageId: packet.messageId, topics: packet.unsubscriptions };
           break;
         case 'publish': {
           if (packet.qos === 2) throw new Error('Unsupported browser PUBLISH QoS');
@@ -166,7 +173,6 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
         case 'pubrel':
         case 'suback':
         case 'unsuback':
-        case 'unsubscribe':
         default:
           throw new Error('Unsupported browser client operation');
       }

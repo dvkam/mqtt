@@ -29,6 +29,7 @@ export async function mqttClientSession(url) {
       },
     );
     const [, message] = await Promise.all([client.publish('ci/browser-client', 'hello'), reply]);
+    await client.unsubscribe('ci/browser-client');
     await client.ping();
     await client.disconnect();
     return message;

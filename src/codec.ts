@@ -28,6 +28,8 @@ export type WirePacket =
   | (Properties & { cmd: 'puback'; messageId: number; reasonCode: number; reasonString?: string })
   | (Properties & { cmd: 'subscribe'; messageId: number; topics: readonly string[] })
   | (Properties & { cmd: 'suback'; messageId: number; granted: readonly number[]; reasonString?: string })
+  | (Properties & { cmd: 'unsubscribe'; messageId: number; topics: readonly string[] })
+  | (Properties & { cmd: 'unsuback'; messageId: number; granted: readonly number[]; reasonString?: string })
   | { cmd: 'pingreq' | 'pingresp' | 'disconnect' };
 
 const encoder = new TextEncoder();
@@ -36,6 +38,7 @@ const connackCodes = new Set([
   0, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 140, 144, 149, 151, 153, 154, 155, 156, 157, 159,
 ]);
 const subackCodes = new Set([0, 1, 2, 128, 131, 135, 143, 145, 151, 158, 161, 162]);
+const unsubackCodes = new Set([0, 17, 128, 131, 135, 143, 145]);
 const packetFields: Partial<Record<string, readonly string[]>> = {
   connect: ['cmd', 'clientId', 'cleanStart', 'keepAlive', 'username', 'password', 'userProperties'],
   connack: ['cmd', 'sessionPresent', 'reasonCode', 'receiveMaximum', 'maximumQoS', 'topicAliasMaximum', 'userProperties'],
@@ -43,6 +46,8 @@ const packetFields: Partial<Record<string, readonly string[]>> = {
   puback: ['cmd', 'messageId', 'reasonCode', 'reasonString', 'userProperties'],
   subscribe: ['cmd', 'messageId', 'topics', 'userProperties'],
   suback: ['cmd', 'messageId', 'granted', 'reasonString', 'userProperties'],
+  unsubscribe: ['cmd', 'messageId', 'topics', 'userProperties'],
+  unsuback: ['cmd', 'messageId', 'granted', 'reasonString', 'userProperties'],
   pingreq: ['cmd'],
   pingresp: ['cmd'],
   disconnect: ['cmd'],
@@ -110,7 +115,7 @@ function properties(
     if (packet.maximumQoS !== undefined) parts.push(Uint8Array.of(0x24, integer(packet.maximumQoS, 1)));
     if (packet.topicAliasMaximum !== undefined) parts.push(Uint8Array.of(0x22), uint16(packet.topicAliasMaximum));
   }
-  if ((packet.cmd === 'suback' || packet.cmd === 'puback') && packet.reasonString !== undefined)
+  if ((packet.cmd === 'suback' || packet.cmd === 'unsuback' || packet.cmd === 'puback') && packet.reasonString !== undefined)
     parts.push(Uint8Array.of(0x1f), utf8(packet.reasonString));
   const body = join(parts);
   return join([variable(body.length), body]);
@@ -173,24 +178,30 @@ export function encodePacket(packet: Readonly<WirePacket>): Uint8Array<ArrayBuff
       break;
     }
     case 'subscribe':
+    case 'unsubscribe':
       integer(packet.messageId, 65_535, 1);
-      if (packet.topics.length === 0) throw new Error('Empty SUBSCRIBE');
-      header = 0x82;
+      if (packet.topics.length === 0) throw new Error('Empty ' + packet.cmd.toUpperCase());
+      header = packet.cmd === 'subscribe' ? 0x82 : 0xa2;
       body = join([
         uint16(packet.messageId),
         properties(packet),
         ...packet.topics.map((value) => {
           topic(value, true);
-          return join([utf8(value), Uint8Array.of(0)]);
+          const filter = utf8(value);
+          return packet.cmd === 'subscribe' ? join([filter, Uint8Array.of(0)]) : filter;
         }),
       ]);
       break;
     case 'suback':
+    case 'unsuback': {
       integer(packet.messageId, 65_535, 1);
-      if (packet.granted.length === 0 || packet.granted.some((code) => !subackCodes.has(code))) throw new Error('Invalid SUBACK');
-      header = 0x90;
+      const codes = packet.cmd === 'suback' ? subackCodes : unsubackCodes;
+      if (packet.granted.length === 0 || packet.granted.some((code) => !codes.has(code)))
+        throw new Error('Invalid ' + packet.cmd.toUpperCase());
+      header = packet.cmd === 'suback' ? 0x90 : 0xb0;
       body = join([uint16(packet.messageId), properties(packet), Uint8Array.from(packet.granted)]);
       break;
+    }
     case 'pingreq':
       return Uint8Array.of(0xc0, 0);
     case 'pingresp':
@@ -275,7 +286,7 @@ function readProperties(reader: Readonly<Reader>, cmd: string): DecodedPropertie
         result.maximumQoS = integer(fields.byte(), 1);
         break;
       case 0x1f:
-        if ((cmd !== 'suback' && cmd !== 'puback') || result.reasonString !== undefined)
+        if ((cmd !== 'suback' && cmd !== 'unsuback' && cmd !== 'puback') || result.reasonString !== undefined)
           throw new Error('Invalid Reason String property');
         result.reasonString = fields.string();
         break;
@@ -288,7 +299,7 @@ function readProperties(reader: Readonly<Reader>, cmd: string): DecodedPropertie
 }
 
 function validateHeader(header: number): void {
-  if (![0x10, 0x20, 0x30, 0x31, 0x32, 0x33, 0x3a, 0x3b, 0x40, 0x82, 0x90, 0xc0, 0xd0, 0xe0].includes(header)) {
+  if (![0x10, 0x20, 0x30, 0x31, 0x32, 0x33, 0x3a, 0x3b, 0x40, 0x82, 0x90, 0xa2, 0xb0, 0xc0, 0xd0, 0xe0].includes(header)) {
     throw new Error('Unsupported MQTT packet or invalid fixed-header flags');
   }
 }
@@ -346,26 +357,31 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
       packet = { cmd: 'puback', messageId, reasonCode, ...props };
       break;
     }
-    case 0x82: {
+    case 0x82:
+    case 0xa2: {
+      const cmd = header === 0x82 ? 'subscribe' : 'unsubscribe';
       const messageId = integer(reader.uint16(), 65_535, 1);
-      const props = readProperties(reader, 'subscribe');
+      const props = readProperties(reader, cmd);
       const topics = [];
       while (reader.remaining > 0) {
         const name = reader.string();
         topic(name, true);
-        if (reader.byte() !== 0) throw new Error('Unsupported subscription options');
+        if (cmd === 'subscribe' && reader.byte() !== 0) throw new Error('Unsupported subscription options');
         topics.push(name);
       }
-      if (topics.length === 0) throw new Error('Empty SUBSCRIBE');
-      packet = { cmd: 'subscribe', messageId, topics, ...props };
+      if (topics.length === 0) throw new Error('Empty ' + cmd.toUpperCase());
+      packet = { cmd, messageId, topics, ...props };
       break;
     }
-    case 0x90: {
+    case 0x90:
+    case 0xb0: {
+      const cmd = header === 0x90 ? 'suback' : 'unsuback';
       const messageId = integer(reader.uint16(), 65_535, 1);
-      const props = readProperties(reader, 'suback');
+      const props = readProperties(reader, cmd);
       const granted = Array.from(reader.take(reader.remaining));
-      if (granted.length === 0 || granted.some((code) => !subackCodes.has(code))) throw new Error('Invalid SUBACK');
-      packet = { cmd: 'suback', messageId, granted, ...props };
+      const codes = cmd === 'suback' ? subackCodes : unsubackCodes;
+      if (granted.length === 0 || granted.some((code) => !codes.has(code))) throw new Error('Invalid ' + cmd.toUpperCase());
+      packet = { cmd, messageId, granted, ...props };
       break;
     }
     case 0xc0:

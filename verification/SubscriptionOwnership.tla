@@ -5,6 +5,7 @@ VARIABLES owner, started, held, sent, acked, released, cleaned, cost, identifier
 vars == <<owner, started, held, sent, acked, released, cleaned, cost, identifierOf, retired, terminalStarted, wrong>>
 Ids == {1, 2, 3}
 Leases == {1, 2, 3}
+ExpectedKind(lease) == IF lease = 2 THEN "unsuback" ELSE "suback"
 Occupied == {identifier \in Ids : owner[identifier] # 0}
 Owners == {owner[identifier] : identifier \in Occupied}
 Bytes == (IF 1 \in Owners THEN cost[1] ELSE 0)
@@ -28,10 +29,10 @@ Reserve == \E lease \in Leases \ started, identifier \in Ids, charge \in {1, 3}:
 Send == \E lease \in started \ sent:
   /\ sent' = sent \cup {lease}
   /\ UNCHANGED <<owner, started, held, acked, released, cleaned, cost, identifierOf, retired, terminalStarted, wrong>>
-Ack == \E lease \in held \ acked, kind \in {"suback", "other"}:
-  /\ ~retired /\ (kind = "suback" \/ Fault = "kind")
+Ack == \E lease \in held \ acked, kind \in {"suback", "unsuback", "other"}:
+  /\ ~retired /\ (kind = ExpectedKind(lease) \/ Fault = "kind")
   /\ acked' = acked \cup {lease}
-  /\ wrong' = (wrong \/ kind # "suback")
+  /\ wrong' = (wrong \/ kind # ExpectedKind(lease))
   /\ UNCHANGED <<owner, started, held, sent, released, cleaned, cost, identifierOf, retired, terminalStarted>>
 Release == \E lease \in held:
   /\ ~retired /\ lease \in acked

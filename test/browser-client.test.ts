@@ -40,6 +40,7 @@ async function peer(reasonCode = 0, dropPing = false, properties?: Readonly<{ re
           properties,
         });
       if (packet.cmd === 'subscribe') send({ cmd: 'suback', messageId: packet.messageId, granted: [0] });
+      if (packet.cmd === 'unsubscribe') send({ cmd: 'unsuback', messageId: packet.messageId, granted: [17] });
       if (packet.cmd === 'publish') send({ ...packet, payload: Buffer.from([0, 255, 128]) });
       if (packet.cmd === 'pingreq' && !dropPing) send({ cmd: 'pingresp' });
     });
@@ -257,7 +258,7 @@ test('ping timeout retires locally without waiting for a second native-close dea
   await vi.advanceTimersByTimeAsync(50);
 });
 
-test('browser publication pressure leaves native admission room for ping and disconnect', async () => {
+test('browser publication pressure leaves native admission room for unsubscribe, ping and disconnect', async () => {
   const broker = await peer();
   try {
     const options = { url: broker.url, clientId: 'reserve', maxBufferedBytes: 32, reservedControlBytes: 8 };
@@ -269,11 +270,13 @@ test('browser publication pressure leaves native admission room for ping and dis
     await client.publish('a', '');
     queued.mockReturnValue(24);
     await expect(client.publish('a', '')).rejects.toThrow('WebSocket write budget exceeded');
+    await client.unsubscribe('a');
     await client.ping();
     await client.disconnect();
     expect(broker.packets.map(({ cmd }: Readonly<Pick<Packet, 'cmd'>>) => cmd)).toEqual([
       'connect',
       'publish',
+      'unsubscribe',
       'pingreq',
       'disconnect',
     ]);
@@ -281,3 +284,20 @@ test('browser publication pressure leaves native admission room for ping and dis
     await broker.close();
   }
 });
+
+test.each(['subscribe', 'unsubscribe'] as const)(
+  'rejects unsupported browser shared filters before %s admission',
+  async (command) => {
+    const broker = await peer();
+    try {
+      const client = await createBrowserClient({ url: broker.url, clientId: 'shared-filter' }).connect();
+      await expect(client[command]('$share/group/a')).rejects.toThrow('Unsupported shared subscription');
+      await client.ping();
+      await client[command]('a');
+      expect(broker.packets[2]).toMatchObject({ cmd: command, messageId: 1 });
+      await client.disconnect();
+    } finally {
+      await broker.close();
+    }
+  },
+);

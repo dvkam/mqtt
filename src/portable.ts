@@ -12,6 +12,8 @@ type PublishMessage = Omit<IPublishPacket, 'payload'> & { payload: unknown };
 type IncomingPacket<Message extends PublishMessage> = Exclude<Packet, IPublishPacket> | Message;
 
 export interface PacketTransport<Message extends PublishMessage = IPublishPacket> {
+  /** Whether this adapter can encode shared filters. Broker capabilities are separate. */
+  readonly supportsSharedSubscriptions?: boolean;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
   send(packet: Packet): Promise<void>;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Preserve the discriminated packet union and adapter-owned mutable payloads.
@@ -63,7 +65,8 @@ class PortableClient<Message extends PublishMessage> {
           void this.abort(Object.assign(new Error('MQTT broker disconnected'), { code: packet.reasonCode ?? 0 })).catch(() => {});
           return;
         }
-        if (packet.cmd === 'suback') this.subscriptions.accept(packet.messageId, packet.granted);
+        if (packet.cmd === 'suback' || packet.cmd === 'unsuback')
+          this.subscriptions.accept(packet.messageId, packet.granted, packet.cmd);
         if (packet.cmd === 'puback') {
           const { messageId, reasonCode: code = 0 } = packet;
           if (messageId === undefined || !Number.isInteger(messageId) || messageId < 1 || messageId > 65_535) {
@@ -114,19 +117,23 @@ class PortableClient<Message extends PublishMessage> {
     this.active = true;
   }
 
-  async subscribe(topic: string): Promise<void> {
+  async changeSubscription(topic: string, command: 'subscribe' | 'unsubscribe'): Promise<void> {
     if (this.closing) throw new Error('Client is closing');
     if (this.failure) throw this.failure;
     if (!validateTopic(topic)) throw new Error('Invalid MQTT topic filter');
-    const reservation = this.subscriptions.reserve(topic);
+    if (this.transport.supportsSharedSubscriptions === false && topic.startsWith('$share/'))
+      throw new Error('Unsupported shared subscription');
+    const subscribing = command === 'subscribe';
+    const reservation = this.subscriptions.reserve(topic, subscribing ? 'suback' : 'unsuback');
+    const { messageId } = reservation;
+    const packet: Packet = subscribing
+      ? { cmd: 'subscribe', messageId, subscriptions: [{ topic, qos: 0 }] }
+      : { cmd: 'unsubscribe', messageId, unsubscriptions: [topic] };
     await this.run(async () => {
       try {
-        const sent = this.sendIdentified(
-          { cmd: 'subscribe', messageId: reservation.messageId, subscriptions: [{ topic, qos: 0 }] },
-          'MQTT subscription send failed',
-        );
+        const sent = this.sendIdentified(packet, subscribing ? 'MQTT subscription send failed' : 'MQTT unsubscribe send failed');
         const [code] = await Promise.all([reservation.acknowledged, sent]);
-        if (code !== 0) throw Object.assign(new Error('MQTT acknowledgment refused'), { code });
+        if (code !== 0 && (subscribing || code !== 17)) throw Object.assign(new Error('MQTT acknowledgment refused'), { code });
       } finally {
         reservation.release();
       }
@@ -316,7 +323,9 @@ export async function connectPortable<Message extends PublishMessage = IPublishP
   }
   return {
     // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
-    subscribe: (topic: string) => client.subscribe(topic),
+    subscribe: (topic: string) => client.changeSubscription(topic, 'subscribe'),
+    // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
+    unsubscribe: (topic: string) => client.changeSubscription(topic, 'unsubscribe'),
     // oxlint-disable-next-line typescript/promise-function-async, typescript/prefer-readonly-parameter-types -- Forward the existing promise and native cancellation signal.
     publish: (topic: string, payload: string, publishOptions?: Readonly<PublishOptions>) =>
       client.publish(topic, payload, publishOptions),

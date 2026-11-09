@@ -16,7 +16,7 @@ The session snapshots Receive Maximum and Maximum QoS from the first matching su
 
 Queued and dispatched QoS 1 publications share `maxPendingPublishes` and `maxPendingPublishBytes` with QoS 0 sends. Their byte charge includes the packet identifier and complete Remaining Length encoding. An excess request rejects before acquiring an identifier, creating a timer or sending. Admitted QoS 1 requests dispatch in order as broker quota becomes available. QoS 0, subscriptions and ping can proceed while QoS 1 waits for acknowledgments.
 
-The dispatcher leases an ID only when the request leaves the queue. PUBLISH and SUBSCRIBE use the same outbound namespace. Exhaustion rejects that request locally and returns its capacity. A subsequent request can use a released ID. The operation timeout starts at dispatch and lasts through send completion and PUBACK. Queued requests have bounded item and byte ownership and can be canceled while they wait.
+The dispatcher leases an ID only when the request leaves the queue. PUBLISH, SUBSCRIBE and UNSUBSCRIBE use the same outbound namespace. Exhaustion rejects that request locally and returns its capacity. A subsequent request can use a released ID. The operation timeout starts at dispatch and lasts through send completion and PUBACK. Queued requests have bounded item and byte ownership and can be canceled while they wait.
 
 ## Completion and cancellation
 
@@ -26,7 +26,7 @@ Cancellation removes a queued request and returns its budget. After dispatch it 
 
 A rejected transport send retires the session because the transport promise cannot establish how much reached the peer. This policy also covers native write-budget errors reported through that promise. A connection failure or timeout rejects pending callers. The actual send can continue to hold its byte reservation until it settles. Disconnect stops queued dispatch before starting its DISCONNECT write and retires unfinished exchanges on closure.
 
-The current profile opens clean sessions. The QoS 1 promise covers the broker acknowledgment for the current connection. Inbound QoS 1, UNSUBSCRIBE sharing and reconnect ownership have separate issue steps under #10 and #12.
+The current profile opens clean sessions. The QoS 1 promise covers the broker acknowledgment for the current connection. Inbound QoS 1 and reconnect ownership have separate issue steps under #10 and #12.
 
 ## Verification
 

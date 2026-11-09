@@ -78,6 +78,7 @@ try {
     }),
   );
   const cancellation = new Error('packed active cancellation');
+  await client.unsubscribe('ci/echo');
   const ping = client.ping().catch((/** @type {unknown} */ error) => error);
   controller.abort(cancellation);
   await assert.rejects(client.publish('ci/echo', 'must not be sent'), (/** @type {unknown} */ error) => error === cancellation);
