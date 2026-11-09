@@ -57,7 +57,7 @@ The bounded CodecEndOfInput model checks truncation rejection, no output after s
 
 ## Initial measurements
 
-Run `node test/bench/codec.mjs` after building. The corpus is a QoS 0 PUBLISH with a 256-byte payload. Each operation has 1,000 warmup calls and 10,000 measured calls under Node 26.13.0. V8 allocation sampling runs during measurement, including objects collected by GC.
+Run `node test/bench/codec.ts` after building. The corpus is a QoS 0 PUBLISH with a 256-byte payload. Each operation has 1,000 warmup calls and 10,000 measured calls under Node 26.13.0. V8 allocation sampling runs during measurement, including objects collected by GC.
 
 These are medians of three runs. Allocation samples include measurement overhead and are estimates rather than exact allocation counts or peak memory.
 

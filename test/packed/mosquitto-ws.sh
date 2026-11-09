@@ -61,9 +61,9 @@ if run_session wss://localhost:18886/mqtt "$broker_dir/ca.pem" > "$broker_dir/no
 fi
 grep -Ei 'certificate.required|handshake.failure|socket hang up|alert' "$broker_dir/no-client-cert.log"
 cp test/packed/websocket-session.mjs "$consumer/"
-session=test/packed/websocket-session-check.mjs
+session=test/packed/websocket-session-check.ts
 timeout 20 node "$session" "$consumer" ws://127.0.0.1:18884/mqtt
-node test/packed/websocket-tls-gateway.mjs "$broker_dir/server.pem" "$broker_dir/server.key" &
+node test/packed/websocket-tls-gateway.ts "$broker_dir/server.pem" "$broker_dir/server.key" &
 gateway=$!
 timeout 10 bash -c 'until ( : > /dev/tcp/127.0.0.1/18887 ) 2>/dev/null; do sleep 0.1; done'
 if ! NODE_EXTRA_CA_CERTS="$broker_dir/ca.pem" timeout 20 node "$session" "$consumer" wss://localhost:18885/mqtt > "$broker_dir/native-direct.log" 2>&1; then
@@ -103,4 +103,4 @@ if [[ ${MQTT_TEST_CHROMIUM:-0} == 1 ]]; then
   fi
   grep -q 'MQTT WebSocket handshake failed' "$broker_dir/chromium-hostname.log"
 fi
-timeout 50 node test/packed/websocket-proxy-check.mjs "$consumer" "$broker_dir/ca.pem"
+timeout 50 node test/packed/websocket-proxy-check.ts "$consumer" "$broker_dir/ca.pem"

@@ -4,18 +4,18 @@ import { createConnection } from 'node:net';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { resolve } from 'node:path';
+import type { Duplex } from 'node:stream';
 
-const [consumer, ca] = process.argv.slice(2);
-assert.ok(consumer !== undefined && ca !== undefined, 'Expected consumer and CA paths');
+const [consumerDirectory, certificateAuthorityPath] = process.argv.slice(2);
+assert.ok(consumerDirectory !== undefined && certificateAuthorityPath !== undefined, 'Expected consumer and CA paths');
 const targets = new Set(['localhost:18885', 'localhost:18887']);
-/** @type {Set<import('node:stream').Duplex>} */
-const sockets = new Set();
+const sockets = new Set<Duplex>();
 let tunnels = 0;
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The proxy writes and ends the native HTTP response.
 const proxy = createServer((_request, response) => {
   response.writeHead(405).end();
 });
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The proxy writes, pipes and destroys the original CONNECT socket, including its first buffered bytes.
 proxy.on('connect', (request, client, head) => {
   if (!targets.has(request.url ?? '')) {
     client.end('HTTP/1.1 403 Forbidden\r\n\r\n');
@@ -50,36 +50,35 @@ try {
   const endpoint = proxy.address();
   assert.ok(endpoint !== null && typeof endpoint !== 'string');
   const address = 'http://127.0.0.1:' + endpoint.port;
-  /** @type {[entry: string, args: string[], env: NodeJS.ProcessEnv, sessions: number][]} */
-  const cases = [
+  const cases: [entry: string, args: string[], env: NodeJS.ProcessEnv, sessions: number][] = [
     [
-      resolve(consumer, 'broker.mjs'),
+      resolve(consumerDirectory, 'broker.mjs'),
       [],
       {
         MQTT_TEST_WS_URL: 'wss://localhost:18885/mqtt',
-        MQTT_TEST_CA: ca,
+        MQTT_TEST_CA: certificateAuthorityPath,
         MQTT_TEST_PROXY: address,
       },
       1,
     ],
     [
-      resolve('test/packed/websocket-session-check.mjs'),
-      [consumer, 'wss://localhost:18887/mqtt'],
+      resolve('test/packed/websocket-session-check.ts'),
+      [consumerDirectory, 'wss://localhost:18887/mqtt'],
       {
         NODE_USE_ENV_PROXY: '1',
         HTTPS_PROXY: address,
         https_proxy: address,
         NO_PROXY: '',
         no_proxy: '',
-        NODE_EXTRA_CA_CERTS: ca,
+        NODE_EXTRA_CA_CERTS: certificateAuthorityPath,
       },
       2,
     ],
   ];
   if (process.env['MQTT_CHROMIUM_HOME'] !== undefined && process.env['MQTT_CHROMIUM_HOME'] !== '') {
     cases.push([
-      resolve('test/packed/websocket-session-check.mjs'),
-      [consumer, 'wss://localhost:18887/mqtt', 'chromium'],
+      resolve('test/packed/websocket-session-check.ts'),
+      [consumerDirectory, 'wss://localhost:18887/mqtt', 'chromium'],
       { MQTT_CHROMIUM_PROXY: address },
       2,
     ]);
@@ -91,7 +90,8 @@ try {
       env: { ...process.env, ...env },
       timeout: 12_000,
     });
-    const [status] = /** @type {unknown[]} */ (await once(child, 'exit'));
+    const exitEvent: unknown[] = await once(child, 'exit');
+    const [status] = exitEvent;
     assert.equal(status, 0);
     assert.equal(tunnels, before + sessions, 'Expected every session to use the CONNECT proxy');
   }

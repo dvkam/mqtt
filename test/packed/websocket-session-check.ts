@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { generate, parser } from 'mqtt-packet';
+import { generate, parser, type Packet } from 'mqtt-packet';
 import { chromium } from 'playwright';
 import { build } from 'vite';
 
@@ -16,29 +16,27 @@ const mode = process.argv[4] ?? 'node';
 const codec = { protocolVersion: 5 };
 const topic = 'ci/native';
 const payload = 'native hello';
-/** @type {import('mqtt-packet').Packet[]} */
-const packets = [
+const packets: Packet[] = [
   { cmd: 'connect', protocolId: 'MQTT', protocolVersion: 5, clean: true, keepalive: 0, clientId: 'native-ci' },
   { cmd: 'subscribe', messageId: 1, subscriptions: [{ topic, qos: 0 }] },
   { cmd: 'publish', topic, payload, qos: 0, dup: false, retain: false },
   { cmd: 'pingreq' },
   { cmd: 'disconnect' },
 ];
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-const requests = packets.map((packet) => Array.from(generate(packet, codec)));
+const requests: number[][] = [];
+for (const packet of packets) requests.push(Array.from(generate(packet, codec)));
 const entry = resolve(root, 'websocket-session.mjs');
-let replies;
-let clientMessage;
+let replies: readonly number[][];
+let clientMessage: unknown;
 if (mode === 'node') {
-  /** @type {unknown} */
-  const moduleValue = await import(pathToFileURL(entry).href);
+  const moduleValue: unknown = await import(pathToFileURL(entry).href);
   if (typeof moduleValue !== 'object' || moduleValue === null) throw new Error('Expected packed module');
   if (!('mqttSession' in moduleValue) || typeof moduleValue.mqttSession !== 'function')
     throw new Error('Missing packed export mqttSession');
   if (!('mqttClientSession' in moduleValue) || typeof moduleValue.mqttClientSession !== 'function')
     throw new Error('Missing packed export mqttClientSession');
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The fixture validates each export before invoking the installed module with known test inputs.
-  const packedModule = /** @type {typeof import('./websocket-session.mjs')} */ (moduleValue);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The installed module is checked for both callable exports. The fixture exercises their actual results; #53 tracks validating the reply shape before decoding.
+  const packedModule = moduleValue as typeof import('./websocket-session.mjs');
   const { mqttSession, mqttClientSession } = packedModule;
   replies = await mqttSession(url, requests);
   clientMessage = await mqttClientSession(url);
@@ -65,7 +63,7 @@ if (mode === 'node') {
   const { code, imports } = chunk;
   assert.deepEqual(imports, []);
   assert.doesNotMatch(code, /__vite-browser-external|\bnode:|\bBuffer\b/);
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The HTTP fixture sends the generated browser module using the native response's write and end methods.
   const server = createServer((request, response) => {
     if (request.url === '/session.js') response.writeHead(200, { 'Content-Type': 'text/javascript' }).end(code);
     else response.writeHead(200, { 'Content-Type': 'text/html' }).end('<!doctype html>');
@@ -90,9 +88,7 @@ if (mode === 'node') {
     const page = await browser.newPage();
     await page.goto('http://127.0.0.1:' + address.port);
     const result = await page.evaluate(
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-      async ({ url, requests }) => {
-        /** @type {typeof import('./websocket-session.mjs')} */
+      async ({ url, requests }: Readonly<{ url: string; requests: readonly (readonly number[])[] }>) => {
         const { mqttSession, mqttClientSession } = await import('/session.js');
         return { replies: await mqttSession(url, requests), clientMessage: await mqttClientSession(url) };
       },
@@ -106,17 +102,15 @@ if (mode === 'node') {
   }
 }
 assert.deepEqual(clientMessage, { topic: 'ci/browser-client', payload: [104, 101, 108, 108, 111] });
-/** @type {import('mqtt-packet').Packet[]} */
-const decoded = [];
+const decoded: Packet[] = [];
 const decoder = parser(codec);
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Keep the parser's original packets so the wire assertions inspect their broker reason codes and Buffer payload.
 decoder.on('packet', (packet) => {
   decoded.push(packet);
 });
 for (const reply of replies) decoder.parse(Buffer.from(reply));
 assert.deepEqual(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  decoded.map(({ cmd }) => cmd),
+  decoded.map(({ cmd }: Readonly<{ cmd: string }>) => cmd),
   ['connack', 'suback', 'publish', 'pingresp'],
 );
 const [connack, suback, publish] = decoded;
