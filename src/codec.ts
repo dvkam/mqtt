@@ -1,3 +1,4 @@
+import { isSubscriptionReason } from './subscriptionReason.js';
 import { isPubackReason } from './pubackReason.js';
 
 export type UserProperty = readonly [key: string, value: string];
@@ -54,8 +55,7 @@ const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const connackCodes = new Set([
   0, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 140, 144, 149, 151, 153, 154, 155, 156, 157, 159,
 ]);
-const subackCodes = new Set([0, 1, 2, 128, 131, 135, 143, 145, 151, 158, 161, 162]);
-const unsubackCodes = new Set([0, 17, 128, 131, 135, 143, 145]);
+const disconnectErrors = new Set([0x81, 0x82, 0x93]);
 const packetFields: Partial<Record<string, readonly string[]>> = {
   connect: ['cmd', 'clientId', 'cleanStart', 'keepAlive', 'receiveMaximum', 'username', 'password', 'userProperties'],
   connack: ['cmd', 'sessionPresent', 'reasonCode', 'receiveMaximum', 'maximumQoS', 'topicAliasMaximum', 'userProperties'],
@@ -214,8 +214,7 @@ export function encodePacket(packet: Readonly<WirePacket>): Uint8Array<ArrayBuff
     case 'suback':
     case 'unsuback': {
       integer(packet.messageId, 65_535, 1);
-      const codes = packet.cmd === 'suback' ? subackCodes : unsubackCodes;
-      if (packet.granted.length === 0 || packet.granted.some((code) => !codes.has(code)))
+      if (packet.granted.length === 0 || packet.granted.some((code) => !isSubscriptionReason(packet.cmd, code)))
         throw new Error('Invalid ' + packet.cmd.toUpperCase());
       header = packet.cmd === 'suback' ? 0x90 : 0xb0;
       body = join([uint16(packet.messageId), properties(packet), Uint8Array.from(packet.granted)]);
@@ -227,7 +226,7 @@ export function encodePacket(packet: Readonly<WirePacket>): Uint8Array<ArrayBuff
       return Uint8Array.of(0xd0, 0);
     case 'disconnect':
       if (packet.reasonCode === undefined) return Uint8Array.of(0xe0, 0);
-      if (packet.reasonCode === 0x93) return Uint8Array.of(0xe0, 1, packet.reasonCode);
+      if (disconnectErrors.has(packet.reasonCode)) return Uint8Array.of(0xe0, 1, packet.reasonCode);
       throw new Error('Unsupported DISCONNECT reason');
   }
   return join([Uint8Array.of(header), variable(body.length), body]);
@@ -418,8 +417,8 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
       const messageId = integer(reader.uint16(), 65_535, 1);
       const props = readProperties(reader, cmd);
       const granted = Array.from(reader.take(reader.remaining));
-      const codes = cmd === 'suback' ? subackCodes : unsubackCodes;
-      if (granted.length === 0 || granted.some((code) => !codes.has(code))) throw new Error('Invalid ' + cmd.toUpperCase());
+      if (granted.length === 0 || granted.some((code) => !isSubscriptionReason(cmd, code)))
+        throw new Error('Invalid ' + cmd.toUpperCase());
       packet = { cmd, messageId, granted, ...props };
       break;
     }
@@ -431,7 +430,7 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
       break;
     case 0xe0: {
       const reasonCode = reader.remaining > 0 ? reader.byte() : 0;
-      if (reasonCode !== 0 && reasonCode !== 0x93) throw new Error('Unsupported DISCONNECT reason');
+      if (reasonCode !== 0 && !disconnectErrors.has(reasonCode)) throw new Error('Unsupported DISCONNECT reason');
       if (reader.remaining > 0 && reader.variable() !== 0) throw new Error('Unsupported DISCONNECT properties');
       packet = reasonCode === 0 ? { cmd: 'disconnect' } : { cmd: 'disconnect', reasonCode };
       break;

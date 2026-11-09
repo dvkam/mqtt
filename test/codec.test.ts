@@ -237,3 +237,9 @@ function captureFailure(run: () => unknown): Error {
   }
   throw new Error('Expected the operation to fail');
 }
+
+test.each([0x81, 0x82])('encodes and decodes subscription error DISCONNECT reason %i', (reasonCode) => {
+  const bytes = Uint8Array.of(0xe0, 1, reasonCode);
+  expect(encodePacket({ cmd: 'disconnect', reasonCode })).toEqual(bytes);
+  expect(new PacketDecoder().push(bytes)).toEqual([{ cmd: 'disconnect', reasonCode }]);
+});

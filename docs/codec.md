@@ -25,7 +25,7 @@ Send encoded bytes through `openBrowserTransport` and feed its `onBytes` values 
 | UNSUBSCRIBE | Packet identifier, ordinary topic filters, User Properties |
 | UNSUBACK | Packet identifier, reason codes, Reason String, User Properties |
 | PINGREQ and PINGRESP | Empty bodies |
-| DISCONNECT | Normal disconnect and Receive Maximum exceeded. Zero-, one- and two-byte bodies when permitted by the reason. |
+| DISCONNECT | Normal disconnect, Malformed Packet, Protocol Error and Receive Maximum exceeded. Zero-, one- and two-byte bodies when permitted by the reason. |
 
 User Properties are ordered key/value tuples. Duplicate keys and empty keys or values are preserved.
 
