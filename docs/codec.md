@@ -22,6 +22,8 @@ Send encoded bytes through `openBrowserTransport` and feed its `onBytes` values 
 | PUBACK | Nonzero packet identifier, reason code, Reason String and ordered User Properties |
 | SUBSCRIBE | Packet identifier, ordinary topic filters requesting QoS 0, User Properties |
 | SUBACK | Packet identifier, reason codes, Reason String, User Properties |
+| UNSUBSCRIBE | Packet identifier, ordinary topic filters, User Properties |
+| UNSUBACK | Packet identifier, reason codes, Reason String, User Properties |
 | PINGREQ and PINGRESP | Empty bodies |
 | DISCONNECT | Normal disconnect, accepting the zero-, one- and two-byte body abbreviations |
 

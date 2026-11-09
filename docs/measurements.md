@@ -15,6 +15,7 @@ Keep workload, environment, tool versions, individual observations, summary and 
 | Concurrent subscriptions | [CI observations](baseline/concurrent-subscriptions-checks.md) | Individual packed-broker echo timings and fixture bundle sizes; no controlled performance comparison |
 | QoS 1 wire profile | [CI observations](baseline/qos1-wire-checks.md) | Packed QoS 0 echo timings and bundle sizes after expanding the codec |
 | Outbound QoS 1 | [CI observations](baseline/qos1-outbound-checks.md) | Packed QoS 1 exchange validation, QoS 0 echo timings and fixture sizes |
+| Packet identifier allocator | [Set and bitset observations](baseline/packet-id-allocator.md) | Sparse and nearly full occupancy, five repetitions per variant |
 
 The compact runner now uses the private production decoder described in [TCP packet input](tcp-packet-input.md) and [Node WebSocket packet input](websocket-packet-input.md). Historical prototype runs remain pinned in the measurement record. Decoder-only throughput excludes the input helper, session and native socket.
 
