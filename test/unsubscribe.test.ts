@@ -1,7 +1,8 @@
 import { setImmediate } from 'node:timers/promises';
 import { generate, type Packet } from 'mqtt-packet';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { encodePacket, PacketDecoder } from '../src/codec.js';
+import { PacketIdentifiers } from '../src/packetIdentifiers.js';
 import { connectPortable, type PacketTransport, type PortableOptions } from '../src/portable.js';
 
 test('encodes UNSUBSCRIBE without subscription option bytes and decodes split frames', () => {
@@ -65,10 +66,21 @@ async function peer(limits: Readonly<Pick<PortableOptions, 'maxPendingSubscripti
   return { client, transport, packets, receive, retire };
 }
 
-test('shares IDs across subscribe, publish and unsubscribe and matches each ACK kind', async () => {
+test('preserves mixed-kind ACK ownership when the shared identifier range is exhausted', async () => {
   const broker = await peer();
   expect(typeof broker.client.unsubscribe).toBe('function');
   const completed: string[] = [];
+  // oxlint-disable-next-line typescript/unbound-method -- Invoke the original allocator on the session receiver.
+  const reserve = PacketIdentifiers.prototype.reserve;
+  const held: ReturnType<PacketIdentifiers['reserve']>[] = [];
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Fill the actual mutable session allocator after the three live exchanges reserve IDs.
+  const allocator = vi.spyOn(PacketIdentifiers.prototype, 'reserve').mockImplementation(function (this: PacketIdentifiers) {
+    const lease = reserve.call(this);
+    if (lease.messageId === 3) {
+      for (let index = 3; index < 65_535; index++) held.push(reserve.call(this));
+    }
+    return lease;
+  });
   const subscribed = broker.client.subscribe('a').then(() => {
     completed.push('subscribe');
   });
@@ -78,8 +90,14 @@ test('shares IDs across subscribe, publish and unsubscribe and matches each ACK 
   const unsubscribed = broker.client.unsubscribe('c').then(() => {
     completed.push('unsubscribe');
   });
-  const outcomes = Promise.allSettled([subscribed, published, unsubscribed]);
+  const queued = broker.client.publish('d', 'next', { qos: 1 }).then(() => {
+    completed.push('queued');
+  });
+  const outcomes = Promise.allSettled([subscribed, published, unsubscribed, queued]);
   try {
+    allocator.mockRestore();
+    expect(held).toHaveLength(65_532);
+    await expect(broker.client.subscribe('e')).rejects.toThrow('MQTT packet identifiers exhausted');
     expect(broker.packets.slice(1)).toMatchObject([
       { cmd: 'subscribe', messageId: 1 },
       { cmd: 'publish', messageId: 2, qos: 1 },
@@ -92,15 +110,22 @@ test('shares IDs across subscribe, publish and unsubscribe and matches each ACK 
     broker.receive({ cmd: 'suback', messageId: 2, granted: [0] });
     await setImmediate();
     expect(completed).toEqual([]);
+    expect(broker.packets).toHaveLength(4);
     broker.receive({ cmd: 'unsuback', messageId: 3, granted: [17] });
     await unsubscribed;
     broker.receive({ cmd: 'puback', messageId: 2 });
     await published;
+    await setImmediate();
+    expect(broker.packets[4]).toMatchObject({ cmd: 'publish', messageId: 2, topic: 'd' });
+    broker.receive({ cmd: 'puback', messageId: 2 });
+    await queued;
     broker.receive({ cmd: 'suback', messageId: 1, granted: [0] });
     await subscribed;
-    expect(completed).toEqual(['unsubscribe', 'publish', 'subscribe']);
+    expect(completed).toEqual(['unsubscribe', 'publish', 'queued', 'subscribe']);
   } finally {
+    allocator.mockRestore();
     broker.retire(new Error('fixture ended'));
+    for (const lease of held) lease.release();
     await outcomes;
   }
 });
