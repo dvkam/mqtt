@@ -310,15 +310,25 @@ test.each(['subscribe', 'unsubscribe'] as const)(
   },
 );
 
-test('reports a two-result UNSUBACK for one filter through the browser wire path', async () => {
-  const broker = await peer(0, false, undefined, [0xb0, 5, 0, 1, 0, 0, 17]);
-  try {
-    const client = await createBrowserClient({ url: broker.url, clientId: 'unsuback-protocol' }).connect();
-    const failure = await client.unsubscribe('a').catch((reason: unknown) => reason);
-    expect(failure).toMatchObject({ code: 0x82 });
-    await expect(client.ping()).rejects.toBe(failure);
-    await expect.poll(() => broker.packets[2]).toMatchObject({ cmd: 'disconnect', reasonCode: 0x82 });
-  } finally {
-    await broker.close();
-  }
-});
+test.each([
+  { bytes: [0xb0, 5, 0, 1, 0, 0, 17, 0xc0, 0], code: 0x82 },
+  { bytes: [0xb0, 4, 0, 1, 0, 1], code: 0x82 },
+  { bytes: [0xb0, 3, 0, 1, 0], code: 0x81 },
+  { bytes: [0xb0, 4, 0, 0, 0, 17], code: 0x82 },
+])(
+  'reports an invalid UNSUBACK through the browser wire path with $code',
+  async ({ bytes, code }: Readonly<{ bytes: readonly number[]; code: number }>) => {
+    const broker = await peer(0, false, undefined, [...bytes, 0x30, 4, 0, 1, 97, 0]);
+    try {
+      const onMessage = vi.fn<() => void>();
+      const client = await createBrowserClient({ url: broker.url, clientId: 'unsuback-protocol', onMessage }).connect();
+      const failure = await client.unsubscribe('a').catch((reason: unknown) => reason);
+      expect(failure).toMatchObject({ code });
+      await expect(client.ping()).rejects.toBe(failure);
+      await expect.poll(() => broker.packets[2]).toMatchObject({ cmd: 'disconnect', reasonCode: code });
+      expect(onMessage).not.toHaveBeenCalled();
+    } finally {
+      await broker.close();
+    }
+  },
+);

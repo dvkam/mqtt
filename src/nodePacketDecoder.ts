@@ -1,4 +1,5 @@
 import { parser, type Packet } from 'mqtt-packet';
+import { ProtocolInputError } from './protocolInputError.ts';
 
 export class NodePacketDecoder {
   private decoder: ReturnType<typeof parser> | undefined;
@@ -24,7 +25,11 @@ export class NodePacketDecoder {
     this.decoder = decoder;
     decoder.on('packet', options.onPacket);
     decoder.on('error', (reason: unknown) => {
-      throw reason instanceof Error ? reason : new Error('MQTT parser failed');
+      if (!(reason instanceof Error)) throw new Error('MQTT parser failed');
+      // mqtt-packet 9.0.2 exposes these packet-specific failures as message strings.
+      if (reason.message === 'Invalid suback code' || reason.message === 'Invalid unsuback code')
+        throw new ProtocolInputError(reason.message, 0x82);
+      throw reason;
     });
   }
 

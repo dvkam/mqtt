@@ -1,3 +1,4 @@
+import { ProtocolInputError } from './protocolInputError.js';
 import { isSubscriptionReason } from './subscriptionReason.js';
 import { isPubackReason } from './pubackReason.js';
 
@@ -414,11 +415,13 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
     case 0x90:
     case 0xb0: {
       const cmd = header === 0x90 ? 'suback' : 'unsuback';
-      const messageId = integer(reader.uint16(), 65_535, 1);
+      const messageId = reader.uint16();
+      if (messageId === 0) throw new ProtocolInputError('MQTT integer out of range', 0x82);
       const props = readProperties(reader, cmd);
       const granted = Array.from(reader.take(reader.remaining));
-      if (granted.length === 0 || granted.some((code) => !isSubscriptionReason(cmd, code)))
-        throw new Error('Invalid ' + cmd.toUpperCase());
+      if (granted.length === 0) throw new ProtocolInputError('Invalid ' + cmd.toUpperCase(), 0x81);
+      if (granted.some((code) => !isSubscriptionReason(cmd, code)))
+        throw new ProtocolInputError('Invalid ' + cmd.toUpperCase(), 0x82);
       packet = { cmd, messageId, granted, ...props };
       break;
     }

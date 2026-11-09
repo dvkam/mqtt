@@ -1,3 +1,4 @@
+import { ProtocolInputError } from './protocolInputError.js';
 import type { IConnectPacket, IPublishPacket, Packet } from 'mqtt-packet';
 import type { ClientSession, PublishOptions, QosOneMessage, SubscribeOptions } from './session.js';
 import { validateTopic } from './util/validateTopic.js';
@@ -16,8 +17,14 @@ export interface PacketTransport<Message extends PublishMessage = IPublishPacket
   readonly supportsSharedSubscriptions?: boolean;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
   send(packet: Packet): Promise<void>;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Preserve the discriminated packet union and adapter-owned mutable payloads.
-  listen(onPacket: (packet: IncomingPacket<Message>) => void, onClose: (error: Error) => void): () => void;
+  listen(
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters keep mutable packet payloads.
+    onPacket: (packet: IncomingPacket<Message>) => void,
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The transport delivers its original Error.
+    onClose: (error: Error) => void,
+    /** Report a decoder rejection while the transport can still write DISCONNECT. */
+    onProtocolError?: (error: Readonly<ProtocolInputError>) => void,
+  ): () => void;
   /** Forced closure must promptly release pending I/O and settle. */
   close(force?: boolean): Promise<void>;
 }
@@ -75,8 +82,7 @@ class PortableClient<Message extends PublishMessage> {
         if (packet.cmd === 'suback' || packet.cmd === 'unsuback') {
           const code = this.subscriptions.accept(packet.messageId, packet.granted, packet.cmd);
           if (code !== undefined) {
-            const error = Object.assign(new Error('Invalid MQTT subscription acknowledgment'), { code });
-            void this.abort(error, this.closing ? undefined : code).catch(() => {});
+            this.rejectProtocolInput(new ProtocolInputError('Invalid MQTT subscription acknowledgment', code));
             return;
           }
         }
@@ -114,6 +120,7 @@ class PortableClient<Message extends PublishMessage> {
       (error) => {
         this.fail(error);
       },
+      this.rejectProtocolInput.bind(this),
     );
     if (this.failure) this.unlisten();
   }
@@ -308,6 +315,12 @@ class PortableClient<Message extends PublishMessage> {
       });
       await this.forcedClose;
     }
+  }
+
+  private rejectProtocolInput(error: Readonly<ProtocolInputError>): void {
+    if (this.failure) return;
+    const notice = this.activation !== 'opening' && !this.closing ? error.code : undefined;
+    void this.abort(error, notice).catch(() => {});
   }
 
   private async reportProtocolError(reasonCode: number): Promise<void> {
