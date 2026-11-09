@@ -9,6 +9,8 @@ import { PacketIdentifiers } from './packetIdentifiers.js';
 import { OutboundQosOne } from './outboundQosOne.js';
 import { isPubackReason } from './pubackReason.js';
 
+export type { ProtocolInputCode, ProtocolInputError } from './protocolInputError.js';
+
 type PublishMessage = Omit<IPublishPacket, 'payload'> & { payload: unknown };
 type IncomingPacket<Message extends PublishMessage> = Exclude<Packet, IPublishPacket> | Message | QosOneMessage<Message>;
 

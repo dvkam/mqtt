@@ -1,24 +1,31 @@
 # Public client types
 
-Import supported Node types from `mqtt` and browser types from `mqtt/browser`. These are type-only exports and do not open a connection.
+Use `import type` for the named contracts. TypeScript 7.0.2 is the supported compiler floor for the preview. The repository builds with 7.1.0-beta. Both compile the installed Node and DOM-only browser consumers in the local release check below.
 
 | Type | Entry point | Contract |
 | --- | --- | --- |
 | `TcpClientOptions` | `mqtt` | Host, optional port, session options and cancellation signal |
 | `WebSocketClientOptions` | `mqtt` | URL, TLS and agent options, session options and local write budget |
-| `NodeMessage` | `mqtt` | Received QoS 0 PUBLISH with a mutable Buffer payload |
-| `BrowserClientOptions` | `mqtt/browser` | URL, session identity, cancellation and independent byte/packet budgets |
-| `BrowserMessage` | `mqtt/browser` | Received QoS 0 PUBLISH with a mutable Uint8Array payload |
-| `ClientFactory` | Both | One cached connection attempt through `connect()` |
-| `ClientSession` | Both | Subscribe, text publish, ping and disconnect promises |
-| `BrowserSession` | `mqtt/browser` | Retained alias for `ClientSession` |
+| `NodeMessage`, `NodeQosOneMessage` | `mqtt` | Received QoS 0 and 1 PUBLISH with a mutable Buffer payload |
+| `BrowserClientOptions` | `mqtt/browser` | URL, session options, cancellation and independent byte and packet budgets |
+| `BrowserMessage`, `BrowserQosOneMessage` | `mqtt/browser` | Received QoS 0 and 1 PUBLISH with a mutable Uint8Array payload |
+| `ClientFactory` | Both client entries | One cached connection attempt through `connect()` |
+| `ClientSession` | Both client entries | Subscribe, unsubscribe, text publish, ping and disconnect promises |
+| `BrowserSession` | `mqtt/browser` | Alias for `ClientSession` |
+| `PublishOptions`, `SubscribeOptions` | Both client entries | QoS options. Only QoS 1 publish accepts a cancellation signal. |
+| `BrowserTransportOptions`, `BrowserTransport`, `BrowserCloseKind`, `WriteTraffic` | `mqtt/browser` | Native browser transport callbacks, send and close operations, and their argument types |
+| `WebSocketOptions` | `mqtt/websocket` | Timeout and cancellation for opening a native MQTT WebSocket |
+| `PortableOptions`, `PacketTransport` | `mqtt/portable` | Experimental generic client and custom transport options. The packet contract uses mqtt-packet declarations. |
+| `ProtocolInputError`, `ProtocolInputCode` | `mqtt/portable` | Decoder rejection passed to the optional transport protocol-error callback. Its readonly code is 0x81 or 0x82. These are type exports. |
 
-`PortableOptions` is available from the experimental `mqtt/portable` entry point. Node option interfaces extend its named contract instead of extracting parameters from an internal generic function. The low-level packet transport still uses mqtt-packet declarations; this change does not settle its future codec contract.
+`onMessage` handles QoS 0. Register `onQosOneMessage` before requesting a QoS 1 subscription. Its message adds a packet identifier and a DUP flag, with the same platform-specific payload type. The client acknowledges the delivery after that handler succeeds. See [inbound QoS 1 delivery](qos1-receive.md).
 
-Callbacks infer their platform's receive payload. Publishing remains text-only. Received Node messages use Buffer because that is the pinned parser's decoded representation; the parser's shared input/output packet type also permits strings for encoding. A Node listener checks QoS and Buffer shape before exposing a publication through the precise callback. It forwards accepted packet objects and buffers without copying or freezing them. The preview continues to ignore unsupported incoming QoS 1/2 publications rather than implementing their acknowledgment flow.
+Node and browser factories share a session interface. Their repeated `connect()` calls return the same promise. Browser declarations compile using DOM libraries with no Node ambient types. Legacy options have their own [compatibility notes](legacy-options.md).
 
-Node and browser factories share a dependency-free session interface. Browser declarations do not import Node globals or native transports. The existing browser session name remains usable, and repeated factory `connect()` calls preserve promise identity.
+## Packed verification
 
-Compiler fixtures check valid options, contextual callbacks, specific payload types, QoS 0, mutable payload operations and invalid scalar combinations. Packed Node and browser consumers check these names and callback types from the installed tarball. The packed browser fixture compiles with DOM declarations and no Node ambient types.
+Build and pack the package. Install the tarball and the pinned Node types into a clean ESM consumer. Copy the Node and browser fixtures from `test/packed` and compile each of their tsconfigs with both compiler versions. The fixtures check contextual callbacks, mutable platform payloads, QoS discriminants and invalid publish options. The browser tsconfig uses an empty `types` list.
 
-This is part of #50. Minimum consumer compiler policy, named error contracts, package validators and wider public type-boundary work remain open. Legacy options are documented separately in `legacy-options.md`.
+Run Publint 0.3.25 and Are the Types Wrong 0.18.5 against the tarball. Use the latter's `esm-only` profile for the package's ESM and bundler resolution modes. The profile excludes Node 10 and CommonJS resolution modes.
+
+Refs #50.

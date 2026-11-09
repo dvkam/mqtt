@@ -1,8 +1,8 @@
-import { connect, createTcpClient, createWebSocketClient } from 'mqtt';
+import { connect, createTcpClient, createWebSocketClient, type NodeQosOneMessage } from 'mqtt';
 export type { ConnectOptions, LegacyAckCompletion, LegacyAckHandler, PacketIdentifier, PacketLookup, PacketStore } from 'mqtt';
 export type { ClientFactory, ClientSession, NodeMessage, PublishOptions, TcpClientOptions, WebSocketClientOptions } from 'mqtt';
 export type { BrowserClientOptions, ClientFactory as BrowserFactory, ClientSession as BrowserClientSession } from 'mqtt/browser';
-import { connectPortable, type PacketTransport } from 'mqtt/portable';
+import { connectPortable, type PacketTransport, type ProtocolInputCode, type ProtocolInputError } from 'mqtt/portable';
 
 type RequireTrue<Value extends true> = Value;
 type RequireFalse<Value extends false> = Value;
@@ -19,6 +19,20 @@ export type BrowserQosOnePayloadIsSpecific = RequireFalse<IsAny<BrowserQosOne['p
 export type BrowserQosOnePayloadIsBytes = RequireTrue<BrowserQosOne['payload'] extends Uint8Array ? true : false>;
 export type QosOneHasIdentifier = RequireTrue<(NodeQosOne | BrowserQosOne)['messageId'] extends number ? true : false>;
 export type QosOneIsOne = RequireTrue<(NodeQosOne | BrowserQosOne)['qos'] extends 1 ? true : false>;
+export type NodeQosOneCallbackUsesNamedMessage = RequireTrue<NodeQosOne extends NodeQosOneMessage ? true : false>;
+export type NamedNodeQosOneMatchesCallback = RequireTrue<NodeQosOneMessage extends NodeQosOne ? true : false>;
+type TransportProtocolError = Parameters<NonNullable<Parameters<PacketTransport['listen']>[2]>>[0];
+export type TransportProtocolErrorIsNamed = RequireTrue<TransportProtocolError extends Readonly<ProtocolInputError> ? true : false>;
+export type ProtocolInputCodeIsSpecific = RequireFalse<IsAny<ProtocolInputCode>>;
+export type TransportProtocolCodeIsSpecific = RequireFalse<IsAny<TransportProtocolError['code']>>;
+export type ProtocolInputCodeIsBounded = RequireTrue<ProtocolInputCode extends 0x81 | 0x82 ? true : false>;
+export type ProtocolInputCodeIsComplete = RequireTrue<0x81 | 0x82 extends ProtocolInputCode ? true : false>;
+export type TransportProtocolCodeUsesNamedType = RequireTrue<
+  TransportProtocolError['code'] extends ProtocolInputCode ? true : false
+>;
+export type TransportProtocolCodeAcceptsNamedType = RequireTrue<
+  ProtocolInputCode extends TransportProtocolError['code'] ? true : false
+>;
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
 export async function checkDeclarations(transport: PacketTransport) {

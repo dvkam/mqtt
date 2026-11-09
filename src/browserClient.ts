@@ -17,6 +17,8 @@ export interface BrowserMessage {
   userProperties?: readonly UserProperty[];
 }
 
+export type BrowserQosOneMessage = QosOneMessage<BrowserMessage>;
+
 export type BrowserSession = ClientSession;
 
 export interface BrowserClientOptions extends PublicationLimits, SubscriptionLimits, NativeWriteLimits {
@@ -30,7 +32,7 @@ export interface BrowserClientOptions extends PublicationLimits, SubscriptionLim
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
   onMessage?: (message: BrowserMessage) => void;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser message retains its mutable Uint8Array payload.
-  onQosOneMessage?: (message: QosOneMessage<BrowserMessage>) => void | Promise<void>;
+  onQosOneMessage?: (message: BrowserQosOneMessage) => void | Promise<void>;
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
