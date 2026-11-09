@@ -3,6 +3,8 @@ interface Properties {
   userProperties?: readonly UserProperty[];
 }
 
+type PublishFields = Properties & { cmd: 'publish'; topic: string; payload: Uint8Array; retain?: boolean };
+
 export type WirePacket =
   | (Properties & {
       cmd: 'connect';
@@ -17,9 +19,11 @@ export type WirePacket =
       sessionPresent: boolean;
       reasonCode: number;
       receiveMaximum?: number;
+      maximumQoS?: number;
       topicAliasMaximum?: number;
     })
-  | (Properties & { cmd: 'publish'; topic: string; payload: Uint8Array; retain?: boolean })
+  | (PublishFields & ({ qos?: 0; messageId?: never; dup?: never } | { qos: 1; messageId: number; dup?: boolean }))
+  | (Properties & { cmd: 'puback'; messageId: number; reasonCode: number; reasonString?: string })
   | (Properties & { cmd: 'subscribe'; messageId: number; topics: readonly string[] })
   | (Properties & { cmd: 'suback'; messageId: number; granted: readonly number[]; reasonString?: string })
   | { cmd: 'pingreq' | 'pingresp' | 'disconnect' };
@@ -30,10 +34,12 @@ const connackCodes = new Set([
   0, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 140, 144, 149, 151, 153, 154, 155, 156, 157, 159,
 ]);
 const subackCodes = new Set([0, 1, 2, 128, 131, 135, 143, 145, 151, 158, 161, 162]);
+const pubackCodes = new Set([0, 16, 128, 131, 135, 144, 145, 151, 153]);
 const packetFields: Partial<Record<string, readonly string[]>> = {
   connect: ['cmd', 'clientId', 'cleanStart', 'keepAlive', 'username', 'password', 'userProperties'],
-  connack: ['cmd', 'sessionPresent', 'reasonCode', 'receiveMaximum', 'topicAliasMaximum', 'userProperties'],
-  publish: ['cmd', 'topic', 'payload', 'retain', 'userProperties'],
+  connack: ['cmd', 'sessionPresent', 'reasonCode', 'receiveMaximum', 'maximumQoS', 'topicAliasMaximum', 'userProperties'],
+  publish: ['cmd', 'topic', 'payload', 'retain', 'userProperties', 'qos', 'messageId', 'dup'],
+  puback: ['cmd', 'messageId', 'reasonCode', 'reasonString', 'userProperties'],
   subscribe: ['cmd', 'messageId', 'topics', 'userProperties'],
   suback: ['cmd', 'messageId', 'granted', 'reasonString', 'userProperties'],
   pingreq: ['cmd'],
@@ -100,9 +106,11 @@ function properties(
   for (const [key, value] of packet.userProperties ?? []) parts.push(Uint8Array.of(0x26), utf8(key), utf8(value));
   if (packet.cmd === 'connack') {
     if (packet.receiveMaximum !== undefined) parts.push(Uint8Array.of(0x21), uint16(integer(packet.receiveMaximum, 65_535, 1)));
+    if (packet.maximumQoS !== undefined) parts.push(Uint8Array.of(0x24, integer(packet.maximumQoS, 1)));
     if (packet.topicAliasMaximum !== undefined) parts.push(Uint8Array.of(0x22), uint16(packet.topicAliasMaximum));
   }
-  if (packet.cmd === 'suback' && packet.reasonString !== undefined) parts.push(Uint8Array.of(0x1f), utf8(packet.reasonString));
+  if ((packet.cmd === 'suback' || packet.cmd === 'puback') && packet.reasonString !== undefined)
+    parts.push(Uint8Array.of(0x1f), utf8(packet.reasonString));
   const body = join(parts);
   return join([variable(body.length), body]);
 }
@@ -141,11 +149,28 @@ export function encodePacket(packet: Readonly<WirePacket>): Uint8Array<ArrayBuff
       header = 0x20;
       body = join([Uint8Array.of(packet.sessionPresent ? 1 : 0, packet.reasonCode), properties(packet)]);
       break;
-    case 'publish':
+    case 'publish': {
       topic(packet.topic, false);
       header = 0x30 | (packet.retain === true ? 1 : 0);
-      body = join([utf8(packet.topic), properties(packet), packet.payload]);
+      integer(packet.qos ?? 0, 1);
+      if (packet.qos === 1) {
+        header |= 2 | (packet.dup === true ? 8 : 0);
+        body = join([utf8(packet.topic), uint16(integer(packet.messageId, 65_535, 1)), properties(packet), packet.payload]);
+      } else {
+        if ('messageId' in packet || 'dup' in packet) throw new Error('Unsupported QoS 0 PUBLISH field');
+        body = join([utf8(packet.topic), properties(packet), packet.payload]);
+      }
       break;
+    }
+    case 'puback': {
+      const identifier = uint16(integer(packet.messageId, 65_535, 1));
+      if (!pubackCodes.has(packet.reasonCode)) throw new Error('Invalid PUBACK reason code');
+      header = 0x40;
+      const encodedProperties = properties(packet);
+      if (encodedProperties.length > 1) body = join([identifier, Uint8Array.of(packet.reasonCode), encodedProperties]);
+      else body = packet.reasonCode === 0 ? identifier : join([identifier, Uint8Array.of(packet.reasonCode)]);
+      break;
+    }
     case 'subscribe':
       integer(packet.messageId, 65_535, 1);
       if (packet.topics.length === 0) throw new Error('Empty SUBSCRIBE');
@@ -221,6 +246,7 @@ class Reader {
 
 interface DecodedProperties extends Properties {
   receiveMaximum?: number;
+  maximumQoS?: number;
   topicAliasMaximum?: number;
   reasonString?: string;
 }
@@ -243,8 +269,13 @@ function readProperties(reader: Readonly<Reader>, cmd: string): DecodedPropertie
         if (cmd !== 'connack' || result.topicAliasMaximum !== undefined) throw new Error('Invalid Topic Alias Maximum property');
         result.topicAliasMaximum = fields.uint16();
         break;
+      case 0x24:
+        if (cmd !== 'connack' || result.maximumQoS !== undefined) throw new Error('Invalid Maximum QoS property');
+        result.maximumQoS = integer(fields.byte(), 1);
+        break;
       case 0x1f:
-        if (cmd !== 'suback' || result.reasonString !== undefined) throw new Error('Invalid Reason String property');
+        if ((cmd !== 'suback' && cmd !== 'puback') || result.reasonString !== undefined)
+          throw new Error('Invalid Reason String property');
         result.reasonString = fields.string();
         break;
       default:
@@ -256,7 +287,7 @@ function readProperties(reader: Readonly<Reader>, cmd: string): DecodedPropertie
 }
 
 function validateHeader(header: number): void {
-  if (![0x10, 0x20, 0x30, 0x31, 0x82, 0x90, 0xc0, 0xd0, 0xe0].includes(header)) {
+  if (![0x10, 0x20, 0x30, 0x31, 0x32, 0x33, 0x3a, 0x3b, 0x40, 0x82, 0x90, 0xc0, 0xd0, 0xe0].includes(header)) {
     throw new Error('Unsupported MQTT packet or invalid fixed-header flags');
   }
 }
@@ -287,11 +318,31 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
       break;
     }
     case 0x30:
-    case 0x31: {
+    case 0x31:
+    case 0x32:
+    case 0x33:
+    case 0x3a:
+    case 0x3b: {
       const name = reader.string();
       topic(name, false);
+      const messageId = (header & 2) === 0 ? undefined : integer(reader.uint16(), 65_535, 1);
       const props = readProperties(reader, 'publish');
-      packet = { cmd: 'publish', topic: name, payload: reader.take(reader.remaining), retain: header === 0x31, ...props };
+      const fields = {
+        cmd: 'publish' as const,
+        topic: name,
+        payload: reader.take(reader.remaining),
+        retain: (header & 1) !== 0,
+        ...props,
+      };
+      packet = messageId === undefined ? fields : { ...fields, qos: 1, messageId, dup: (header & 8) !== 0 };
+      break;
+    }
+    case 0x40: {
+      const messageId = integer(reader.uint16(), 65_535, 1);
+      const reasonCode = reader.remaining === 0 ? 0 : reader.byte();
+      if (!pubackCodes.has(reasonCode)) throw new Error('Invalid PUBACK reason code');
+      const props = reader.remaining === 0 ? {} : readProperties(reader, 'puback');
+      packet = { cmd: 'puback', messageId, reasonCode, ...props };
       break;
     }
     case 0x82: {
