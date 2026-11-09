@@ -1,7 +1,3 @@
-# Using Custom Transports
+# Using a custom transport
 
-MQTT.js supports a BYOT (Bring Your Own Transport) approach to enable more complex Transport scenarios, such as country / company specific proxies. Your Transport must conform to the API set forth for all custom transports. 
-
-```js
-// TODO: Write sample of using custom transport. Maybe create ali.js for AliExpress as example since it is in old library.
-```
+Import `connectPortable` and the `PacketTransport` type from `mqtt/portable`. Supply packet send, listener registration and close operations. See [deadlines and forced close](../deadlines.md) for the transport contract. #22 tracks a reader-facing example with cancellation and shutdown.

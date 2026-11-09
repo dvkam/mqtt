@@ -31,18 +31,8 @@ export function connectionFactory(options: Readonly<ConnectOptions>): Duplex {
         ...options.tlsOptions,
       });
 
-      const handleTlsError = (error: Readonly<Error>) => {
-        // Error forwarding and terminal TLS ownership are tracked in #27 and #52.
-        if (options.tlsOptions) {
-          connection.emit('error', error);
-        }
-
-        // close this connection to match the behaviour of net
-        // otherwise all we get is an error from the connection
-        // and close event doesn't fire. This is a work around
-        // to enable the reconnect code to work the same as with
-        // net.createConnection
-        connection.end();
+      const handleTlsError = () => {
+        connection.destroy();
       };
 
       connection.on('secureConnect', function () {
@@ -53,7 +43,7 @@ export function connectionFactory(options: Readonly<ConnectOptions>): Duplex {
         }
       });
 
-      connection.on('error', handleTlsError);
+      connection.once('error', handleTlsError);
       return connection;
     }
     case 'ws:': {

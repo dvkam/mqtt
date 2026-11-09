@@ -1,6 +1,6 @@
 # Legacy fixture migration
 
-The archived AVA files were outside the active test runner. Their useful assertions now run in Vitest, and the sample uses the supported MQTT 5 TCP client against an external broker. Aedes is no longer needed.
+The archived AVA files were outside the active test runner. The executable coverage listed below now runs in Vitest, and the sample uses the supported MQTT 5 TCP client against an external broker. Aedes is no longer needed.
 
 | Archived intent | Active coverage or follow-up |
 | --- | --- |
@@ -9,9 +9,9 @@ The archived AVA files were outside the active test runner. Their useful asserti
 | QoS 0 publication | The baseline checks the actual topic and Buffer payload, rather than comparing a received Buffer with a string. Packed Mosquitto checks exercise a real MQTT 5 exchange independently. |
 | Malformed publication | The baseline calls through a JavaScript boundary with a missing topic. It checks promise rejection, the reported encoder error and the absence of an emitted PUBLISH. An empty MQTT 5 topic is not a suitable substitute because topic aliases can use it. |
 | Timeout fixture | The archived executable case duplicated publication. Active tests cover CONNACK timeout and PINGRESP deadlines. Its commented private keepalive sketch remains work for #16 and #27. |
-| Option validation placeholders | These had no executable assertions. #28, #30 and #52 retain the validation and normalization work. Protocol-specific client ID constraints belong to #15 and #19. |
-| Commented QoS 1 sketch | #10 owns packet identifiers, acknowledgments and replay. No QoS 1 support is claimed by this migration. |
-| Store and error-handling placeholders | #14 and #27 retain persistence and lifecycle work. #52 tracks the wider inherited comment audit. |
+| Option validation placeholders | These had no executable assertions. #28 and #30 retain the validation and normalization work. Protocol-specific client ID constraints belong to #15 and #19. |
+| Commented QoS 1 sketch | #10 covers live packet identifiers, acknowledgments and release. #12 owns reconnect replay and #14 owns durable recovery. |
+| Store and error-handling placeholders | #14 and #27 retain persistence and lifecycle work. The legacy TLS fixture checks error identity and closure. #17 retains the certificate and authorization matrix. |
 
 The old `message` publication field was not a valid payload assertion. The replacement checks `payload` and a genuinely missing topic. These tests preserve useful intent rather than treating every archived placeholder as implemented behavior.
 

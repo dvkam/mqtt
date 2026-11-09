@@ -1,5 +1,4 @@
 {
-  "//": "TODO: author, contributors",
   "name": "mqtt",
   "version": "5.0.0",
   "description": "The next generation of the MQTT.js client",
