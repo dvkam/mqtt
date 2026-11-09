@@ -23,6 +23,6 @@ These observations time the serial QoS 0 echo loop. The five- and one-sample p99
 | 14:02:37.8378285 | Portable packet-client trace | 10208 | 3083 |
 | 14:02:37.8977867 | Stream comparison | 34087 | Unreported |
 | 14:02:37.8977867 | Message queue module | 3091 | 1270 |
-| 14:02:39.0339830 | WebSocket byte transport and codec | 29744 | 8028 |
+| 14:02:39.0339830 | WebSocket browser fixture (websocket-browser.mjs) | 29744 | 8028 |
 
 Vite emits one ES library chunk per fixture. The byte counts describe these specific fixture imports. Gzip uses Node defaults. #18 owns comparable consumer workloads and performance budgets.
