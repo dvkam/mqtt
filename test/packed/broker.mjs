@@ -7,13 +7,44 @@ import { createTcpClient, createWebSocketClient } from 'mqtt';
 /** @type {((packet: import('mqtt-packet').IPublishPacket | undefined) => void) | undefined} */
 let receive;
 const controller = new AbortController();
-/** @type {Pick<Parameters<typeof createTcpClient>[0], 'clientId' | 'onMessage' | 'signal'>} */
+/** @type {string[]} */
+const inbound = [];
+let releaseInbound = () => {};
+let arrivedFirst = () => {};
+let arrivedSecond = () => {};
+const held = new Promise((resolve) => {
+  releaseInbound = () => {
+    resolve(undefined);
+  };
+});
+const first = new Promise((resolve) => {
+  arrivedFirst = () => {
+    resolve(undefined);
+  };
+});
+const second = new Promise((resolve) => {
+  arrivedSecond = () => {
+    resolve(undefined);
+  };
+});
+/** @type {Pick<Parameters<typeof createTcpClient>[0], 'clientId' | 'onMessage' | 'onQosOneMessage' | 'signal'>} */
 const options = {
   clientId: 'packed-ci',
   signal: controller.signal,
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
   onMessage(packet) {
     receive?.(packet);
+  },
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Check the mutable Node payload through the installed API.
+  async onQosOneMessage(packet) {
+    assert.ok(Buffer.isBuffer(packet.payload));
+    assert.equal(packet.qos, 1);
+    assert.ok(packet.messageId > 0);
+    inbound.push(packet.payload.toString());
+    if (inbound.length === 1) {
+      arrivedFirst();
+      await held;
+    } else arrivedSecond();
   },
 };
 const url = process.env['MQTT_TEST_WS_URL'];
@@ -39,8 +70,13 @@ const client = await factory.connect();
 try {
   await assert.rejects(client.subscribe('ci/\u0000invalid'), /Invalid MQTT topic filter/);
   await Promise.all([client.subscribe('ci/echo'), client.subscribe('ci/other'), client.ping()]);
-  await Promise.all([client.publish('ci/qos1', 'first', { qos: 1 }), client.publish('ci/qos1', 'second', { qos: 1 })]);
+  await client.subscribe('ci/qos1', { qos: 1 });
+  await Promise.all([client.publish('ci/qos1', 'first', { qos: 1 }), client.publish('ci/qos1', 'second', { qos: 1 }), first]);
   await client.ping();
+  assert.deepEqual(inbound, ['first']);
+  releaseInbound();
+  await second;
+  assert.deepEqual(inbound, ['first', 'second']);
   const samples = [];
   const iterations = Number(process.env['MQTT_TEST_ITERATIONS'] ?? 1);
   const start = performance.now();
@@ -86,6 +122,7 @@ try {
   assert.equal(await ping, cancellation);
   console.log('packed active cancellation passed');
 } finally {
+  releaseInbound();
   await client.disconnect().catch((/** @type {unknown} */ error) => {
     if (!controller.signal.aborted || error !== controller.signal.reason) throw error;
   });

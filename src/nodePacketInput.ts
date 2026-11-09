@@ -5,7 +5,10 @@ import { nodePacketListener } from './nodePacketListener.js';
 
 type PacketSink = Parameters<PacketTransport<NodeMessage>['listen']>[0];
 type FailureSink = Parameters<PacketTransport<NodeMessage>['listen']>[1];
-type Registration = Readonly<{ received: ReturnType<typeof nodePacketListener>; failed: FailureSink }>;
+type Registration = Readonly<{
+  received: ReturnType<typeof nodePacketListener>;
+  failed: FailureSink;
+}>;
 type Termination = Readonly<{ owner: 'input'; kind: 'error' | 'abort' | 'remote'; reason: Error } | { owner: 'core' }>;
 
 export class NodePacketInput {
@@ -28,11 +31,14 @@ export class NodePacketInput {
     return this.terminal?.owner === 'input' ? this.terminal.reason : undefined;
   }
 
-  listen(onPacket: PacketSink, onClose: FailureSink): () => void {
+  listen(onPacket: PacketSink, onClose: FailureSink, receiveQosOne = false): () => void {
     if (this.registered) throw new Error('Node packet input already registered');
     if (this.terminal?.owner === 'core') throw new Error('Node packet input has retired');
     this.registered = true;
-    const registration: Registration = { received: nodePacketListener(onPacket), failed: onClose };
+    const registration: Registration = {
+      received: nodePacketListener(onPacket, receiveQosOne),
+      failed: onClose,
+    };
     this.registration = registration;
     if (this.terminal?.owner === 'input') registration.failed(this.terminal.reason);
     return () => {

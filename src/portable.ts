@@ -1,5 +1,5 @@
 import type { IConnectPacket, IPublishPacket, Packet } from 'mqtt-packet';
-import type { ClientSession, PublishOptions } from './session.js';
+import type { ClientSession, PublishOptions, QosOneMessage, SubscribeOptions } from './session.js';
 import { validateTopic } from './util/validateTopic.js';
 import { resolveTimeout } from './timeout.js';
 import { PublicationAdmission, type PublicationLimits } from './publicationAdmission.js';
@@ -9,7 +9,7 @@ import { OutboundQosOne } from './outboundQosOne.js';
 import { isPubackReason } from './pubackReason.js';
 
 type PublishMessage = Omit<IPublishPacket, 'payload'> & { payload: unknown };
-type IncomingPacket<Message extends PublishMessage> = Exclude<Packet, IPublishPacket> | Message;
+type IncomingPacket<Message extends PublishMessage> = Exclude<Packet, IPublishPacket> | Message | QosOneMessage<Message>;
 
 export interface PacketTransport<Message extends PublishMessage = IPublishPacket> {
   /** Whether this adapter can encode shared filters. Broker capabilities are separate. */
@@ -28,8 +28,11 @@ export interface PortableOptions<Message extends PublishMessage = IPublishPacket
   password?: IConnectPacket['password'];
   timeoutMs?: number;
   onMessage?: (packet: Message) => void;
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Delivery preserves the adapter's mutable byte buffer type.
+  onQosOneMessage?: (packet: QosOneMessage<Message>) => void | Promise<void>;
 }
 
+type InboundPhase = 'handling' | 'acknowledging';
 type Acknowledgment = Extract<Packet, { cmd: 'connack' | 'pingresp' }>;
 
 class PortableClient<Message extends PublishMessage> {
@@ -46,7 +49,10 @@ class PortableClient<Message extends PublishMessage> {
   private readonly subscriptions: SubscriptionExchanges;
   private readonly identifiers = new PacketIdentifiers();
   private outbound?: OutboundQosOne;
-  private active = false;
+  private activation: 'opening' | 'accepted' | 'active' = 'opening';
+  private inboundPhase?: InboundPhase;
+  private nextInbound?: QosOneMessage<Message>;
+  private readonly onQosOneMessage: PortableOptions<Message>['onQosOneMessage'];
   private readonly timeoutMs: number;
   private readonly publications: PublicationAdmission;
 
@@ -57,6 +63,7 @@ class PortableClient<Message extends PublishMessage> {
     this.subscriptions = new SubscriptionExchanges(options, this.identifiers);
     this.transport = transport;
     this.options = options;
+    this.onQosOneMessage = options.onQosOneMessage;
     this.unlisten = transport.listen(
       // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
       (packet) => {
@@ -80,7 +87,22 @@ class PortableClient<Message extends PublishMessage> {
           this.outbound?.accept(messageId, code);
         }
         if (packet.cmd === 'connack' || packet.cmd === 'pingresp') this.pendingAck?.(packet);
-        if (this.active && !this.closing && packet.cmd === 'publish' && packet.qos === 0) options.onMessage?.(packet);
+        if (this.closing || packet.cmd !== 'publish') return;
+        if (this.activation === 'active' && packet.qos === 0) options.onMessage?.(packet);
+        if (packet.qos === 1 && this.onQosOneMessage) {
+          const { messageId, dup } = packet;
+          if (
+            messageId === undefined ||
+            !Number.isInteger(messageId) ||
+            messageId < 1 ||
+            messageId > 65_535 ||
+            typeof dup !== 'boolean'
+          ) {
+            void this.abort(new Error('Invalid inbound QoS 1 PUBLISH')).catch(() => {});
+            return;
+          }
+          this.receiveQosOne({ ...packet, qos: 1, messageId, dup });
+        }
       },
       // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
       (error) => {
@@ -101,6 +123,7 @@ class PortableClient<Message extends PublishMessage> {
         clientId: this.options.clientId,
         username: this.options.username,
         password: this.options.password,
+        ...(this.onQosOneMessage ? { properties: { receiveMaximum: 1 } } : {}),
       },
       // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
       (ack) => ack.cmd === 'connack',
@@ -114,30 +137,78 @@ class PortableClient<Message extends PublishMessage> {
     if (maximumQoS !== 0) {
       this.outbound = new OutboundQosOne(receiveMaximum, this.identifiers, this.transmitQosOne.bind(this));
     }
-    this.active = true;
+    this.activation = 'active';
+    this.advanceInbound();
   }
 
-  async changeSubscription(topic: string, command: 'subscribe' | 'unsubscribe'): Promise<void> {
+  async changeSubscription(topic: string, command: 'subscribe' | 'unsubscribe', qos = 0): Promise<void> {
     if (this.closing) throw new Error('Client is closing');
     if (this.failure) throw this.failure;
     if (!validateTopic(topic)) throw new Error('Invalid MQTT topic filter');
     if (this.transport.supportsSharedSubscriptions === false && topic.startsWith('$share/'))
       throw new Error('Unsupported shared subscription');
+    if (qos !== 0 && qos !== 1) throw new RangeError('Unsupported MQTT subscription QoS');
+    if (qos === 1 && !this.onQosOneMessage) throw new Error('QoS 1 subscription requires onQosOneMessage');
     const subscribing = command === 'subscribe';
     const reservation = this.subscriptions.reserve(topic, subscribing ? 'suback' : 'unsuback');
     const { messageId } = reservation;
     const packet: Packet = subscribing
-      ? { cmd: 'subscribe', messageId, subscriptions: [{ topic, qos: 0 }] }
+      ? { cmd: 'subscribe', messageId, subscriptions: [{ topic, qos }] }
       : { cmd: 'unsubscribe', messageId, unsubscriptions: [topic] };
     await this.run(async () => {
       try {
         const sent = this.sendIdentified(packet, subscribing ? 'MQTT subscription send failed' : 'MQTT unsubscribe send failed');
         const [code] = await Promise.all([reservation.acknowledged, sent]);
-        if (code !== 0 && (subscribing || code !== 17)) throw Object.assign(new Error('MQTT acknowledgment refused'), { code });
+        if (code !== 0 && code !== (subscribing ? qos : 17))
+          throw Object.assign(new Error('MQTT acknowledgment refused'), { code });
       } finally {
         reservation.release();
       }
     });
+  }
+
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The handler receives the adapter's mutable packet payload.
+  private receiveQosOne(packet: QosOneMessage<Message>): void {
+    if (this.activation === 'opening') {
+      void this.abort(new Error('Inbound QoS 1 PUBLISH arrived before CONNACK')).catch(() => {});
+      return;
+    }
+    const canWait = this.activation === 'accepted' || this.inboundPhase === 'acknowledging';
+    if (canWait && !this.nextInbound) {
+      this.nextInbound = packet;
+      return;
+    }
+    if (canWait || this.inboundPhase) {
+      void this.abort(Object.assign(new Error('MQTT Receive Maximum exceeded'), { code: 0x93 }), 0x93).catch(() => {});
+      return;
+    }
+    this.inboundPhase = 'handling';
+    void this.deliverQosOne(packet);
+  }
+
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Preserve the mutable application payload while keeping the ACK identifier private.
+  private async deliverQosOne(packet: QosOneMessage<Message>): Promise<void> {
+    const { messageId } = packet;
+    try {
+      await this.run(async () => {
+        await this.onQosOneMessage?.(packet);
+        if (this.failure || this.closing) return;
+        this.inboundPhase = 'acknowledging';
+        await this.transport.send({ cmd: 'puback', messageId, reasonCode: 0 });
+      }, false);
+    } catch (reason) {
+      if (!this.failure && !this.closing)
+        void this.abort(reason instanceof Error ? reason : new Error('MQTT inbound delivery failed')).catch(() => {});
+    } finally {
+      this.inboundPhase = undefined;
+      this.advanceInbound();
+    }
+  }
+
+  private advanceInbound(): void {
+    const next = this.nextInbound;
+    this.nextInbound = undefined;
+    if (next && !this.failure && !this.closing) this.receiveQosOne(next);
   }
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Preserve the caller's native AbortSignal identity and listener contract.
@@ -157,7 +228,14 @@ class PortableClient<Message extends PublishMessage> {
     const release = this.publications.reserve(topic, payload);
     await this.run(async () => {
       try {
-        await this.transport.send({ cmd: 'publish', topic, payload, qos: 0, dup: false, retain: false });
+        await this.transport.send({
+          cmd: 'publish',
+          topic,
+          payload,
+          qos: 0,
+          dup: false,
+          retain: false,
+        });
       } finally {
         release();
       }
@@ -208,17 +286,35 @@ class PortableClient<Message extends PublishMessage> {
       // oxlint-disable-next-line typescript/promise-function-async -- Cache the promise before stopping queued work.
       this.closing = Promise.resolve().then(() => this.end());
       this.outbound?.stop(new Error('Client is closing'));
+      this.nextInbound = undefined;
     }
     return this.closing;
   }
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
-  async abort(error: Error): Promise<void> {
+  async abort(error: Error, disconnectReason?: number): Promise<void> {
     try {
       this.fail(error);
     } finally {
-      this.forcedClose ??= Promise.resolve().then(async () => this.transport.close(true));
+      this.forcedClose ??= Promise.resolve().then(async () => {
+        if (disconnectReason !== undefined) await this.reportProtocolError(disconnectReason);
+        await this.transport.close(true);
+      });
       await this.forcedClose;
+    }
+  }
+
+  private async reportProtocolError(reasonCode: number): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const deadline = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, this.timeoutMs);
+      });
+      await Promise.race([deadline, this.transport.send({ cmd: 'disconnect', reasonCode })]);
+    } catch {
+      // The first protocol failure remains the public cause if DISCONNECT cannot be sent.
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -245,6 +341,7 @@ class PortableClient<Message extends PublishMessage> {
             this.fail(Object.assign(new Error('MQTT acknowledgment refused'), { code: reply.reasonCode }));
           }
           if (reply.cmd === 'connack') {
+            if (reply.reasonCode === 0) this.activation = 'accepted';
             const { receiveMaximum, maximumQoS } = reply.properties ?? {};
             resolve({
               cmd: 'connack',
@@ -276,7 +373,7 @@ class PortableClient<Message extends PublishMessage> {
     }
   }
 
-  private async run<Result>(operation: () => Promise<Result>): Promise<Result> {
+  private async run<Result>(operation: () => Promise<Result>, timeoutWhileClosing = true): Promise<Result> {
     if (this.failure) throw this.failure;
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
     let rejectOnClose!: (error: Error) => void;
@@ -285,7 +382,7 @@ class PortableClient<Message extends PublishMessage> {
       rejectOnClose = reject;
       this.pendingOperations.add(reject);
       timer = setTimeout(() => {
-        if (this.failure) return;
+        if (this.failure || (!timeoutWhileClosing && this.closing)) return;
         void this.abort(new Error('MQTT operation timed out')).catch(() => {});
       }, this.timeoutMs);
     });
@@ -301,6 +398,7 @@ class PortableClient<Message extends PublishMessage> {
   private fail(error: Error): void {
     if (this.failure) return;
     this.failure = error;
+    this.nextInbound = undefined;
     this.subscriptions.retire(error);
     this.outbound?.retire(error);
     for (const reject of this.pendingOperations) reject(error);
@@ -323,7 +421,7 @@ export async function connectPortable<Message extends PublishMessage = IPublishP
   }
   return {
     // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
-    subscribe: (topic: string) => client.changeSubscription(topic, 'subscribe'),
+    subscribe: (topic: string, options?: Readonly<SubscribeOptions>) => client.changeSubscription(topic, 'subscribe', options?.qos),
     // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
     unsubscribe: (topic: string) => client.changeSubscription(topic, 'unsubscribe'),
     // oxlint-disable-next-line typescript/promise-function-async, typescript/prefer-readonly-parameter-types -- Forward the existing promise and native cancellation signal.
