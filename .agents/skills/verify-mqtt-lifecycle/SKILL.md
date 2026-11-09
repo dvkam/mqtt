@@ -377,3 +377,11 @@ Source commit a1f37b97b09ce9aa004ca0650033fd6780d345f8 changes the legacy TLS op
 The regression failed with a stack overflow before the fix. On restored source the caller receives one Error by identity, sees destruction already initiated and observes close. Two source faults restore re-emission or omit destruction. Both fail their assertions. The restored suite passes 693 tests, strict declarations, lint, build and formatting.
 
 The existing replay passes 24 models and catches 92 named counterexamples. The first invocation of the new TLS model failed to resolve the natural number comparison operator. After importing Naturals, its positive case and two named counterexamples pass the expected checks. No prior bounds or properties changed. Two independent reviewers using the inherited model cleared the scoped fix.
+
+## Session lint cleanup
+
+Source commit 7f63fd525b52109b550268f383a1d71f1633b595 removes local lint directives from internal readers and promise forwarding. The read-only types preserve the original Error, native AbortSignal, mutable payloads at the public callbacks, and packet-ID allocator receiver. The cached disconnect promise is assigned before stopping queued work, in the same turn as before. The bound methods add no async wrapper.
+
+The ParserAckNotice, NodeInputLifecycle, PingFence, SubscriptionOwnership, OperationTimeout, QosOneInbound and QosOneOutbound mappings keep their prior transitions and bounds. The change narrows what internal code can read and preserves runtime ownership. No model was changed. The established suite at the base passes 25 positive models and catches 94 named counterexamples.
+
+Before editing, the revised runtime tests and emitted declarations passed on the base. Two source faults fail assertions for a wrapped disconnect promise and a replaced symbol abort reason. Two declaration faults make public packet and error fields readonly and fail the dedicated type checks. All four faults were restored. The full suite passes 693 tests, strict declarations, lint, build and formatting. Two independent same-model reviewers cleared the source after the compile fixture was revised to exercise payload mutation after asynchronous handoff.
