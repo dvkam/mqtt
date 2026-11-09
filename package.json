@@ -1,7 +1,7 @@
 {
   "name": "mqtt",
-  "version": "5.0.0",
-  "description": "The next generation of the MQTT.js client",
+  "version": "0.1.0",
+  "description": "MQTT 5 client preview for Node and browsers",
   "keywords": [
     "mqtt",
     "publish",
@@ -12,8 +12,26 @@
     "broker",
     "server"
   ],
-  "homepage": "https://github.com/mqttjs/mqttjs-v5#readme",
-  "bugs": "https://github.com/mqttjs/issues",
+  "homepage": "https://github.com/dvkam/mqtt#readme",
+  "bugs": "https://github.com/dvkam/mqtt/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dvkam/mqtt.git"
+  },
+  "author": {
+    "name": "David Kaminski",
+    "url": "https://github.com/dvkam"
+  },
+  "contributors": [
+    {
+      "name": "mqttjs-v5 contributors",
+      "url": "https://github.com/mqttjs/mqttjs-v5/graphs/contributors"
+    },
+    {
+      "name": "MQTT.js contributors",
+      "url": "https://github.com/mqttjs/MQTT.js/graphs/contributors"
+    }
+  ],
   "license": "MIT",
   "type": "module",
   "engines": {
