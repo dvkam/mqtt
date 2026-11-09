@@ -107,6 +107,7 @@ const models: readonly VerificationCase[] = [
   ['SubscriptionOwnership', 'SubscriptionOwnershipKind', 'NoWrongKind'],
   ['SubscriptionOwnership', 'SubscriptionOwnershipStale', 'OwnedUntilComplete'],
   ['SubscriptionOwnership', 'SubscriptionOwnershipRetired', 'NoAdmissionAfterRetirement'],
+  ['SubscriptionOwnership', 'SubscriptionOwnershipMalformed', 'InvalidMatchingAckRetires'],
   ['QosOneOutbound', 'QosOneOutbound'],
   ['QosOneOutbound', 'QosOneOutboundQuota', 'BoundedQuota'],
   ['QosOneOutbound', 'QosOneOutboundItems', 'BoundedItems'],

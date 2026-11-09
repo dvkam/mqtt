@@ -1,8 +1,8 @@
 -------------------------- MODULE SubscriptionOwnership --------------------------
 EXTENDS Naturals, FiniteSets
 CONSTANT Fault
-VARIABLES owner, started, held, sent, acked, released, cleaned, cost, identifierOf, retired, terminalStarted, wrong
-vars == <<owner, started, held, sent, acked, released, cleaned, cost, identifierOf, retired, terminalStarted, wrong>>
+VARIABLES owner, started, held, sent, acked, released, cleaned, cost, identifierOf, retired, terminalStarted, wrong, invalidSeen
+vars == <<owner, started, held, sent, acked, released, cleaned, cost, identifierOf, retired, terminalStarted, wrong, invalidSeen>>
 Ids == {1, 2, 3}
 Leases == {1, 2, 3}
 ExpectedKind(lease) == IF lease = 2 THEN "unsuback" ELSE "suback"
@@ -15,7 +15,7 @@ Init == /\ owner = [identifier \in Ids |-> 0]
         /\ started = {} /\ held = {} /\ sent = {} /\ acked = {}
         /\ released = {} /\ cleaned = {} /\ cost = [lease \in Leases |-> 1]
         /\ identifierOf = [lease \in Leases |-> 1]
-        /\ retired = FALSE /\ terminalStarted = {} /\ wrong = FALSE
+        /\ retired = FALSE /\ terminalStarted = {} /\ wrong = FALSE /\ invalidSeen = FALSE
 Reserve == \E lease \in Leases \ started, identifier \in Ids, charge \in {1, 3}:
   /\ (~retired \/ Fault = "retired")
   /\ (owner[identifier] = 0 \/ Fault = "reuse")
@@ -25,34 +25,42 @@ Reserve == \E lease \in Leases \ started, identifier \in Ids, charge \in {1, 3}:
   /\ started' = started \cup {lease} /\ held' = held \cup {lease}
   /\ cost' = [cost EXCEPT ![lease] = charge]
   /\ identifierOf' = [identifierOf EXCEPT ![lease] = identifier]
-  /\ UNCHANGED <<sent, acked, released, cleaned, retired, terminalStarted, wrong>>
+  /\ UNCHANGED <<sent, acked, released, cleaned, retired, terminalStarted, wrong, invalidSeen>>
 Send == \E lease \in started \ sent:
   /\ sent' = sent \cup {lease}
-  /\ UNCHANGED <<owner, started, held, acked, released, cleaned, cost, identifierOf, retired, terminalStarted, wrong>>
+  /\ UNCHANGED <<owner, started, held, acked, released, cleaned, cost, identifierOf, retired, terminalStarted, wrong, invalidSeen>>
 Ack == \E lease \in held \ acked, kind \in {"suback", "unsuback", "other"}:
   /\ ~retired /\ (kind = ExpectedKind(lease) \/ Fault = "kind")
   /\ acked' = acked \cup {lease}
   /\ wrong' = (wrong \/ kind # ExpectedKind(lease))
-  /\ UNCHANGED <<owner, started, held, sent, released, cleaned, cost, identifierOf, retired, terminalStarted>>
+  /\ UNCHANGED <<owner, started, held, sent, released, cleaned, cost, identifierOf, retired, terminalStarted, invalidSeen>>
 Release == \E lease \in held:
   /\ ~retired /\ lease \in acked
   /\ (lease \in sent \/ Fault = "early")
   /\ owner' = [identifier \in Ids |-> IF owner[identifier] = lease THEN 0 ELSE owner[identifier]]
   /\ held' = held \ {lease} /\ released' = released \cup {lease}
-  /\ UNCHANGED <<started, sent, acked, cleaned, cost, identifierOf, retired, terminalStarted, wrong>>
+  /\ UNCHANGED <<started, sent, acked, cleaned, cost, identifierOf, retired, terminalStarted, wrong, invalidSeen>>
 OldCleanup == \E lease \in released \ cleaned:
   /\ cleaned' = cleaned \cup {lease}
   /\ owner' = IF Fault = "stale" THEN [owner EXCEPT ![identifierOf[lease]] = 0] ELSE owner
-  /\ UNCHANGED <<started, held, sent, acked, released, cost, identifierOf, retired, terminalStarted, wrong>>
-Retire == /\ ~retired /\ retired' = TRUE /\ terminalStarted' = started
+  /\ UNCHANGED <<started, held, sent, acked, released, cost, identifierOf, retired, terminalStarted, wrong, invalidSeen>>
+RetireWith(invalid) == /\ ~retired /\ retired' = TRUE /\ terminalStarted' = started
+          /\ invalidSeen' = (invalidSeen \/ invalid)
           /\ owner' = [identifier \in Ids |-> 0]
           /\ UNCHANGED <<started, held, sent, acked, released, cleaned, cost, identifierOf, wrong>>
-Next == Reserve \/ Send \/ Ack \/ Release \/ OldCleanup \/ Retire
+Retire == RetireWith(FALSE)
+BadAck == /\ (held \ acked) # {} /\ ~retired
+          /\ IF Fault = "malformed"
+              THEN /\ invalidSeen' = TRUE
+                   /\ UNCHANGED <<owner, started, held, sent, acked, released, cleaned, cost, identifierOf, retired, terminalStarted, wrong>>
+              ELSE RetireWith(TRUE)
+Next == Reserve \/ Send \/ Ack \/ BadAck \/ Release \/ OldCleanup \/ Retire
 Spec == Init /\ [][Next]_vars
 BoundedItems == Cardinality(Occupied) <= 2
 BoundedBytes == Bytes <= 3
 OwnedUntilComplete == retired \/ held \subseteq Owners
 NoEarlyRelease == released \subseteq (sent \cap acked)
 NoWrongKind == ~wrong
+InvalidMatchingAckRetires == invalidSeen => retired
 NoAdmissionAfterRetirement == ~retired \/ started = terminalStarted
 =============================================================================
