@@ -35,3 +35,17 @@ The compiler keeps ES2020 output. The browser and consumer runtime matrix has ye
 The legacy AVA integration files still document intended behavior and remain outside the Vitest suite. The initial toolchain migration exposed the inherited client and sequencer errors. The repair adds Vitest regressions for the handshake and QoS 0 path. CI runs the source build as a separate step.
 
 Refs #2.
+
+## Workspace install policy
+
+Use pnpm 12.16.1 from the package manifest. A regular or filtered `pnpm add` saves an exact version. A resolving command may deduplicate compatible versions across workspace importers, including importers outside its filter. Review the entire lockfile diff. Frozen installs keep the committed resolutions and fail when the manifest and lockfile disagree.
+
+The workspace enforces a 1,440-minute release delay when registry metadata includes a publish date. In a controlled registry test, the built-in pnpm default accepted a young release as a fallback and wrote an exclusion. The explicit setting rejected the same release in a noninteractive install. The workspace has no release-age exceptions.
+
+Strict peer checking rejects an incompatible peer. A separate probe with automatic peer installation disabled also rejected a missing peer. This workspace keeps automatic peer installation enabled.
+
+With `autoDedupe` enabled, a filtered add of version 1.1.0 moved an unfiltered importer's compatible 1.0.0 resolution to 1.1.0. With the setting disabled, that importer stayed on 1.0.0. The subsequent frozen lockfile-only install left the lockfile unchanged. Enabling resolution metadata added four lockfile settings and preserved all package resolutions and integrity hashes.
+
+The CI jobs use frozen installs. Run `pnpm dedupe --check` when reviewing dependency updates. The current single-package workspace has no separate CI job that resolves dependencies again.
+
+Refs #51.

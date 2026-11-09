@@ -1,1 +1,6 @@
-{}
+minimumReleaseAge: 1440
+saveExact: true
+strictPeerDependencies: true
+autoDedupe: true
+lockfile:
+  includeResolutionSettings: true
