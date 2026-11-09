@@ -72,8 +72,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
       }
     });
   });
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
-  socket.on('error', (error) => {
+  socket.on('error', (error: Readonly<Error>) => {
     terminate(error);
   });
   const terminate = (error: Readonly<Error>) => {

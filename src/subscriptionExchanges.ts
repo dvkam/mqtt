@@ -32,12 +32,14 @@ interface Entry {
 export class SubscriptionExchanges {
   private readonly limits: ReturnType<typeof resolveSubscriptionLimits>;
   private readonly entries = new Map<number, Entry>();
-  private readonly identifiers: PacketIdentifiers;
+  private readonly identifiers: Readonly<Pick<PacketIdentifiers, 'reserve'>>;
   private bytes = 0;
   private failure?: Error;
 
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- All identified exchanges share the same mutable allocator.
-  constructor(options: Readonly<SubscriptionLimits>, identifiers = new PacketIdentifiers()) {
+  constructor(
+    options: Readonly<SubscriptionLimits>,
+    identifiers: Readonly<Pick<PacketIdentifiers, 'reserve'>> = new PacketIdentifiers(),
+  ) {
     this.limits = resolveSubscriptionLimits(options);
     this.identifiers = identifiers;
   }

@@ -53,8 +53,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
   const writeLimits = resolveNativeWriteLimits(options);
   const decoder = new PacketDecoder({ maxPacketBytes: options.maxPacketBytes });
   let deliver: Parameters<PacketTransport<BrowserMessage>['listen']>[0] | undefined;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
-  let failed: ((reason: Error) => void) | undefined;
+  let failed: ((reason: Readonly<Error>) => void) | undefined;
   let failure: Error | undefined;
   let protocolError: Parameters<PacketTransport<BrowserMessage>['listen']>[2];
   const bytes = await openBrowserTransport(options.url, {
@@ -137,8 +136,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
         }
       }
     },
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
-    onClose(reason, kind) {
+    onClose(reason: Readonly<Error>, kind) {
       let terminalReason = reason;
       try {
         decoder.finish();

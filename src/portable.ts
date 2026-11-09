@@ -1,6 +1,6 @@
 import { ProtocolInputError } from './protocolInputError.js';
 import type { IConnectPacket, IPublishPacket, Packet } from 'mqtt-packet';
-import type { ClientSession, PublishOptions, QosOneMessage, SubscribeOptions } from './session.js';
+import type { ClientSession, QosOneMessage, SubscribeOptions } from './session.js';
 import { validateTopic } from './util/validateTopic.js';
 import { resolveTimeout } from './timeout.js';
 import { PublicationAdmission, type PublicationLimits } from './publicationAdmission.js';
@@ -18,9 +18,9 @@ export interface PacketTransport<Message extends PublishMessage = IPublishPacket
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
   send(packet: Packet): Promise<void>;
   listen(
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters keep mutable packet payloads.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Custom transport packet fields are writable. test/types/mutable-contracts.ts checks the emitted declaration.
     onPacket: (packet: IncomingPacket<Message>) => void,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The transport delivers its original Error.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Custom transport error callbacks can write Error.message. test/types/mutable-contracts.ts checks the emitted declaration.
     onClose: (error: Error) => void,
     /** Report a decoder rejection while the transport can still write DISCONNECT. */
     onProtocolError?: (error: Readonly<ProtocolInputError>) => void,
@@ -40,15 +40,20 @@ export interface PortableOptions<Message extends PublishMessage = IPublishPacket
 }
 
 type InboundPhase = 'handling' | 'acknowledging';
-type Acknowledgment = Extract<Packet, { cmd: 'connack' | 'pingresp' }>;
+type Connack = Extract<Packet, { cmd: 'connack' }>;
+type Acknowledgment =
+  | Readonly<
+      Pick<Connack, 'cmd' | 'reasonCode' | 'sessionPresent'> & {
+        properties?: Readonly<Pick<NonNullable<Connack['properties']>, 'receiveMaximum' | 'maximumQoS'>>;
+      }
+    >
+  | Readonly<Extract<Packet, { cmd: 'pingresp' }>>;
 
 class PortableClient<Message extends PublishMessage> {
   private readonly transport: PacketTransport<Message>;
   private readonly options: PortableOptions<Message>;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
   private pendingAck?: (packet: Acknowledgment) => void;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
-  private readonly pendingOperations = new Set<(error: Error) => void>();
+  private readonly pendingOperations = new Set<(error: Readonly<Error>) => void>();
   private failure?: Error;
   private closing?: Promise<void>;
   private forcedClose?: Promise<void>;
@@ -116,8 +121,7 @@ class PortableClient<Message extends PublishMessage> {
           this.receiveQosOne({ ...packet, qos: 1, messageId, dup });
         }
       },
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
-      (error) => {
+      (error: Readonly<Error>) => {
         this.fail(error);
       },
       this.rejectProtocolInput.bind(this),
@@ -138,7 +142,6 @@ class PortableClient<Message extends PublishMessage> {
         password: this.options.password,
         ...(this.onQosOneMessage ? { properties: { receiveMaximum: 1 } } : {}),
       },
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
       (ack) => ack.cmd === 'connack',
     );
     if (this.failure) throw this.failure;
@@ -224,8 +227,11 @@ class PortableClient<Message extends PublishMessage> {
     if (next && !this.failure && !this.closing) this.receiveQosOne(next);
   }
 
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Preserve the caller's native AbortSignal identity and listener contract.
-  async publish(topic: string, payload: string, options?: Readonly<PublishOptions>): Promise<void> {
+  async publish(
+    topic: string,
+    payload: string,
+    options?: Readonly<{ qos?: 0 | 1; signal?: Readonly<AbortSignal> }>,
+  ): Promise<void> {
     if (this.closing) throw new Error('Client is closing');
     if (this.failure) throw this.failure;
     if (topic.includes('+') || topic.includes('#') || !validateTopic(topic)) throw new Error('Invalid MQTT topic name');
@@ -289,23 +295,20 @@ class PortableClient<Message extends PublishMessage> {
 
   async ping(): Promise<void> {
     if (this.closing) throw new Error('Client is closing');
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
     await this.exchange({ cmd: 'pingreq' }, (ack) => ack.cmd === 'pingresp');
   }
 
   // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
   disconnect(): Promise<void> {
     if (this.closing === undefined) {
-      // oxlint-disable-next-line typescript/promise-function-async -- Cache the promise before stopping queued work.
-      this.closing = Promise.resolve().then(() => this.end());
+      this.closing = Promise.resolve().then(this.end.bind(this));
       this.outbound?.stop(new Error('Client is closing'));
       this.nextInbound = undefined;
     }
     return this.closing;
   }
 
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
-  async abort(error: Error, disconnectReason?: number): Promise<void> {
+  async abort(error: Readonly<Error>, disconnectReason?: number): Promise<void> {
     try {
       this.fail(error);
     } finally {
@@ -353,7 +356,6 @@ class PortableClient<Message extends PublishMessage> {
     if (this.failure) throw this.failure;
     if (this.pendingAck) throw new Error('Another acknowledgment is pending');
     const ack = new Promise<Acknowledgment>((resolve) => {
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
       this.pendingAck = (reply) => {
         if (matches(reply)) {
           if (reply.cmd === 'connack' && reply.reasonCode !== 0) {
@@ -394,8 +396,7 @@ class PortableClient<Message extends PublishMessage> {
 
   private async run<Result>(operation: () => Promise<Result>, timeoutWhileClosing = true): Promise<Result> {
     if (this.failure) throw this.failure;
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
-    let rejectOnClose!: (error: Error) => void;
+    let rejectOnClose!: (error: Readonly<Error>) => void;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const interrupted = new Promise<never>((_, reject) => {
       rejectOnClose = reject;
@@ -413,8 +414,7 @@ class PortableClient<Message extends PublishMessage> {
     }
   }
 
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
-  private fail(error: Error): void {
+  private fail(error: Readonly<Error>): void {
     if (this.failure) return;
     this.failure = error;
     this.nextInbound = undefined;
@@ -443,12 +443,8 @@ export async function connectPortable<Message extends PublishMessage = IPublishP
     subscribe: (topic: string, options?: Readonly<SubscribeOptions>) => client.changeSubscription(topic, 'subscribe', options?.qos),
     // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
     unsubscribe: (topic: string) => client.changeSubscription(topic, 'unsubscribe'),
-    // oxlint-disable-next-line typescript/promise-function-async, typescript/prefer-readonly-parameter-types -- Forward the existing promise and native cancellation signal.
-    publish: (topic: string, payload: string, publishOptions?: Readonly<PublishOptions>) =>
-      client.publish(topic, payload, publishOptions),
-    // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
-    ping: () => client.ping(),
-    // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
-    disconnect: () => client.disconnect(),
+    publish: client.publish.bind(client),
+    ping: client.ping.bind(client),
+    disconnect: client.disconnect.bind(client),
   };
 }

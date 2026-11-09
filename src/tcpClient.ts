@@ -46,8 +46,7 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
   const input = new NodePacketInput(options.maxPacketBytes);
   const socket = createConnection({ host: options.host, port: options.port ?? 1883 });
   const codec = { protocolVersion: 5 };
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
-  socket.on('error', (error) => {
+  socket.on('error', (error: Readonly<Error>) => {
     input.retire('error', error);
     signal?.removeEventListener('abort', abort);
   });
