@@ -336,6 +336,7 @@ test('reserves native TCP bytes for ping without overtaking corked publication d
 test.each([
   { defect: 'two results for one filter', bytes: [0x90, 5, 0, 1, 0, 0, 0] },
   { defect: 'zero packet identifier', bytes: [0x90, 4, 0, 0, 0, 0] },
+  { defect: 'reserved reason with a coalesced suffix', bytes: [0x90, 4, 0, 1, 0, 17, 0x30, 4, 0, 1, 97, 0] },
 ])('reports a SUBACK protocol error over TCP for $defect', async ({ bytes }: Readonly<{ bytes: readonly number[] }>) => {
   const notices: number[] = [];
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Capture the broker parser's original MQTT packet.
@@ -345,7 +346,8 @@ test.each([
     return undefined;
   });
   try {
-    const client = await createTcpClient(peer.options).connect();
+    const onMessage = vi.fn<() => void>();
+    const client = await createTcpClient({ ...peer.options, onMessage }).connect();
     const request = once(peer.events, 'subscribe');
     const closed = once(peer.events, 'peer-close');
     const pending = client.subscribe('a').catch((reason: unknown) => reason);
@@ -353,9 +355,32 @@ test.each([
     const socket = event[0];
     if (!(socket instanceof Socket)) throw new Error('Expected the broker socket');
     socket.write(Buffer.from(bytes));
-    expect(await pending).toMatchObject({ code: 0x82 });
+    const failure = await pending;
+    expect(failure).toMatchObject({ code: 0x82 });
+    await expect(client.ping()).rejects.toBe(failure);
+    expect(onMessage).not.toHaveBeenCalled();
     await closed;
     expect(notices).toEqual([0x82]);
+  } finally {
+    await peer.close();
+  }
+});
+
+test('closes on a parser-rejected SUBACK before CONNACK without writing a notice', async () => {
+  const peer = await broker(() => undefined);
+  try {
+    const request = once(peer.events, 'connect');
+    const closed = once(peer.events, 'peer-close');
+    const pending = createTcpClient(peer.options)
+      .connect()
+      .catch((reason: unknown) => reason);
+    const event: unknown[] = await request;
+    const socket = event[0];
+    if (!(socket instanceof Socket)) throw new Error('Expected the broker socket');
+    socket.write(Buffer.from([0x90, 4, 0, 1, 0, 17]));
+    expect(await pending).toMatchObject({ code: 0x82 });
+    await closed;
+    expect(peer.commands).toEqual(['connect']);
   } finally {
     await peer.close();
   }

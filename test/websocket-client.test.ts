@@ -5,7 +5,7 @@ import { expect, test, vi } from 'vitest';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createWebSocketClient } from '../src/index.js';
 
-async function peer(earlyPublish = false) {
+async function peer(earlyPublish = false, subscriptionReply?: readonly number[]) {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
   const address = server.address();
@@ -39,7 +39,10 @@ async function peer(earlyPublish = false) {
           );
         socket.send(generate({ cmd: 'connack', reasonCode: 0, sessionPresent: false }, codec));
       }
-      if (packet.cmd === 'subscribe') socket.terminate();
+      if (packet.cmd === 'subscribe' || packet.cmd === 'unsubscribe') {
+        if (subscriptionReply) socket.send(Buffer.from(subscriptionReply));
+        else socket.terminate();
+      }
       if (packet.cmd === 'pingreq') socket.send(generate({ cmd: 'pingresp' }, codec));
     });
   });
@@ -201,3 +204,22 @@ test.each([
     await broker.close();
   }
 });
+
+test.each([
+  { command: 'subscribe', bytes: [0x90, 4, 0, 1, 0, 17] },
+  { command: 'unsubscribe', bytes: [0xb0, 4, 0, 1, 0, 1] },
+] as const)(
+  'reports a parser-rejected $command reply over Node WebSocket before closing',
+  async ({ command, bytes }: Readonly<{ command: 'subscribe' | 'unsubscribe'; bytes: readonly number[] }>) => {
+    const broker = await peer(false, bytes);
+    try {
+      const client = await createWebSocketClient({ url: broker.url, clientId: 'suback-protocol' }).connect();
+      const failure = await client[command]('a').catch((reason: unknown) => reason);
+      expect(failure).toMatchObject({ code: 0x82 });
+      await expect(client.ping()).rejects.toBe(failure);
+      await expect.poll(() => broker.packets[2]).toMatchObject({ cmd: 'disconnect', reasonCode: 0x82 });
+    } finally {
+      await broker.close();
+    }
+  },
+);

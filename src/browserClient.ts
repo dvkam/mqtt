@@ -1,3 +1,4 @@
+import { ProtocolInputError } from './protocolInputError.js';
 import { openBrowserTransport } from './browserTransport.js';
 import { encodePacket, PacketDecoder, type UserProperty, type WirePacket } from './codec.js';
 import { connectPortable, type PacketTransport } from './portable.js';
@@ -55,6 +56,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
   let failed: ((reason: Error) => void) | undefined;
   let failure: Error | undefined;
+  let protocolError: Parameters<PacketTransport<BrowserMessage>['listen']>[2];
   const bytes = await openBrowserTransport(options.url, {
     signal: options.signal,
     timeoutMs,
@@ -62,7 +64,19 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
     maxWebSocketMessageBytes: options.maxWebSocketMessageBytes,
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
     onBytes(chunk) {
-      for (const packet of decoder.push(chunk)) {
+      if (failure) return;
+      let packets: WirePacket[];
+      try {
+        packets = decoder.push(chunk);
+      } catch (error) {
+        if (!(error instanceof ProtocolInputError) || !protocolError) throw error;
+        failure = error;
+        protocolError(error);
+        return;
+      }
+      const listener = deliver;
+      for (const packet of packets) {
+        if (deliver !== listener) break;
         switch (packet.cmd) {
           case 'connack': {
             const { receiveMaximum, maximumQoS } = packet;
@@ -214,13 +228,15 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
       }
       bytes.send(encodePacket(encoded), packet.cmd === 'publish' ? 'publication' : 'control');
     },
-    listen(onPacket, onClose) {
+    listen(onPacket, onClose, onProtocolError) {
       deliver = onPacket;
+      protocolError = onProtocolError;
       failed = onClose;
       if (failure) onClose(failure);
       return () => {
         deliver = undefined;
         failed = undefined;
+        protocolError = undefined;
       };
     },
     async close(force) {

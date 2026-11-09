@@ -98,8 +98,8 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
         });
       });
     },
-    listen(onPacket, onClose) {
-      return input.listen(onPacket, onClose, onQosOneMessage !== undefined);
+    listen(onPacket, onClose, onProtocolError) {
+      return input.listen(onPacket, onClose, onQosOneMessage !== undefined, onProtocolError);
     },
     async close(force) {
       input.detachCore();
