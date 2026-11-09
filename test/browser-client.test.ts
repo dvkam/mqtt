@@ -17,14 +17,19 @@ async function peer(
   dropPing = false,
   properties?: Readonly<{ receiveMaximum?: number; maximumQoS?: number }>,
   unsubscribeReply?: readonly number[],
+  connectReplies?: readonly (readonly number[])[],
 ) {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
   const address = server.address();
   if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
   const packets: Packet[] = [];
+  let closed = false;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
   server.on('connection', (socket) => {
+    socket.once('close', () => {
+      closed = true;
+    });
     const decoder = parser({ protocolVersion: 5 });
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
     socket.on('message', (bytes) => {
@@ -37,7 +42,9 @@ async function peer(
       const send = (value: Packet) => {
         socket.send(generate(value, { protocolVersion: 5 }));
       };
-      if (packet.cmd === 'connect')
+      if (packet.cmd === 'connect' && connectReplies) {
+        for (const reply of connectReplies) socket.send(Buffer.from(reply));
+      } else if (packet.cmd === 'connect')
         send({
           cmd: 'connack',
           sessionPresent: false,
@@ -56,6 +63,9 @@ async function peer(
   return {
     url: 'ws://127.0.0.1:' + address.port,
     packets,
+    get closed() {
+      return closed;
+    },
     sendWire(bytes: readonly number[]) {
       for (const socket of server.clients) socket.send(Buffer.from(bytes));
     },
@@ -331,6 +341,70 @@ test.each([
       await expect(client.ping()).rejects.toBe(failure);
       await expect.poll(() => broker.packets[2]).toMatchObject({ cmd: 'disconnect', reasonCode: code });
       expect(onMessage).not.toHaveBeenCalled();
+    } finally {
+      await broker.close();
+    }
+  },
+);
+
+const acceptedConnack = [0x20, 3, 0, 0, 0];
+const malformedSuback = [0x90, 3, 0, 1, 0];
+
+test.each([
+  { layout: 'one message', replies: [[...acceptedConnack, ...malformedSuback]] },
+  { layout: 'a split CONNACK', replies: [acceptedConnack.slice(0, 3), [...acceptedConnack.slice(3), ...malformedSuback]] },
+  { layout: 'separate messages', replies: [acceptedConnack, malformedSuback] },
+])(
+  'reports the malformed acknowledgment after accepting CONNACK with $layout',
+  async ({ layout, replies }: Readonly<{ layout: string; replies: readonly (readonly number[])[] }>) => {
+    const broker = await peer(0, false, undefined, undefined, replies);
+    try {
+      const opening = createBrowserClient({ url: broker.url, clientId: 'ack-order' }).connect();
+      const opened = await opening.catch((reason: unknown) => ({ reason }));
+      expect(layout === 'separate messages' || 'reason' in opened).toBe(true);
+      await expect.poll(() => broker.closed).toBe(true);
+      const outcome = 'reason' in opened ? opened.reason : await opened.ping().catch((reason: unknown) => reason);
+      expect(outcome).toMatchObject({ message: 'Invalid SUBACK', code: 0x81 });
+      expect(broker.packets[1]).toMatchObject({ cmd: 'disconnect', reasonCode: 0x81 });
+      expect(broker.packets).toHaveLength(2);
+    } finally {
+      await broker.close();
+    }
+  },
+);
+
+test('preserves the CONNACK refusal ahead of a malformed acknowledgment', async () => {
+  const broker = await peer(0, false, undefined, undefined, [[0x20, 3, 0, 0x87, 0, ...malformedSuback]]);
+  try {
+    const opening = createBrowserClient({ url: broker.url, clientId: 'refusal-order' }).connect();
+    await expect(opening).rejects.toMatchObject({ message: 'MQTT acknowledgment refused', code: 0x87 });
+    await expect.poll(() => broker.closed).toBe(true);
+    expect(broker.packets).toHaveLength(1);
+  } finally {
+    await broker.close();
+  }
+});
+
+test.each([
+  { suffix: malformedSuback, description: 'classified ACK', received: 1, message: 'Invalid SUBACK' },
+  {
+    suffix: [0xff, 0],
+    description: 'generic error',
+    received: 0,
+    message: 'Unsupported MQTT packet or invalid fixed-header flags',
+  },
+])(
+  'handles the PUBLISH prefix before a $description',
+  async ({ suffix, received, message }: Readonly<{ suffix: readonly number[]; received: number; message: string }>) => {
+    const broker = await peer(0, true);
+    try {
+      const onMessage = vi.fn<() => void>();
+      const client = await createBrowserClient({ url: broker.url, clientId: 'message-order', onMessage }).connect();
+      const ping = client.ping();
+      broker.sendWire([0x30, 5, 0, 1, 97, 0, 42, ...suffix]);
+      await expect(ping).rejects.toThrow(message);
+      await expect.poll(() => broker.closed).toBe(true);
+      expect(onMessage).toHaveBeenCalledTimes(received);
     } finally {
       await broker.close();
     }

@@ -243,3 +243,18 @@ test.each([0x81, 0x82])('encodes and decodes subscription error DISCONNECT reaso
   expect(encodePacket({ cmd: 'disconnect', reasonCode })).toEqual(bytes);
   expect(new PacketDecoder().push(bytes)).toEqual([{ cmd: 'disconnect', reasonCode }]);
 });
+
+test('reports the decoded prefix and keeps the first failure across later input', () => {
+  const decoder = new PacketDecoder();
+  const batch = decoder.pushBatch(Uint8Array.of(0xd0, 0, 0x90, 3, 0, 1, 0, 0xd0, 0));
+  if (Array.isArray(batch)) throw new Error('Expected failed packet batch');
+  expect(batch.packets).toEqual([{ cmd: 'pingresp' }]);
+  expect(batch.error).toMatchObject({ message: 'Invalid SUBACK', code: 0x81 });
+  expect(decoder.pushBatch(Uint8Array.of(0xd0, 0))).toEqual({ packets: [], error: batch.error });
+  expect(captureFailure(() => decoder.push(Uint8Array.of(0xd0, 0)))).toBe(batch.error);
+  expect(
+    captureFailure(() => {
+      decoder.finish();
+    }),
+  ).toBe(batch.error);
+});
