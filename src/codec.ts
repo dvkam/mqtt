@@ -1,3 +1,5 @@
+import { isPubackReason } from './pubackReason.js';
+
 export type UserProperty = readonly [key: string, value: string];
 interface Properties {
   userProperties?: readonly UserProperty[];
@@ -34,7 +36,6 @@ const connackCodes = new Set([
   0, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 140, 144, 149, 151, 153, 154, 155, 156, 157, 159,
 ]);
 const subackCodes = new Set([0, 1, 2, 128, 131, 135, 143, 145, 151, 158, 161, 162]);
-const pubackCodes = new Set([0, 16, 128, 131, 135, 144, 145, 151, 153]);
 const packetFields: Partial<Record<string, readonly string[]>> = {
   connect: ['cmd', 'clientId', 'cleanStart', 'keepAlive', 'username', 'password', 'userProperties'],
   connack: ['cmd', 'sessionPresent', 'reasonCode', 'receiveMaximum', 'maximumQoS', 'topicAliasMaximum', 'userProperties'],
@@ -164,7 +165,7 @@ export function encodePacket(packet: Readonly<WirePacket>): Uint8Array<ArrayBuff
     }
     case 'puback': {
       const identifier = uint16(integer(packet.messageId, 65_535, 1));
-      if (!pubackCodes.has(packet.reasonCode)) throw new Error('Invalid PUBACK reason code');
+      if (!isPubackReason(packet.reasonCode)) throw new Error('Invalid PUBACK reason code');
       header = 0x40;
       const encodedProperties = properties(packet);
       if (encodedProperties.length > 1) body = join([identifier, Uint8Array.of(packet.reasonCode), encodedProperties]);
@@ -340,7 +341,7 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
     case 0x40: {
       const messageId = integer(reader.uint16(), 65_535, 1);
       const reasonCode = reader.remaining === 0 ? 0 : reader.byte();
-      if (!pubackCodes.has(reasonCode)) throw new Error('Invalid PUBACK reason code');
+      if (!isPubackReason(reasonCode)) throw new Error('Invalid PUBACK reason code');
       const props = reader.remaining === 0 ? {} : readProperties(reader, 'puback');
       packet = { cmd: 'puback', messageId, reasonCode, ...props };
       break;

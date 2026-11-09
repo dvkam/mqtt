@@ -83,19 +83,21 @@ See the [browser client profile](docs/browser-client.md) and [byte transport con
 
 The [deadline guide](docs/deadlines.md) defines timeout validation, captured settings and the limits of relative operation budgets.
 
-The [outgoing admission guide](docs/outgoing-admission.md) defines publication count and wire-byte limits. Defaults allow 32 unsettled publication sends within 1 MiB. Capacity rejection occurs before sending and leaves the session usable.
+The [outgoing admission guide](docs/outgoing-admission.md) defines publication count and wire-byte limits. Defaults allow 32 pending publications within 1 MiB. Capacity rejection occurs before sending and leaves the session usable.
+
+Pass `{ qos: 1 }` to publish with broker acknowledgment. The [QoS 1 guide](docs/qos1-publish.md) explains quota, shared identifiers and cancellation.
 
 The [concurrent subscription guide](docs/concurrent-subscriptions.md) defines independent packet-ID correlation and count/encoded-byte admission. Defaults permit 32 pending subscriptions within 1 MiB. Subscriptions can complete in a different order while ping remains independent.
 
 The [native write reserve](docs/native-write-reserve.md) checks observed queued bytes before each application send and preserves control admission room. TCP and WS/WSS default to a 1 MiB total with a 128 KiB control reserve. These settings preserve wire order and do not give control packets priority over queued data.
 
 - The supported clients open MQTT 5 clean sessions with Keep Alive set to zero. They support ordinary QoS 0 subscriptions, text publishing, received binary payloads, explicit ping and graceful disconnect.
-- Await subscribe and ping operations before starting another acknowledgment exchange. A failed ping retires the connection because a later PINGRESP cannot identify which request it answers.
+- Only one ping can await PINGRESP. A failed ping retires the connection because a later PINGRESP cannot identify which request it answers.
 - Any operation timeout retires the session and starts forced cleanup. Later work cannot send. Already-admitted QoS 0 bytes may still reach the broker; a timeout does not prove non-delivery. The deadline guide explains custom transport cleanup requirements.
 - Successful QoS 0 publication reports local send completion or admission according to the adapter. It does not prove broker receipt or durable storage.
 - Publishing rejects empty topic names, wildcards, null characters, unpaired surrogates and names exceeding 65,535 UTF-8 bytes before sending. Rejection leaves an active session usable. Topic aliases are not supported by this publishing API.
 - The browser transport has a write budget and the browser codec has a separate packet allocation limit. These are not a bound on every retained application object or an offline message queue.
-- QoS 1/2, reconnect, durable sessions, automatic keepalive scheduling, full authentication and the complete MQTT 5 property set remain planned work. The [codec profile](docs/codec.md) lists accepted packets and properties; it can reject valid MQTT 5 features outside that profile.
+- Inbound QoS 1, QoS 2, reconnect, durable sessions, automatic keepalive scheduling, full authentication and the complete MQTT 5 property set remain planned work. The [codec profile](docs/codec.md) lists accepted packets and properties.
 - The legacy `connect()` export remains for baseline comparisons. Its [retained option types](docs/legacy-options.md) do not imply implementation of all historical MQTT.js features.
 
 ## Entry points

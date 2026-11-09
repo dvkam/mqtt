@@ -1,9 +1,12 @@
 import type { IConnectPacket, IPublishPacket, Packet } from 'mqtt-packet';
-import type { ClientSession } from './session.js';
+import type { ClientSession, PublishOptions } from './session.js';
 import { validateTopic } from './util/validateTopic.js';
 import { resolveTimeout } from './timeout.js';
 import { PublicationAdmission, type PublicationLimits } from './publicationAdmission.js';
 import { SubscriptionExchanges, type SubscriptionLimits } from './subscriptionExchanges.js';
+import { PacketIdentifiers } from './packetIdentifiers.js';
+import { OutboundQosOne } from './outboundQosOne.js';
+import { isPubackReason } from './pubackReason.js';
 
 type PublishMessage = Omit<IPublishPacket, 'payload'> & { payload: unknown };
 type IncomingPacket<Message extends PublishMessage> = Exclude<Packet, IPublishPacket> | Message;
@@ -39,6 +42,8 @@ class PortableClient<Message extends PublishMessage> {
   private forcedClose?: Promise<void>;
   private readonly unlisten: (() => void) | undefined;
   private readonly subscriptions: SubscriptionExchanges;
+  private readonly identifiers = new PacketIdentifiers();
+  private outbound?: OutboundQosOne;
   private active = false;
   private readonly timeoutMs: number;
   private readonly publications: PublicationAdmission;
@@ -47,7 +52,7 @@ class PortableClient<Message extends PublishMessage> {
   constructor(transport: PacketTransport<Message>, options: PortableOptions<Message>) {
     this.timeoutMs = resolveTimeout(options.timeoutMs);
     this.publications = new PublicationAdmission(options);
-    this.subscriptions = new SubscriptionExchanges(options);
+    this.subscriptions = new SubscriptionExchanges(options, this.identifiers);
     this.transport = transport;
     this.options = options;
     this.unlisten = transport.listen(
@@ -59,6 +64,18 @@ class PortableClient<Message extends PublishMessage> {
           return;
         }
         if (packet.cmd === 'suback') this.subscriptions.accept(packet.messageId, packet.granted);
+        if (packet.cmd === 'puback') {
+          const { messageId, reasonCode: code = 0 } = packet;
+          if (messageId === undefined || !Number.isInteger(messageId) || messageId < 1 || messageId > 65_535) {
+            void this.abort(new Error('Invalid PUBACK packet identifier')).catch(() => {});
+            return;
+          }
+          if (!isPubackReason(code)) {
+            void this.abort(new Error('Invalid PUBACK reason code')).catch(() => {});
+            return;
+          }
+          this.outbound?.accept(messageId, code);
+        }
         if (packet.cmd === 'connack' || packet.cmd === 'pingresp') this.pendingAck?.(packet);
         if (this.active && !this.closing && packet.cmd === 'publish' && packet.qos === 0) options.onMessage?.(packet);
       },
@@ -71,7 +88,7 @@ class PortableClient<Message extends PublishMessage> {
   }
 
   async open(): Promise<void> {
-    await this.exchange(
+    const reply = await this.exchange(
       {
         cmd: 'connect',
         protocolVersion: 5,
@@ -86,6 +103,14 @@ class PortableClient<Message extends PublishMessage> {
       (ack) => ack.cmd === 'connack',
     );
     if (this.failure) throw this.failure;
+    if (reply.cmd !== 'connack') throw new Error('Expected CONNACK');
+    const { receiveMaximum = 65_535, maximumQoS } = reply.properties ?? {};
+    if (!Number.isInteger(receiveMaximum) || receiveMaximum < 1 || receiveMaximum > 65_535)
+      throw new Error('Invalid broker Receive Maximum');
+    if (maximumQoS !== undefined && maximumQoS !== 0 && maximumQoS !== 1) throw new Error('Invalid broker Maximum QoS');
+    if (maximumQoS !== 0) {
+      this.outbound = new OutboundQosOne(receiveMaximum, this.identifiers, this.transmitQosOne.bind(this));
+    }
     this.active = true;
   }
 
@@ -96,14 +121,10 @@ class PortableClient<Message extends PublishMessage> {
     const reservation = this.subscriptions.reserve(topic);
     await this.run(async () => {
       try {
-        const sent = (async () => {
-          try {
-            await this.transport.send({ cmd: 'subscribe', messageId: reservation.messageId, subscriptions: [{ topic, qos: 0 }] });
-          } catch (reason) {
-            await this.abort(reason instanceof Error ? reason : new Error('MQTT subscription send failed')).catch(() => {});
-            throw reason;
-          }
-        })();
+        const sent = this.sendIdentified(
+          { cmd: 'subscribe', messageId: reservation.messageId, subscriptions: [{ topic, qos: 0 }] },
+          'MQTT subscription send failed',
+        );
         const [code] = await Promise.all([reservation.acknowledged, sent]);
         if (code !== 0) throw Object.assign(new Error('MQTT acknowledgment refused'), { code });
       } finally {
@@ -112,10 +133,20 @@ class PortableClient<Message extends PublishMessage> {
     });
   }
 
-  async publish(topic: string, payload: string): Promise<void> {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Preserve the caller's native AbortSignal identity and listener contract.
+  async publish(topic: string, payload: string, options?: Readonly<PublishOptions>): Promise<void> {
     if (this.closing) throw new Error('Client is closing');
     if (this.failure) throw this.failure;
     if (topic.includes('+') || topic.includes('#') || !validateTopic(topic)) throw new Error('Invalid MQTT topic name');
+    const { qos = 0, signal } = options ?? {};
+    if (![0, 1].includes(qos)) throw new RangeError('Unsupported MQTT publish QoS');
+    if (qos === 1) {
+      signal?.throwIfAborted();
+      if (!this.outbound) throw new Error('Broker does not support QoS 1');
+      await this.outbound.enqueue(topic, payload, this.publications.reserve(topic, payload, qos), signal);
+      return;
+    }
+    if (signal !== undefined) throw new Error('Publish cancellation requires QoS 1');
     const release = this.publications.reserve(topic, payload);
     await this.run(async () => {
       try {
@@ -126,6 +157,38 @@ class PortableClient<Message extends PublishMessage> {
     });
   }
 
+  private async transmitQosOne(
+    topic: string,
+    payload: string,
+    messageId: number,
+    acknowledgment: Readonly<Promise<number>>,
+  ): Promise<number> {
+    let sent: Promise<void> | undefined;
+    try {
+      return await this.run(async () => {
+        sent = this.sendIdentified(
+          { cmd: 'publish', topic, payload, qos: 1, messageId, dup: false, retain: false },
+          'MQTT publication send failed',
+        );
+        const [code] = await Promise.all([acknowledgment, sent]);
+        return code;
+      });
+    } finally {
+      // Terminal failure can settle the caller before the native write releases its bytes.
+      await sent?.catch(() => {});
+    }
+  }
+
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The transport accepts the original mutable packet shape.
+  private async sendIdentified(packet: Packet, fallback: string): Promise<void> {
+    try {
+      await this.transport.send(packet);
+    } catch (reason) {
+      void this.abort(reason instanceof Error ? reason : new Error(fallback)).catch(() => {});
+      throw reason;
+    }
+  }
+
   async ping(): Promise<void> {
     if (this.closing) throw new Error('Client is closing');
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
@@ -134,8 +197,11 @@ class PortableClient<Message extends PublishMessage> {
 
   // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
   disconnect(): Promise<void> {
-    // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
-    this.closing ??= Promise.resolve().then(() => this.end());
+    if (this.closing === undefined) {
+      // oxlint-disable-next-line typescript/promise-function-async -- Cache the promise before stopping queued work.
+      this.closing = Promise.resolve().then(() => this.end());
+      this.outbound?.stop(new Error('Client is closing'));
+    }
     return this.closing;
   }
 
@@ -161,7 +227,7 @@ class PortableClient<Message extends PublishMessage> {
   }
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
-  private async exchange(packet: Packet, matches: (ack: Acknowledgment) => boolean): Promise<void> {
+  private async exchange(packet: Packet, matches: (ack: Acknowledgment) => boolean): Promise<Acknowledgment> {
     if (this.failure) throw this.failure;
     if (this.pendingAck) throw new Error('Another acknowledgment is pending');
     const ack = new Promise<Acknowledgment>((resolve) => {
@@ -171,7 +237,15 @@ class PortableClient<Message extends PublishMessage> {
           if (reply.cmd === 'connack' && reply.reasonCode !== 0) {
             this.fail(Object.assign(new Error('MQTT acknowledgment refused'), { code: reply.reasonCode }));
           }
-          resolve(reply);
+          if (reply.cmd === 'connack') {
+            const { receiveMaximum, maximumQoS } = reply.properties ?? {};
+            resolve({
+              cmd: 'connack',
+              reasonCode: reply.reasonCode,
+              sessionPresent: reply.sessionPresent,
+              properties: { receiveMaximum, maximumQoS },
+            });
+          } else resolve(reply);
         }
       };
     });
@@ -180,9 +254,9 @@ class PortableClient<Message extends PublishMessage> {
         const [received] = await Promise.all([ack, this.transport.send(packet)]);
         return received;
       });
-      if (reply.cmd === 'pingresp') return;
-      const code = reply.reasonCode;
-      if (code !== 0) throw Object.assign(new Error('MQTT acknowledgment refused'), { code });
+      if (reply.cmd === 'connack' && reply.reasonCode !== 0)
+        throw Object.assign(new Error('MQTT acknowledgment refused'), { code: reply.reasonCode });
+      return reply;
     } catch (error) {
       // Retire before freeing the acknowledgment slot. PINGRESP has no request ID.
       // oxlint-disable-next-line typescript/no-unnecessary-condition, typescript/strict-boolean-expressions -- Transport callbacks can record failure while this exchange awaits I/O.
@@ -221,6 +295,7 @@ class PortableClient<Message extends PublishMessage> {
     if (this.failure) return;
     this.failure = error;
     this.subscriptions.retire(error);
+    this.outbound?.retire(error);
     for (const reject of this.pendingOperations) reject(error);
     this.unlisten?.();
   }
@@ -242,8 +317,9 @@ export async function connectPortable<Message extends PublishMessage = IPublishP
   return {
     // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
     subscribe: (topic: string) => client.subscribe(topic),
-    // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
-    publish: (topic: string, payload: string) => client.publish(topic, payload),
+    // oxlint-disable-next-line typescript/promise-function-async, typescript/prefer-readonly-parameter-types -- Forward the existing promise and native cancellation signal.
+    publish: (topic: string, payload: string, publishOptions?: Readonly<PublishOptions>) =>
+      client.publish(topic, payload, publishOptions),
     // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
     ping: () => client.ping(),
     // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.

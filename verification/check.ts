@@ -107,6 +107,17 @@ const models: readonly VerificationCase[] = [
   ['SubscriptionOwnership', 'SubscriptionOwnershipKind', 'NoWrongKind'],
   ['SubscriptionOwnership', 'SubscriptionOwnershipStale', 'OwnedUntilComplete'],
   ['SubscriptionOwnership', 'SubscriptionOwnershipRetired', 'NoAdmissionAfterRetirement'],
+  ['QosOneOutbound', 'QosOneOutbound'],
+  ['QosOneOutbound', 'QosOneOutboundQuota', 'BoundedQuota'],
+  ['QosOneOutbound', 'QosOneOutboundItems', 'BoundedItems'],
+  ['QosOneOutbound', 'QosOneOutboundBytes', 'BoundedBytes'],
+  ['QosOneOutbound', 'QosOneOutboundId', 'SharedIds'],
+  ['QosOneOutbound', 'QosOneOutboundAck', 'NoWrongAck'],
+  ['QosOneOutbound', 'QosOneOutboundEarly', 'HeldUntilSettled'],
+  ['QosOneOutbound', 'QosOneOutboundActiveAbort', 'HeldUntilSettled'],
+  ['QosOneOutbound', 'QosOneOutboundQueuedAbort', 'CanceledQueueNeverDispatches'],
+  ['QosOneOutbound', 'QosOneOutboundStop', 'NoDispatchAfterStop'],
+  ['QosOneOutbound', 'QosOneOutboundTerminal', 'HeldUntilSettled'],
 ];
 
 for (const [model, configuration, expectedInvariant] of models) {

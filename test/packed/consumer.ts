@@ -1,6 +1,6 @@
 import { connect, createTcpClient, createWebSocketClient } from 'mqtt';
 export type { ConnectOptions, LegacyAckCompletion, LegacyAckHandler, PacketIdentifier, PacketLookup, PacketStore } from 'mqtt';
-export type { ClientFactory, ClientSession, NodeMessage, TcpClientOptions, WebSocketClientOptions } from 'mqtt';
+export type { ClientFactory, ClientSession, NodeMessage, PublishOptions, TcpClientOptions, WebSocketClientOptions } from 'mqtt';
 export type { BrowserClientOptions, ClientFactory as BrowserFactory, ClientSession as BrowserClientSession } from 'mqtt/browser';
 import { connectPortable, type PacketTransport } from 'mqtt/portable';
 
@@ -41,6 +41,7 @@ export async function checkTcpDeclarations(signal: AbortSignal) {
     },
   });
   const connected = await tcp.connect();
+  await connected.publish('consumer/qos1', 'hello', { qos: 1, signal });
   await connected.ping();
   await connected.disconnect();
 }

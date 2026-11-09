@@ -139,14 +139,20 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
             topics: packet.subscriptions.map(({ topic }: Readonly<{ topic: string }>) => topic),
           };
           break;
-        case 'publish':
-          encoded = {
-            cmd: 'publish',
+        case 'publish': {
+          if (packet.qos === 2) throw new Error('Unsupported browser PUBLISH QoS');
+          const fields = {
+            cmd: 'publish' as const,
             topic: packet.topic,
             payload: typeof packet.payload === 'string' ? new TextEncoder().encode(packet.payload) : packet.payload,
             retain: packet.retain,
           };
+          if (packet.qos === 1) {
+            if (packet.messageId === undefined) throw new Error('QoS 1 PUBLISH requires a packet identifier');
+            encoded = { ...fields, qos: 1, messageId: packet.messageId, dup: packet.dup };
+          } else encoded = fields;
           break;
+        }
         case 'pingreq':
         case 'disconnect':
           encoded = { cmd: packet.cmd };
