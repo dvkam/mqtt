@@ -1,7 +1,7 @@
 {
   "name": "mqtt",
   "version": "0.1.0",
-  "description": "MQTT 5 client preview for Node and browsers",
+  "description": "MQTT client preview for Node and browsers",
   "keywords": [
     "mqtt",
     "publish",

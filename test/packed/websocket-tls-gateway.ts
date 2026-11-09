@@ -3,15 +3,15 @@ import { readFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { createServer } from 'node:tls';
 
-const [cert, key] = process.argv.slice(2);
-assert.ok(cert !== undefined && key !== undefined, 'Expected certificate and key paths');
+const [certificatePath, keyPath] = process.argv.slice(2);
+assert.ok(certificatePath !== undefined && keyPath !== undefined, 'Expected certificate and key paths');
 const server = createServer(
   {
-    cert: readFileSync(cert),
-    key: readFileSync(key),
+    cert: readFileSync(certificatePath),
+    key: readFileSync(keyPath),
     ALPNProtocols: ['http/1.1'],
   },
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Piping and destroying the real TLSSocket exercise the gateway's duplex shutdown behavior.
   (client) => {
     const broker = createConnection(18884, '127.0.0.1');
     client.on('error', () => {
