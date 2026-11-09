@@ -52,8 +52,7 @@ test.each([4, 5] as const)('writes one CONNECT, a QoS 0 publish, and DISCONNECT 
     await client.disconnect();
     await finished;
 
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    expect(packets.map(({ cmd }) => cmd)).toEqual(['connect', 'publish', 'disconnect']);
+    expect(packets.map(({ cmd }: Readonly<{ cmd: string }>) => cmd)).toEqual(['connect', 'publish', 'disconnect']);
     expect(packets[1]).toMatchObject({ qos: 0, topic: 'baseline/topic', payload: Buffer.from('hello') });
     expect(packets[1]).not.toHaveProperty('messageId');
   } finally {

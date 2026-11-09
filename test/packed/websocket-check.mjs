@@ -84,11 +84,9 @@ if (process.argv.includes('--bundle-only')) {
       throw new Error('Missing packed export codecRoundTrip');
     if (!('measureQueue' in moduleValue) || typeof moduleValue.measureQueue !== 'function')
       throw new Error('Missing packed export measureQueue');
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The fixture validates each export before invoking the installed module with known test inputs.
-    const packedModule = /** @type {typeof import('./websocket-browser.mjs')} */ (moduleValue);
-    const { exchange, exchangeTransport, codecRoundTrip, measureQueue } = packedModule;
-    assert.deepEqual(codecRoundTrip({ cmd: 'pingreq' }), [{ cmd: 'pingreq' }]);
-    assert.deepEqual(await exchange(url), expected);
+    const { exchange, exchangeTransport, codecRoundTrip, measureQueue } = moduleValue;
+    assert.deepEqual(Reflect.apply(codecRoundTrip, undefined, [{ cmd: 'pingreq' }]), [{ cmd: 'pingreq' }]);
+    assert.deepEqual(await Reflect.apply(exchange, undefined, [url]), expected);
     browser = await chromium.launch();
     const page = await browser.newPage();
     await page.goto('http://' + endpoint);
@@ -96,7 +94,7 @@ if (process.argv.includes('--bundle-only')) {
       { cmd: 'pingreq' },
     ]);
     assert.deepEqual(await page.evaluate(async (url) => (await import('/probe.js')).exchange(url), url), expected);
-    assert.deepEqual(await exchangeTransport(url), [0xd0, 0]);
+    assert.deepEqual(await Reflect.apply(exchangeTransport, undefined, [url]), [0xd0, 0]);
     assert.deepEqual(await page.evaluate(async (url) => (await import('/probe.js')).exchangeTransport(url), url), [0xd0, 0]);
     assert.deepEqual(frames, [
       { binary: true, bytes: [0xc0, 0] },
@@ -111,12 +109,28 @@ if (process.argv.includes('--bundle-only')) {
       await once(socket, 'open');
       return socket;
     };
+    /** @type {unknown} */
+    const wsPressure = await Reflect.apply(measureQueue, undefined, [stalled, openWs]);
+    /** @type {unknown} */
+    const nodePressure = await Reflect.apply(measureQueue, undefined, [stalled]);
     const pressure = {
-      ws: await measureQueue(stalled, openWs),
-      node: await measureQueue(stalled),
+      ws: wsPressure,
+      node: nodePressure,
       chromium: await page.evaluate(async (url) => (await import('/probe.js')).measureQueue(url), stalled),
     };
     for (const observation of Object.values(pressure)) {
+      assert.ok(
+        typeof observation === 'object' &&
+          observation !== null &&
+          'nextWouldExceed' in observation &&
+          'peak' in observation &&
+          typeof observation.peak === 'number' &&
+          'budget' in observation &&
+          typeof observation.budget === 'number' &&
+          'closeMs' in observation &&
+          typeof observation.closeMs === 'number',
+        'Expected packed WebSocket pressure results',
+      );
       assert.equal(observation.nextWouldExceed, true);
       assert.ok(observation.peak <= observation.budget);
       assert.ok(observation.closeMs < 3000);

@@ -13,10 +13,8 @@ test('sends binary MQTT bytes and delivers binary replies over native WebSocket'
   await once(server, 'listening');
   const address = server.address();
   if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  const onBytes = vi.fn<(bytes: Uint8Array) => void>();
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  const onClose = vi.fn<(reason: Error) => void>();
+  const onBytes = vi.fn<(bytes: Readonly<{ byteLength: number }>) => void>();
+  const onClose = vi.fn<(reason: Readonly<Error>) => void>();
   try {
     const [transport, acceptedArguments] = await Promise.all([
       openBrowserTransport('ws://127.0.0.1:' + address.port, { onBytes, onClose }),
@@ -188,8 +186,7 @@ test('a throwing close observer rejects the close promise after native completio
   vi.stubGlobal('WebSocket', Socket);
   const reason = new Error('observer failed');
   const transport = await openBrowserTransport('ws://localhost', {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onBytes: vi.fn<(bytes: Uint8Array) => void>(),
+    onBytes: vi.fn<(bytes: Readonly<{ byteLength: number }>) => void>(),
     onClose() {
       throw reason;
     },
@@ -211,8 +208,7 @@ test('remote close still settles when its observer throws', async () => {
   vi.stubGlobal('WebSocket', Socket);
   const reason = new Error('remote observer failed');
   const transport = await openBrowserTransport('ws://localhost', {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onBytes: vi.fn<(bytes: Uint8Array) => void>(),
+    onBytes: vi.fn<(bytes: Readonly<{ byteLength: number }>) => void>(),
     onClose() {
       throw reason;
     },
@@ -238,10 +234,8 @@ test('rejects cancellation between native open and transport handoff', async () 
   await expect(
     openBrowserTransport('ws://localhost', {
       signal: controller.signal,
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-      onBytes: vi.fn<(bytes: Uint8Array) => void>(),
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-      onClose: vi.fn<(reason: Error) => void>(),
+      onBytes: vi.fn<(bytes: Readonly<{ byteLength: number }>) => void>(),
+      onClose: vi.fn<(reason: Readonly<Error>) => void>(),
     }),
   ).rejects.toBe(reason);
   Socket.instance.dispatchEvent(new Event('close'));
@@ -250,10 +244,8 @@ test('rejects cancellation between native open and transport handoff', async () 
 test('rejects a write above the remaining byte budget before native send', async () => {
   vi.stubGlobal('WebSocket', Socket);
   const transport = await openBrowserTransport('ws://localhost', {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onBytes: vi.fn<(bytes: Uint8Array) => void>(),
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onClose: vi.fn<(reason: Error) => void>(),
+    onBytes: vi.fn<(bytes: Readonly<{ byteLength: number }>) => void>(),
+    onClose: vi.fn<(reason: Readonly<Error>) => void>(),
     maxBufferedBytes: 4,
   });
   Socket.instance.bufferedAmount = 3;
@@ -267,10 +259,8 @@ test('rejects a write above the remaining byte budget before native send', async
 test('abort retires delivery, removes listeners, and rejects later writes', async () => {
   vi.stubGlobal('WebSocket', Socket);
   const controller = new AbortController();
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  const onBytes = vi.fn<(bytes: Uint8Array) => void>();
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  const onClose = vi.fn<(reason: Error) => void>();
+  const onBytes = vi.fn<(bytes: Readonly<{ byteLength: number }>) => void>();
+  const onClose = vi.fn<(reason: Readonly<Error>) => void>();
   const transport = await openBrowserTransport('ws://localhost', { signal: controller.signal, onBytes, onClose });
   const reason = new Error('cancelled session');
   const lateMessage = getEventListeners(Socket.instance, 'message')[0];
@@ -290,10 +280,8 @@ test('abort retires delivery, removes listeners, and rejects later writes', asyn
 
 test('rejects text frames and delivers no bytes', async () => {
   vi.stubGlobal('WebSocket', Socket);
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  const onBytes = vi.fn<(bytes: Uint8Array) => void>();
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  const onClose = vi.fn<(reason: Error) => void>();
+  const onBytes = vi.fn<(bytes: Readonly<{ byteLength: number }>) => void>();
+  const onClose = vi.fn<(reason: Readonly<Error>) => void>();
   await openBrowserTransport('ws://localhost', { onBytes, onClose });
   Socket.instance.dispatchEvent(new MessageEvent('message', { data: 'not MQTT binary' }));
   expect(onBytes).not.toHaveBeenCalled();
@@ -304,11 +292,9 @@ test('rejects text frames and delivers no bytes', async () => {
 
 test('close is idempotent and reports a stalled native close at its deadline', async () => {
   vi.stubGlobal('WebSocket', Socket);
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  const onClose = vi.fn<(reason: Error) => void>();
+  const onClose = vi.fn<(reason: Readonly<Error>) => void>();
   const transport = await openBrowserTransport('ws://localhost', {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onBytes: vi.fn<(bytes: Uint8Array) => void>(),
+    onBytes: vi.fn<(bytes: Readonly<{ byteLength: number }>) => void>(),
     onClose,
     timeoutMs: 50,
   });

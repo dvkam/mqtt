@@ -220,8 +220,7 @@ test.each([0, 1, 2, 3, 4, 5, 6, 7])('fences a retry %i microtasks after the ping
       schedule();
     }).catch((error: unknown) => error);
     await Promise.all([first, retry]);
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    expect(packets.map(({ cmd }) => cmd)).toEqual(['connect', 'pingreq']);
+    expect(packets.map(({ cmd }: Readonly<{ cmd: string }>) => cmd)).toEqual(['connect', 'pingreq']);
   } finally {
     vi.useRealTimers();
   }
@@ -238,8 +237,7 @@ test('retires a ping whose transport write rejects after admitting bytes', async
   };
   await expect(client.ping()).rejects.toBe(writeError);
   await expect(client.ping()).rejects.toBe(writeError);
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  expect(packets.map(({ cmd }) => cmd)).toEqual(['connect', 'pingreq']);
+  expect(packets.map(({ cmd }: Readonly<{ cmd: string }>) => cmd)).toEqual(['connect', 'pingreq']);
 });
 
 test('ignores a queued application frame delivered after transport failure', async () => {

@@ -25,3 +25,15 @@ Run `node test/bench/codec.ts` after building. The migration check compared the 
 | after | mqtt-packet encode | 72.177 | 23870848 | 2730000 |
 | after | prototype decode | 90.943 | 25548848 | 2560000 |
 | after | mqtt-packet decode | 203.001 | 51291112 | 2560000 |
+
+## Packed WebSocket fixture check
+
+The installed tarball passed the stalled-peer check in WSL2 on Node 26.13.0 and Chromium 158.0.8127.18. Each adapter used a 131,072-byte send budget. The next send would have exceeded the limit in each case.
+
+| Adapter | Sends admitted | Peak queued bytes | Close ms |
+| --- | ---: | ---: | ---: |
+| ws | 39 | 65550 | 498.410 |
+| Node WebSocket | 2 | 131072 | 498.642 |
+| Chromium WebSocket | 2 | 131072 | 500.500 |
+
+The Vite browser fixture measured 42,294 bytes and 10,778 bytes with gzip. These are smoke-check observations from one run. Native buffering and event scheduling affect the send counts and close times.
