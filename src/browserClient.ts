@@ -66,18 +66,14 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
     onBytes(chunk) {
       if (failure) return;
-      let packets: WirePacket[];
-      try {
-        packets = decoder.push(chunk);
-      } catch (error) {
-        if (!(error instanceof ProtocolInputError) || !protocolError) throw error;
-        failure = error;
-        protocolError(error);
-        return;
-      }
+      const batch = decoder.pushBatch(chunk);
+      const rejected = !Array.isArray(batch);
+      const error = rejected ? batch.error : undefined;
+      if (error && (!(error instanceof ProtocolInputError) || !protocolError)) throw error;
+      const packets = rejected ? batch.packets : batch;
       const listener = deliver;
       for (const packet of packets) {
-        if (deliver !== listener) break;
+        if (deliver !== listener) return;
         switch (packet.cmd) {
           case 'connack': {
             const { receiveMaximum, maximumQoS } = packet;
@@ -137,6 +133,9 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
             throw new Error('Unexpected MQTT packet from broker: ' + packet.cmd);
         }
       }
+      if (deliver !== listener || !error) return;
+      failure = error;
+      protocolError?.(error);
     },
     onClose(reason: Readonly<Error>, kind) {
       let terminalReason = reason;

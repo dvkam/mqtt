@@ -41,6 +41,8 @@ The encoder uses the compact two-byte normal DISCONNECT. mqtt-packet 9.0.2 regen
 
 `push` accepts fragmented or coalesced frames and returns complete packets. It copies incoming bytes into an owned frame. Returned binary fields keep that frame alive and do not alias the caller's input.
 
+On failure, `push` throws. Use `pushBatch` when a transport needs the complete packets before a malformed frame in the same chunk. It returns the packet array on success, or `{ packets, error }` with the valid prefix and the stored error. The decoder stops at the first failure. Later batches return the same error with an empty prefix. The browser client uses the prefix for classified subscription acknowledgment errors. It dispatches the earlier packets first and reports the error only if the session still owns input.
+
 The decoder validates Remaining Length and the per-packet limit before allocating a frame. Its default limit is 1 MiB, including the fixed header. Any decoding error permanently fails that decoder. Start a new decoder for a new connection.
 
 The limit covers the frame byte allocation. It excludes decoded strings, property tuples, retained output, the returned packet array and transport buffers. A single call can return many packets. On connection closure, the session must reject any unfinished exchange.

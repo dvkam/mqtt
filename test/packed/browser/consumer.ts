@@ -1,5 +1,5 @@
 import { createBrowserClient, openBrowserTransport } from 'mqtt/browser';
-import { PacketDecoder } from 'mqtt/codec';
+import { PacketDecoder, type WirePacket } from 'mqtt/codec';
 import { openMqttWebSocket, type WebSocketOptions } from 'mqtt/websocket';
 import type {
   BrowserClientOptions,
@@ -80,4 +80,11 @@ export function checkDecoderCompletion() {
 export async function checkNativeWebSocketOptions() {
   const socketOptions: WebSocketOptions = { signal: AbortSignal.timeout(1000), timeoutMs: 500 };
   return openMqttWebSocket('wss://localhost/mqtt', socketOptions);
+}
+
+export function checkDecoderBatch() {
+  const decoder = new PacketDecoder();
+  const batch = decoder.pushBatch(Uint8Array.of(0xd0, 0, 0x90, 3, 0, 1, 0));
+  const packets: WirePacket[] = Array.isArray(batch) ? batch : batch.packets;
+  return { packets, error: Array.isArray(batch) ? undefined : batch.error };
 }

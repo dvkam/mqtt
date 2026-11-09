@@ -445,6 +445,9 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
   return packet;
 }
 
+type PacketBytes = Readonly<Pick<Uint8Array, 'length' | 'subarray'>> & { readonly [index: number]: number };
+type PacketBatch = WirePacket[] | { packets: WirePacket[]; error: Error };
+
 /** Incremental, fail-closed decoder with a per-packet allocation limit. */
 export class PacketDecoder {
   private readonly maxPacketBytes: number;
@@ -458,8 +461,15 @@ export class PacketDecoder {
   }
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
   push(bytes: Readonly<Uint8Array>): WirePacket[] {
-    if (this.failure) throw this.failure;
-    if (this.ended) throw new Error('MQTT decoder has ended');
+    const batch = this.pushBatch(bytes);
+    if (!Array.isArray(batch)) throw batch.error;
+    return batch;
+  }
+
+  /** Retain complete packets before an error so a transport can deliver them in wire order. */
+  pushBatch(bytes: PacketBytes): PacketBatch {
+    if (this.failure) return { packets: [], error: this.failure };
+    if (this.ended) return { packets: [], error: new Error('MQTT decoder has ended') };
     const packets: WirePacket[] = [];
     let index = 0;
     try {
@@ -497,7 +507,7 @@ export class PacketDecoder {
       this.failure = error instanceof Error ? error : new Error('MQTT decode failed');
       this.frame = undefined;
       this.header = [];
-      throw this.failure;
+      return { packets, error: this.failure };
     }
   }
 
