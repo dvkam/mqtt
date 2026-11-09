@@ -369,3 +369,11 @@ ParserAckNotice covers one classified rejection. Accept maps to a successful CON
 The baseline replay passed 23 models and caught 88 counterexamples. The updated replay passes 24 models and catches 92. Four new broken configurations expose an open receive path after retirement, a report before CONNACK, a second notice during graceful disconnect and premature local close.
 
 Five initial wire regressions and one review regression failed before the fixes. Six restored source faults fail assertions for Node reason classification, Node and browser handoff, browser suffix dispatch, a notice before CONNACK and a duplicate notice during graceful disconnect. The restored suite passes 692 tests with strict declarations, type-aware lint, formatting and build. Both independent reviewers used the inherited model and cleared the corrected scope. Generic parser failures and valid browser prefixes discarded by a later decoder failure remain outside this slice.
+
+## Legacy TLS opening error
+
+Source commit a1f37b97b09ce9aa004ca0650033fd6780d345f8 changes the legacy TLS opening listener. LegacyTlsError covers the factory registering first, the native or synthetic error emission reaching the handler, the handler initiating destruction, and the caller observing the original event. The bounded model checks four states. It abstracts one opening error and the first recursive re-emission. Certificate verification, socket scheduling and active-session teardown are outside the model.
+
+The regression failed with a stack overflow before the fix. On restored source the caller receives one Error by identity, sees destruction already initiated and observes close. Two source faults restore re-emission or omit destruction. Both fail their assertions. The restored suite passes 693 tests, strict declarations, lint, build and formatting.
+
+The existing replay passes 24 models and catches 92 named counterexamples. The first invocation of the new TLS model failed to resolve the natural number comparison operator. After importing Naturals, its positive case and two named counterexamples pass the expected checks. No prior bounds or properties changed. Two independent reviewers using the inherited model cleared the scoped fix.
