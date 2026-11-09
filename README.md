@@ -13,7 +13,7 @@ pnpm install --frozen-lockfile
 pnpm build
 pnpm pack --pack-destination ./artifacts
 # In a separate ESM project:
-pnpm add /absolute/path/to/artifacts/mqtt-5.0.0.tgz
+pnpm add /absolute/path/to/artifacts/mqtt-0.1.0.tgz
 ```
 
 ## Node TCP
@@ -122,4 +122,8 @@ The [verification guide](.agents/skills/verify-mqtt-lifecycle/SKILL.md) describe
 
 The [measurement index](docs/measurements.md) links workloads, individual observations, environments and reproduction commands. The [Node framing comparison](docs/node-framing-experiment.md) records why supported TCP and WS/WSS input use compact assembly. The streaming alternative remains test-only.
 
-The [playground](https://github.com/dvkam/mqtt/issues/21), [human and agent API reference](https://github.com/dvkam/mqtt/issues/22), and remaining [documentation, license and conduct work](https://github.com/dvkam/mqtt/issues/48) are tracked separately. Upstream attribution remains in source headers. This preview has not settled its publishing identity.
+The [playground](https://github.com/dvkam/mqtt/issues/21), [human and agent API reference](https://github.com/dvkam/mqtt/issues/22), and remaining [documentation, attribution and conduct work](https://github.com/dvkam/mqtt/issues/48) are tracked separately. This preview has not settled its publishing identity.
+
+## Credits
+
+David Kaminski maintains this fork. It builds on the work of the mqttjs-v5 and MQTT.js contributors and Adam Rudd. The source headers and license retain the original notices. [mqttjs-v5 contributors](https://github.com/mqttjs/mqttjs-v5/graphs/contributors) · [MQTT.js contributors](https://github.com/mqttjs/MQTT.js/graphs/contributors) · [License](LICENSE.md)
