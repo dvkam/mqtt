@@ -137,8 +137,13 @@ test('runs a public browser MQTT session with native codec and binary message pa
     });
     await client.ping();
     await client.disconnect();
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    expect(broker.packets.map(({ cmd }) => cmd)).toEqual(['connect', 'subscribe', 'publish', 'pingreq', 'disconnect']);
+    expect(broker.packets.map(({ cmd }: Readonly<{ cmd: string }>) => cmd)).toEqual([
+      'connect',
+      'subscribe',
+      'publish',
+      'pingreq',
+      'disconnect',
+    ]);
   } finally {
     await broker.close();
   }
@@ -159,8 +164,7 @@ test('rejects refused browser CONNECT and closes the attempt', async () => {
   const broker = await peer(0x87);
   try {
     await expect(createBrowserClient({ url: broker.url, clientId: 'refused' }).connect()).rejects.toMatchObject({ code: 0x87 });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    expect(broker.packets.map(({ cmd }) => cmd)).toEqual(['connect']);
+    expect(broker.packets.map(({ cmd }: Readonly<{ cmd: string }>) => cmd)).toEqual(['connect']);
   } finally {
     await broker.close();
   }

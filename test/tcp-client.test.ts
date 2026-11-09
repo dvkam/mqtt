@@ -74,8 +74,7 @@ test('reasoned broker DISCONNECT rejects ping and closes TCP before fixture clea
 });
 
 test('opens no TCP connection during construction and one when connect is called', async () => {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  const peer = await broker((packet) => (packet.cmd === 'connect' ? connack : undefined));
+  const peer = await broker((packet: Readonly<{ cmd: string }>) => (packet.cmd === 'connect' ? connack : undefined));
   try {
     const client = createTcpClient(peer.options);
     await setTimeout(25);
@@ -133,8 +132,7 @@ test('delivers QoS 0 messages with mutable Buffer payloads', async () => {
 });
 
 test('sends PINGREQ and waits for PINGRESP', async () => {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  const peer = await broker((packet) => (packet.cmd === 'connect' ? connack : undefined));
+  const peer = await broker((packet: Readonly<{ cmd: string }>) => (packet.cmd === 'connect' ? connack : undefined));
   try {
     const client = await createTcpClient(peer.options).connect();
     const request = once(peer.events, 'pingreq');
@@ -212,8 +210,7 @@ test('aborts while waiting for CONNACK and removes the signal listener', async (
 });
 
 test('disconnects once and rejects an outstanding SUBSCRIBE', async () => {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  const peer = await broker((packet) => (packet.cmd === 'connect' ? connack : undefined));
+  const peer = await broker((packet: Readonly<{ cmd: string }>) => (packet.cmd === 'connect' ? connack : undefined));
   try {
     const controller = new AbortController();
     const client = await createTcpClient({ ...peer.options, signal: controller.signal }).connect();
@@ -237,8 +234,7 @@ test('disconnects once and rejects an outstanding SUBSCRIBE', async () => {
 });
 
 test('closes the connection after a ping times out so a late reply cannot satisfy another ping', async () => {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  const peer = await broker((packet) => (packet.cmd === 'connect' ? connack : undefined));
+  const peer = await broker((packet: Readonly<{ cmd: string }>) => (packet.cmd === 'connect' ? connack : undefined));
   try {
     const client = await createTcpClient({ ...peer.options, timeoutMs: 150 }).connect();
     const closed = once(peer.events, 'peer-close');
@@ -252,8 +248,7 @@ test('closes the connection after a ping times out so a late reply cannot satisf
 });
 
 test('closes TCP and rejects pending work when a message callback throws', async () => {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  const peer = await broker((packet) => (packet.cmd === 'connect' ? connack : undefined));
+  const peer = await broker((packet: Readonly<{ cmd: string }>) => (packet.cmd === 'connect' ? connack : undefined));
   try {
     const reason = new Error('observer failed');
     const client = await createTcpClient({

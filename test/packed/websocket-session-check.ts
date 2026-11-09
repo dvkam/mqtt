@@ -17,7 +17,14 @@ const codec = { protocolVersion: 5 };
 const topic = 'ci/native';
 const payload = 'native hello';
 const packets: Packet[] = [
-  { cmd: 'connect', protocolId: 'MQTT', protocolVersion: 5, clean: true, keepalive: 0, clientId: 'native-ci' },
+  {
+    cmd: 'connect',
+    protocolId: 'MQTT',
+    protocolVersion: 5,
+    clean: true,
+    keepalive: 0,
+    clientId: 'native-ci',
+  },
   { cmd: 'subscribe', messageId: 1, subscriptions: [{ topic, qos: 0 }] },
   { cmd: 'publish', topic, payload, qos: 0, dup: false, retain: false },
   { cmd: 'pingreq' },
@@ -26,7 +33,7 @@ const packets: Packet[] = [
 const requests: number[][] = [];
 for (const packet of packets) requests.push(Array.from(generate(packet, codec)));
 const entry = resolve(root, 'websocket-session.mjs');
-let replies: readonly number[][];
+let replies: readonly (readonly number[])[];
 let clientMessage: unknown;
 if (mode === 'node') {
   const moduleValue: unknown = await import(pathToFileURL(entry).href);
@@ -35,11 +42,12 @@ if (mode === 'node') {
     throw new Error('Missing packed export mqttSession');
   if (!('mqttClientSession' in moduleValue) || typeof moduleValue.mqttClientSession !== 'function')
     throw new Error('Missing packed export mqttClientSession');
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The installed module is checked for both callable exports. The fixture exercises their actual results; #53 tracks validating the reply shape before decoding.
-  const packedModule = moduleValue as typeof import('./websocket-session.mjs');
-  const { mqttSession, mqttClientSession } = packedModule;
-  replies = await mqttSession(url, requests);
-  clientMessage = await mqttClientSession(url);
+  const replyValue: unknown = await Reflect.apply(moduleValue.mqttSession, undefined, [url, requests]);
+  if (!Array.isArray(replyValue)) throw new Error('Expected packed session reply frames');
+  const replyFrames: readonly unknown[] = replyValue;
+  if (replyFrames.includes(undefined) || !replyFrames.every(isByteFrame)) throw new Error('Invalid packed session reply frame');
+  replies = replyFrames;
+  clientMessage = await Reflect.apply(moduleValue.mqttClientSession, undefined, [url]);
 } else {
   const result = await build({
     root,
@@ -90,7 +98,10 @@ if (mode === 'node') {
     const result = await page.evaluate(
       async ({ url, requests }: Readonly<{ url: string; requests: readonly (readonly number[])[] }>) => {
         const { mqttSession, mqttClientSession } = await import('/session.js');
-        return { replies: await mqttSession(url, requests), clientMessage: await mqttClientSession(url) };
+        return {
+          replies: await mqttSession(url, requests),
+          clientMessage: await mqttClientSession(url),
+        };
       },
       { url, requests },
     );
@@ -120,3 +131,12 @@ assert.deepEqual(suback.granted, [0]);
 assert.equal(publish.topic, topic);
 assert.equal(publish.payload.toString(), payload);
 console.log(mode + ' MQTT 5 session passed over ' + new URL(url).protocol);
+
+function isByteFrame(value: unknown): value is readonly number[] {
+  if (!Array.isArray(value)) return false;
+  const bytes: readonly unknown[] = value;
+  return (
+    !bytes.includes(undefined) &&
+    bytes.every((byte) => typeof byte === 'number' && Number.isInteger(byte) && byte >= 0 && byte <= 255)
+  );
+}

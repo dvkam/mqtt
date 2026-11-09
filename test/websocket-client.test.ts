@@ -67,8 +67,7 @@ test('rejects a packet above the write budget without sending it and can still d
     const client = await createWebSocketClient({ url: broker.url, clientId: 'budget', maxBufferedBytes: 128 }).connect();
     await expect(client.publish('budget', 'x'.repeat(256))).rejects.toThrow('WebSocket write budget exceeded');
     await client.disconnect();
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    expect(broker.packets.map(({ cmd }) => cmd)).toEqual(['connect', 'disconnect']);
+    expect(broker.packets.map(({ cmd }: Readonly<{ cmd: string }>) => cmd)).toEqual(['connect', 'disconnect']);
   } finally {
     await broker.close();
   }
@@ -80,8 +79,7 @@ test('settles a pending operation and refuses later sends when the WebSocket clo
     const client = await createWebSocketClient({ url: broker.url, clientId: 'peer-close' }).connect();
     await expect(client.subscribe('close')).rejects.toThrow('MQTT WebSocket closed');
     await expect(client.publish('close', 'late')).rejects.toThrow('MQTT WebSocket closed');
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    expect(broker.packets.map(({ cmd }) => cmd)).toEqual(['connect', 'subscribe']);
+    expect(broker.packets.map(({ cmd }: Readonly<{ cmd: string }>) => cmd)).toEqual(['connect', 'subscribe']);
   } finally {
     await broker.close();
   }
