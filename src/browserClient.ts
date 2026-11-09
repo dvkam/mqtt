@@ -196,7 +196,6 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
           };
           break;
         case 'disconnect':
-          if (packet.reasonCode !== undefined && packet.reasonCode !== 0x93) throw new Error('Unsupported DISCONNECT reason');
           encoded = { cmd: 'disconnect', reasonCode: packet.reasonCode };
           break;
         case 'pingreq':

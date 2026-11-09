@@ -149,38 +149,35 @@ test('a completed native send retains capacity until its matching SUBACK', async
   }
 });
 
-test.each([{ granted: [128] }, { granted: [1] }, { granted: [] }, { granted: [0, 0] }])(
-  'a refused or malformed first SUBACK waits for send completion and leaves the session usable',
-  async ({ granted }: Readonly<{ granted: readonly number[] }>) => {
-    const broker = await peer({ maxPendingSubscriptions: 1 });
-    const sent = deferred();
-    const original = broker.transport.send.bind(broker.transport);
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The held-send fixture preserves mutable protocol packets.
-    broker.transport.send = async (packet) => (packet.cmd === 'subscribe' ? sent.promise : original(packet));
-    let settled = false;
-    const first = broker.client.subscribe('a').catch((reason: unknown) => {
-      settled = true;
-      return reason;
-    });
-    try {
-      broker.receive({ cmd: 'suback', messageId: 1, granted: [...granted] });
-      broker.receive({ cmd: 'suback', messageId: 1, granted: [0] });
-      await setImmediate();
-      expect(settled).toBe(false);
-      await expect(broker.client.subscribe('b')).rejects.toThrow('MQTT subscription capacity exceeded');
-      sent.resolve();
-      expect(await first).toMatchObject({ message: 'MQTT acknowledgment refused' });
-      broker.transport.send = original;
-      const next = broker.client.subscribe('b');
-      broker.receive({ cmd: 'suback', messageId: 2, granted: [0] });
-      await next;
-    } finally {
-      sent.resolve();
-      broker.retire(new Error('fixture ended'));
-      await first;
-    }
-  },
-);
+test('a legal SUBACK refusal waits for send settlement and ignores a later malformed duplicate', async () => {
+  const broker = await peer({ maxPendingSubscriptions: 1 });
+  const sent = deferred();
+  const original = broker.transport.send.bind(broker.transport);
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The held-send fixture preserves mutable protocol packets.
+  broker.transport.send = async (packet) => (packet.cmd === 'subscribe' ? sent.promise : original(packet));
+  let settled = false;
+  const first = broker.client.subscribe('a').catch((reason: unknown) => {
+    settled = true;
+    return reason;
+  });
+  try {
+    broker.receive({ cmd: 'suback', messageId: 1, granted: [128] });
+    broker.receive({ cmd: 'suback', messageId: 1, granted: [0, 0] });
+    await setImmediate();
+    expect(settled).toBe(false);
+    await expect(broker.client.subscribe('b')).rejects.toThrow('MQTT subscription capacity exceeded');
+    sent.resolve();
+    expect(await first).toMatchObject({ message: 'MQTT acknowledgment refused', code: 128 });
+    broker.transport.send = original;
+    const next = broker.client.subscribe('b');
+    broker.receive({ cmd: 'suback', messageId: 2, granted: [0] });
+    await next;
+  } finally {
+    sent.resolve();
+    broker.retire(new Error('fixture ended'));
+    await first;
+  }
+});
 
 test('subscription timeout retires all ownership before a late send or ACK can admit work', async () => {
   vi.useFakeTimers();
@@ -241,4 +238,82 @@ test('graceful disconnect retires concurrent subscriptions and ping exactly once
   broker.receive({ cmd: 'suback', messageId: 2, granted: [0] });
   await expect(broker.client.subscribe('late')).rejects.toThrow('Client is closing');
   expect(close).toHaveBeenCalledExactlyOnceWith();
+});
+
+test.each([
+  { kind: 'suback', granted: [1], code: 0x82 },
+  { kind: 'suback', granted: [17], code: 0x82 },
+  { kind: 'suback', granted: [NaN], code: 0x81 },
+  { kind: 'suback', granted: [17, 0], code: 0x82 },
+  { kind: 'suback', granted: [0, 17], code: 0x82 },
+  { kind: 'suback', granted: [], code: 0x81 },
+  { kind: 'suback', granted: [0, 0], code: 0x82 },
+  { kind: 'unsuback', granted: [0, 17], code: 0x82 },
+  { kind: 'unsuback', granted: [1], code: 0x82 },
+] as const)('retires on a first malformed $kind with $granted while send remains held', async ({ kind, granted, code }) => {
+  const broker = await peer();
+  const write = deferred();
+  const original = broker.transport.send.bind(broker.transport);
+  const close = vi.spyOn(broker.transport, 'close');
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture retains the original mutable subscription packet.
+  broker.transport.send = async (packet) => {
+    await original(packet);
+    if (packet.cmd === 'subscribe' || packet.cmd === 'unsubscribe') await write.promise;
+  };
+  const changed = kind === 'suback' ? broker.client.subscribe('a') : broker.client.unsubscribe('a');
+  const ping = broker.client.ping();
+  const outcomes = Promise.allSettled([changed, ping]);
+  try {
+    broker.receive({ cmd: kind, messageId: 1, granted: [...granted] });
+    const subsequent = broker.client.publish('b', 'must not send').catch((reason: unknown) => reason);
+    await setImmediate();
+    expect(broker.packets.map(({ cmd }: Readonly<{ cmd: string }>) => cmd)).toEqual([
+      'connect',
+      kind === 'suback' ? 'subscribe' : 'unsubscribe',
+      'pingreq',
+      'disconnect',
+    ]);
+    expect(broker.packets[3]).toEqual({ cmd: 'disconnect', reasonCode: code });
+    const failure = await subsequent;
+    expect(failure).toMatchObject({ code });
+    for (const outcome of await outcomes) {
+      if (outcome.status === 'fulfilled') throw new Error('Expected the pending request to reject');
+      expect(outcome.reason).toBe(failure);
+    }
+    expect(close).toHaveBeenCalledExactlyOnceWith(true);
+  } finally {
+    write.resolve();
+    broker.retire(new Error('fixture ended'));
+    await outcomes;
+  }
+});
+
+test('retires a malformed subscription reply during closing without sending another DISCONNECT', async () => {
+  const broker = await peer();
+  const write = deferred();
+  const original = broker.transport.send.bind(broker.transport);
+  const close = vi.spyOn(broker.transport, 'close');
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Hold the original DISCONNECT write after recording it.
+  broker.transport.send = async (packet) => {
+    await original(packet);
+    if (packet.cmd === 'disconnect') await write.promise;
+  };
+  const subscription = broker.client.subscribe('a');
+  const disconnect = broker.client.disconnect();
+  const outcomes = Promise.allSettled([subscription, disconnect]);
+  try {
+    await setImmediate();
+    broker.receive({ cmd: 'suback', messageId: 1, granted: [0, 0] });
+    await setImmediate();
+    expect(close).toHaveBeenCalledExactlyOnceWith(true);
+    expect(broker.packets.filter(({ cmd }: Readonly<{ cmd: string }>) => cmd === 'disconnect')).toEqual([{ cmd: 'disconnect' }]);
+    const [first, second] = await outcomes;
+    if (first.status !== 'rejected' || second.status !== 'rejected') throw new Error('Expected both operations to reject');
+    expect(first.reason).toMatchObject({ code: 0x82 });
+    expect(second.reason).toBe(first.reason);
+  } finally {
+    write.resolve();
+    broker.retire(new Error('fixture ended'));
+    await outcomes;
+  }
 });

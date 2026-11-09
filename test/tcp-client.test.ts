@@ -332,3 +332,31 @@ test('reserves native TCP bytes for ping without overtaking corked publication d
     await peer.close();
   }
 });
+
+test.each([
+  { defect: 'two results for one filter', bytes: [0x90, 5, 0, 1, 0, 0, 0] },
+  { defect: 'zero packet identifier', bytes: [0x90, 4, 0, 0, 0, 0] },
+])('reports a SUBACK protocol error over TCP for $defect', async ({ bytes }: Readonly<{ bytes: readonly number[] }>) => {
+  const notices: number[] = [];
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Capture the broker parser's original MQTT packet.
+  const peer = await broker((packet) => {
+    if (packet.cmd === 'connect') return connack;
+    if (packet.cmd === 'disconnect' && packet.reasonCode !== undefined) notices.push(packet.reasonCode);
+    return undefined;
+  });
+  try {
+    const client = await createTcpClient(peer.options).connect();
+    const request = once(peer.events, 'subscribe');
+    const closed = once(peer.events, 'peer-close');
+    const pending = client.subscribe('a').catch((reason: unknown) => reason);
+    const event: unknown[] = await request;
+    const socket = event[0];
+    if (!(socket instanceof Socket)) throw new Error('Expected the broker socket');
+    socket.write(Buffer.from(bytes));
+    expect(await pending).toMatchObject({ code: 0x82 });
+    await closed;
+    expect(notices).toEqual([0x82]);
+  } finally {
+    await peer.close();
+  }
+});

@@ -1,3 +1,4 @@
+import { isSubscriptionReason, type SubscriptionAckKind } from './subscriptionReason.js';
 import { PacketIdentifiers, type IdentifierLease } from './packetIdentifiers.js';
 
 export interface SubscriptionLimits {
@@ -18,13 +19,13 @@ export function resolveSubscriptionLimits(options: Readonly<SubscriptionLimits>)
   return { maxPendingSubscriptions, maxPendingSubscriptionBytes };
 }
 
-type AcknowledgmentKind = 'suback' | 'unsuback';
-
 interface Entry {
   bytes: number;
   identifier: IdentifierLease;
-  kind: AcknowledgmentKind;
-  resolve: (code: number | undefined) => void;
+  kind: SubscriptionAckKind;
+  requestedQos: 0 | 1;
+  accepted: boolean;
+  resolve: (code: number) => void;
   reject: (reason: Readonly<Error>) => void;
 }
 
@@ -41,7 +42,7 @@ export class SubscriptionExchanges {
     this.identifiers = identifiers;
   }
 
-  reserve(topic: string, kind: AcknowledgmentKind = 'suback') {
+  reserve(topic: string, kind: SubscriptionAckKind = 'suback', requestedQos: 0 | 1 = 0) {
     if (this.failure) throw this.failure;
     const available = this.limits.maxPendingSubscriptionBytes - this.bytes;
     if (this.entries.size >= this.limits.maxPendingSubscriptions) throw new RangeError('MQTT subscription capacity exceeded');
@@ -60,11 +61,11 @@ export class SubscriptionExchanges {
     const { messageId } = identifier;
     let resolve!: Entry['resolve'];
     let reject!: Entry['reject'];
-    const acknowledged = new Promise<number | undefined>((accept, refuse) => {
+    const acknowledged = new Promise<number>((accept, refuse) => {
       resolve = accept;
       reject = refuse;
     });
-    const entry: Entry = { bytes, identifier, kind, resolve, reject };
+    const entry: Entry = { bytes, identifier, kind, requestedQos, accepted: false, resolve, reject };
     this.entries.set(messageId, entry);
     this.bytes += bytes;
     return {
@@ -79,12 +80,19 @@ export class SubscriptionExchanges {
     };
   }
 
-  accept(messageId: number | undefined, granted: readonly unknown[], kind: AcknowledgmentKind = 'suback'): void {
-    if (messageId === undefined) return;
+  accept(messageId: number | undefined, granted: unknown, kind: SubscriptionAckKind = 'suback'): 0x81 | 0x82 | undefined {
+    if (messageId === undefined) return 0x81;
+    if (!Number.isInteger(messageId) || messageId < 1 || messageId > 65_535) return 0x82;
     const entry = this.entries.get(messageId);
-    if (!entry || entry.kind !== kind) return;
-    const code = granted[0];
-    entry.resolve(granted.length === 1 && typeof code === 'number' ? code : undefined);
+    if (!entry || entry.kind !== kind || entry.accepted) return undefined;
+    if (!Array.isArray(granted) || granted.length === 0) return 0x81;
+    if (granted.length !== 1) return 0x82;
+    const code: unknown = granted[0];
+    if (typeof code !== 'number' || !Number.isInteger(code) || code < 0 || code > 255) return 0x81;
+    if (!isSubscriptionReason(kind, code) || (kind === 'suback' && code <= 2 && code > entry.requestedQos)) return 0x82;
+    entry.accepted = true;
+    entry.resolve(code);
+    return undefined;
   }
 
   retire(reason: Readonly<Error>): void {

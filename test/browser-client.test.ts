@@ -12,7 +12,12 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-async function peer(reasonCode = 0, dropPing = false, properties?: Readonly<{ receiveMaximum?: number; maximumQoS?: number }>) {
+async function peer(
+  reasonCode = 0,
+  dropPing = false,
+  properties?: Readonly<{ receiveMaximum?: number; maximumQoS?: number }>,
+  unsubscribeReply?: readonly number[],
+) {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
   const address = server.address();
@@ -40,7 +45,10 @@ async function peer(reasonCode = 0, dropPing = false, properties?: Readonly<{ re
           properties,
         });
       if (packet.cmd === 'subscribe') send({ cmd: 'suback', messageId: packet.messageId, granted: [0] });
-      if (packet.cmd === 'unsubscribe') send({ cmd: 'unsuback', messageId: packet.messageId, granted: [17] });
+      if (packet.cmd === 'unsubscribe') {
+        if (unsubscribeReply) socket.send(Buffer.from(unsubscribeReply));
+        else send({ cmd: 'unsuback', messageId: packet.messageId, granted: [17] });
+      }
       if (packet.cmd === 'publish') send({ ...packet, payload: Buffer.from([0, 255, 128]) });
       if (packet.cmd === 'pingreq' && !dropPing) send({ cmd: 'pingresp' });
     });
@@ -301,3 +309,16 @@ test.each(['subscribe', 'unsubscribe'] as const)(
     }
   },
 );
+
+test('reports a two-result UNSUBACK for one filter through the browser wire path', async () => {
+  const broker = await peer(0, false, undefined, [0xb0, 5, 0, 1, 0, 0, 17]);
+  try {
+    const client = await createBrowserClient({ url: broker.url, clientId: 'unsuback-protocol' }).connect();
+    const failure = await client.unsubscribe('a').catch((reason: unknown) => reason);
+    expect(failure).toMatchObject({ code: 0x82 });
+    await expect(client.ping()).rejects.toBe(failure);
+    await expect.poll(() => broker.packets[2]).toMatchObject({ cmd: 'disconnect', reasonCode: 0x82 });
+  } finally {
+    await broker.close();
+  }
+});

@@ -72,8 +72,14 @@ class PortableClient<Message extends PublishMessage> {
           void this.abort(Object.assign(new Error('MQTT broker disconnected'), { code: packet.reasonCode ?? 0 })).catch(() => {});
           return;
         }
-        if (packet.cmd === 'suback' || packet.cmd === 'unsuback')
-          this.subscriptions.accept(packet.messageId, packet.granted, packet.cmd);
+        if (packet.cmd === 'suback' || packet.cmd === 'unsuback') {
+          const code = this.subscriptions.accept(packet.messageId, packet.granted, packet.cmd);
+          if (code !== undefined) {
+            const error = Object.assign(new Error('Invalid MQTT subscription acknowledgment'), { code });
+            void this.abort(error, this.closing ? undefined : code).catch(() => {});
+            return;
+          }
+        }
         if (packet.cmd === 'puback') {
           const { messageId, reasonCode: code = 0 } = packet;
           if (messageId === undefined || !Number.isInteger(messageId) || messageId < 1 || messageId > 65_535) {
@@ -150,7 +156,7 @@ class PortableClient<Message extends PublishMessage> {
     if (qos !== 0 && qos !== 1) throw new RangeError('Unsupported MQTT subscription QoS');
     if (qos === 1 && !this.onQosOneMessage) throw new Error('QoS 1 subscription requires onQosOneMessage');
     const subscribing = command === 'subscribe';
-    const reservation = this.subscriptions.reserve(topic, subscribing ? 'suback' : 'unsuback');
+    const reservation = this.subscriptions.reserve(topic, subscribing ? 'suback' : 'unsuback', qos);
     const { messageId } = reservation;
     const packet: Packet = subscribing
       ? { cmd: 'subscribe', messageId, subscriptions: [{ topic, qos }] }
