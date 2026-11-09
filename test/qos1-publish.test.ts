@@ -108,7 +108,7 @@ test('uses a broker quota of two and handles a negative PUBACK without closing t
 test('queued abort returns bytes and consumes neither a timer nor an identifier', async () => {
   const broker = await peer({ receiveMaximum: 1 }, { maxPendingPublishes: 4, maxPendingPublishBytes: 18 });
   const controller = new AbortController();
-  const reason = new Error('cancel queued');
+  const reason = Symbol('cancel queued');
   const first = broker.client.publish('a', 'x', qosOne);
   const timer = vi.spyOn(globalThis, 'setTimeout');
   const queued = broker.client.publish('b', 'x', { qos: 1, signal: controller.signal });

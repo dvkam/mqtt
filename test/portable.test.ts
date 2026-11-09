@@ -166,7 +166,8 @@ function peer() {
 }
 
 test('completes the MQTT 5 QoS 0 tracer through an injected packet transport', async () => {
-  const { transport, packets } = peer();
+  const broker = peer();
+  const { transport, packets } = broker;
   const messages: Packet[] = [];
   const client = await connectPortable(transport, {
     clientId: 'tracer',
@@ -176,11 +177,17 @@ test('completes the MQTT 5 QoS 0 tracer through an injected packet transport', a
     },
   });
   await client.subscribe('tracer/echo');
-  await client.publish('tracer/echo', 'hello');
-  await client.disconnect();
+  const { publish, ping, disconnect } = client;
+  await publish('tracer/echo', 'hello');
+  const pendingPing = ping();
+  broker.receive({ cmd: 'pingresp' });
+  await pendingPing;
+  const closing = disconnect();
+  expect(disconnect()).toBe(closing);
+  await closing;
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  expect(packets.map(({ cmd }) => cmd)).toEqual(['connect', 'subscribe', 'publish', 'disconnect']);
+  expect(packets.map(({ cmd }) => cmd)).toEqual(['connect', 'subscribe', 'publish', 'pingreq', 'disconnect']);
   expect(messages).toEqual([{ cmd: 'publish', qos: 0, topic: 'tracer/echo', payload: 'hello', dup: false, retain: false }]);
 });
 
