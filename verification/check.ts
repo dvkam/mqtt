@@ -127,6 +127,11 @@ const models: readonly VerificationCase[] = [
   ['QosOneInbound', 'QosOneInboundAdvance', 'NoDispatchBeforeAckSettles'],
   ['QosOneInbound', 'QosOneInboundRetention', 'TerminalClearsFollower'],
   ['QosOneInbound', 'QosOneInboundForce', 'GracefulCloseOwnsRetirement'],
+  ['ParserAckNotice', 'ParserAckNotice'],
+  ['ParserAckNotice', 'ParserAckNoticeRead', 'InputFenced'],
+  ['ParserAckNotice', 'ParserAckNoticeOpening', 'NoticeOnActiveOnly'],
+  ['ParserAckNotice', 'ParserAckNoticeGraceful', 'NoticeOnActiveOnly'],
+  ['ParserAckNotice', 'ParserAckNoticeClose', 'ReportBeforeLocalClose'],
 ];
 
 for (const [model, configuration, expectedInvariant] of models) {
