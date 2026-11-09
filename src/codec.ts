@@ -5,7 +5,12 @@ interface Properties {
   userProperties?: readonly UserProperty[];
 }
 
-type PublishFields = Properties & { cmd: 'publish'; topic: string; payload: Uint8Array; retain?: boolean };
+type PublishFields = Properties & {
+  cmd: 'publish';
+  topic: string;
+  payload: Uint8Array;
+  retain?: boolean;
+};
 
 export type WirePacket =
   | (Properties & {
@@ -13,6 +18,7 @@ export type WirePacket =
       clientId: string;
       cleanStart?: boolean;
       keepAlive?: number;
+      receiveMaximum?: number;
       username?: string;
       password?: Uint8Array;
     })
@@ -26,11 +32,22 @@ export type WirePacket =
     })
   | (PublishFields & ({ qos?: 0; messageId?: never; dup?: never } | { qos: 1; messageId: number; dup?: boolean }))
   | (Properties & { cmd: 'puback'; messageId: number; reasonCode: number; reasonString?: string })
-  | (Properties & { cmd: 'subscribe'; messageId: number; topics: readonly string[] })
-  | (Properties & { cmd: 'suback'; messageId: number; granted: readonly number[]; reasonString?: string })
+  | (Properties & { cmd: 'subscribe'; messageId: number; topics: readonly string[]; qos?: 0 | 1 })
+  | (Properties & {
+      cmd: 'suback';
+      messageId: number;
+      granted: readonly number[];
+      reasonString?: string;
+    })
   | (Properties & { cmd: 'unsubscribe'; messageId: number; topics: readonly string[] })
-  | (Properties & { cmd: 'unsuback'; messageId: number; granted: readonly number[]; reasonString?: string })
-  | { cmd: 'pingreq' | 'pingresp' | 'disconnect' };
+  | (Properties & {
+      cmd: 'unsuback';
+      messageId: number;
+      granted: readonly number[];
+      reasonString?: string;
+    })
+  | { cmd: 'disconnect'; reasonCode?: number }
+  | { cmd: 'pingreq' | 'pingresp' };
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -40,17 +57,17 @@ const connackCodes = new Set([
 const subackCodes = new Set([0, 1, 2, 128, 131, 135, 143, 145, 151, 158, 161, 162]);
 const unsubackCodes = new Set([0, 17, 128, 131, 135, 143, 145]);
 const packetFields: Partial<Record<string, readonly string[]>> = {
-  connect: ['cmd', 'clientId', 'cleanStart', 'keepAlive', 'username', 'password', 'userProperties'],
+  connect: ['cmd', 'clientId', 'cleanStart', 'keepAlive', 'receiveMaximum', 'username', 'password', 'userProperties'],
   connack: ['cmd', 'sessionPresent', 'reasonCode', 'receiveMaximum', 'maximumQoS', 'topicAliasMaximum', 'userProperties'],
   publish: ['cmd', 'topic', 'payload', 'retain', 'userProperties', 'qos', 'messageId', 'dup'],
   puback: ['cmd', 'messageId', 'reasonCode', 'reasonString', 'userProperties'],
-  subscribe: ['cmd', 'messageId', 'topics', 'userProperties'],
+  subscribe: ['cmd', 'messageId', 'topics', 'qos', 'userProperties'],
   suback: ['cmd', 'messageId', 'granted', 'reasonString', 'userProperties'],
   unsubscribe: ['cmd', 'messageId', 'topics', 'userProperties'],
   unsuback: ['cmd', 'messageId', 'granted', 'reasonString', 'userProperties'],
   pingreq: ['cmd'],
   pingresp: ['cmd'],
-  disconnect: ['cmd'],
+  disconnect: ['cmd', 'reasonCode'],
 };
 
 function integer(value: number, maximum: number, minimum = 0): number {
@@ -110,8 +127,9 @@ function properties(
 ): Uint8Array<ArrayBuffer> {
   const parts: Uint8Array[] = [];
   for (const [key, value] of packet.userProperties ?? []) parts.push(Uint8Array.of(0x26), utf8(key), utf8(value));
+  if ((packet.cmd === 'connect' || packet.cmd === 'connack') && packet.receiveMaximum !== undefined)
+    parts.push(Uint8Array.of(0x21), uint16(integer(packet.receiveMaximum, 65_535, 1)));
   if (packet.cmd === 'connack') {
-    if (packet.receiveMaximum !== undefined) parts.push(Uint8Array.of(0x21), uint16(integer(packet.receiveMaximum, 65_535, 1)));
     if (packet.maximumQoS !== undefined) parts.push(Uint8Array.of(0x24, integer(packet.maximumQoS, 1)));
     if (packet.topicAliasMaximum !== undefined) parts.push(Uint8Array.of(0x22), uint16(packet.topicAliasMaximum));
   }
@@ -182,13 +200,14 @@ export function encodePacket(packet: Readonly<WirePacket>): Uint8Array<ArrayBuff
       integer(packet.messageId, 65_535, 1);
       if (packet.topics.length === 0) throw new Error('Empty ' + packet.cmd.toUpperCase());
       header = packet.cmd === 'subscribe' ? 0x82 : 0xa2;
+      const subscriptionQos = packet.cmd === 'subscribe' ? integer(packet.qos ?? 0, 1) : 0;
       body = join([
         uint16(packet.messageId),
         properties(packet),
         ...packet.topics.map((value) => {
           topic(value, true);
           const filter = utf8(value);
-          return packet.cmd === 'subscribe' ? join([filter, Uint8Array.of(0)]) : filter;
+          return packet.cmd === 'subscribe' ? join([filter, Uint8Array.of(subscriptionQos)]) : filter;
         }),
       ]);
       break;
@@ -207,7 +226,9 @@ export function encodePacket(packet: Readonly<WirePacket>): Uint8Array<ArrayBuff
     case 'pingresp':
       return Uint8Array.of(0xd0, 0);
     case 'disconnect':
-      return Uint8Array.of(0xe0, 0);
+      if (packet.reasonCode === undefined) return Uint8Array.of(0xe0, 0);
+      if (packet.reasonCode === 0x93) return Uint8Array.of(0xe0, 1, packet.reasonCode);
+      throw new Error('Unsupported DISCONNECT reason');
   }
   return join([Uint8Array.of(header), variable(body.length), body]);
 }
@@ -274,7 +295,8 @@ function readProperties(reader: Readonly<Reader>, cmd: string): DecodedPropertie
         userProperties.push([fields.string(), fields.string()]);
         break;
       case 0x21:
-        if (cmd !== 'connack' || result.receiveMaximum !== undefined) throw new Error('Invalid Receive Maximum property');
+        if ((cmd !== 'connect' && cmd !== 'connack') || result.receiveMaximum !== undefined)
+          throw new Error('Invalid Receive Maximum property');
         result.receiveMaximum = integer(fields.uint16(), 65_535, 1);
         break;
       case 0x22:
@@ -317,7 +339,13 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
       if ((flags & ~0xc2) !== 0) throw new Error('Unsupported CONNECT flags');
       const keepAlive = reader.uint16();
       const props = readProperties(reader, 'connect');
-      packet = { cmd: 'connect', clientId: reader.string(), cleanStart: (flags & 2) !== 0, keepAlive, ...props };
+      packet = {
+        cmd: 'connect',
+        clientId: reader.string(),
+        cleanStart: (flags & 2) !== 0,
+        keepAlive,
+        ...props,
+      };
       if (flags & 128) packet.username = reader.string();
       if (flags & 64) packet.password = reader.take(reader.uint16());
       break;
@@ -326,7 +354,12 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
       const flags = reader.byte();
       const reasonCode = reader.byte();
       if (flags > 1 || !connackCodes.has(reasonCode) || (reasonCode !== 0 && flags !== 0)) throw new Error('Invalid CONNACK');
-      packet = { cmd: 'connack', sessionPresent: flags === 1, reasonCode, ...readProperties(reader, 'connack') };
+      packet = {
+        cmd: 'connack',
+        sessionPresent: flags === 1,
+        reasonCode,
+        ...readProperties(reader, 'connack'),
+      };
       break;
     }
     case 0x30:
@@ -363,14 +396,20 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
       const messageId = integer(reader.uint16(), 65_535, 1);
       const props = readProperties(reader, cmd);
       const topics = [];
+      let qos: 0 | 1 | undefined;
       while (reader.remaining > 0) {
         const name = reader.string();
         topic(name, true);
-        if (cmd === 'subscribe' && reader.byte() !== 0) throw new Error('Unsupported subscription options');
+        if (cmd === 'subscribe') {
+          const options = reader.byte();
+          if ((options !== 0 && options !== 1) || (qos !== undefined && options !== qos))
+            throw new Error('Unsupported subscription options');
+          qos = options;
+        }
         topics.push(name);
       }
       if (topics.length === 0) throw new Error('Empty ' + cmd.toUpperCase());
-      packet = { cmd, messageId, topics, ...props };
+      packet = cmd === 'subscribe' && qos === 1 ? { cmd, messageId, topics, qos, ...props } : { cmd, messageId, topics, ...props };
       break;
     }
     case 0x90:
@@ -390,11 +429,13 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
     case 0xd0:
       packet = { cmd: 'pingresp' };
       break;
-    case 0xe0:
-      if (reader.remaining > 0 && reader.byte() !== 0) throw new Error('Unsupported DISCONNECT reason');
+    case 0xe0: {
+      const reasonCode = reader.remaining > 0 ? reader.byte() : 0;
+      if (reasonCode !== 0 && reasonCode !== 0x93) throw new Error('Unsupported DISCONNECT reason');
       if (reader.remaining > 0 && reader.variable() !== 0) throw new Error('Unsupported DISCONNECT properties');
-      packet = { cmd: 'disconnect' };
+      packet = reasonCode === 0 ? { cmd: 'disconnect' } : { cmd: 'disconnect', reasonCode };
       break;
+    }
     default:
       throw new Error('Unsupported MQTT packet');
   }

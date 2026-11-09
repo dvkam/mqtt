@@ -7,6 +7,8 @@ import type {
   ClientFactory,
   ClientSession,
   PublishOptions,
+  QosOneMessage,
+  SubscribeOptions,
 } from 'mqtt/browser';
 
 type RequireTrue<Value extends true> = Value;
@@ -15,6 +17,9 @@ type IsAny<Value> = 0 extends 1 & Value ? true : false;
 type Received = Parameters<NonNullable<BrowserClientOptions['onMessage']>>[0];
 export type PackedPayloadIsSpecific = RequireFalse<IsAny<Received['payload']>>;
 export type PackedPayloadIsBytes = RequireTrue<Received['payload'] extends Uint8Array ? true : false>;
+type ReceivedQosOne = Parameters<NonNullable<BrowserClientOptions['onQosOneMessage']>>[0];
+export type PackedQosOnePayloadIsSpecific = RequireFalse<IsAny<ReceivedQosOne['payload']>>;
+export type PackedQosOneMessage = RequireTrue<ReceivedQosOne extends QosOneMessage<Received> ? true : false>;
 export type PackedQosIsZero = RequireTrue<Received['qos'] extends 0 ? true : false>;
 export type PackedSessionIsCommon = RequireTrue<BrowserSession extends ClientSession ? true : false>;
 export type BrowserOwnsTls = RequireTrue<
@@ -30,11 +35,19 @@ const options: BrowserClientOptions = {
     const bytes: Uint8Array = message.payload;
     bytes[0] = message.qos;
   },
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Check the mutable callback bytes without Node types.
+  async onQosOneMessage(message) {
+    const bytes: Uint8Array = message.payload;
+    bytes[0] = message.qos;
+    await Promise.resolve();
+  },
 };
 export const factory: ClientFactory = createBrowserClient(options);
 
 export async function checkPublishOptions(client: Readonly<ClientSession>) {
   const publish: PublishOptions = { qos: 1, signal: AbortSignal.timeout(1000) };
+  const subscription: SubscribeOptions = { qos: 1 };
+  await client.subscribe('packed/qos1', subscription);
   await client.publish('packed/qos1', 'payload', publish);
 }
 

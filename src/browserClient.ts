@@ -1,7 +1,7 @@
 import { openBrowserTransport } from './browserTransport.js';
 import { encodePacket, PacketDecoder, type UserProperty, type WirePacket } from './codec.js';
 import { connectPortable, type PacketTransport } from './portable.js';
-import type { ClientFactory, ClientSession } from './session.js';
+import type { ClientFactory, ClientSession, QosOneMessage } from './session.js';
 import { resolveSubscriptionLimits, type SubscriptionLimits } from './subscriptionExchanges.js';
 import { resolvePublicationLimits, type PublicationLimits } from './publicationAdmission.js';
 import { resolveNativeWriteLimits, type NativeWriteLimits } from './nativeWriteBudget.js';
@@ -28,6 +28,8 @@ export interface BrowserClientOptions extends PublicationLimits, SubscriptionLim
   maxWebSocketMessageBytes?: number;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
   onMessage?: (message: BrowserMessage) => void;
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser message retains its mutable Uint8Array payload.
+  onQosOneMessage?: (message: QosOneMessage<BrowserMessage>) => void | Promise<void>;
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
@@ -44,7 +46,7 @@ export function createBrowserClient(options: BrowserClientOptions): ClientFactor
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
 async function openClient(options: BrowserClientOptions): Promise<BrowserSession> {
-  const timeoutMs = options.timeoutMs;
+  const { timeoutMs, onQosOneMessage } = options;
   const publicationLimits = resolvePublicationLimits(options);
   const subscriptionLimits = resolveSubscriptionLimits(options);
   const writeLimits = resolveNativeWriteLimits(options);
@@ -73,30 +75,45 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
             break;
           }
           case 'puback':
-            deliver?.({ cmd: 'puback', messageId: packet.messageId, reasonCode: packet.reasonCode });
+            deliver?.({
+              cmd: 'puback',
+              messageId: packet.messageId,
+              reasonCode: packet.reasonCode,
+            });
             break;
           case 'suback':
           case 'unsuback':
-            deliver?.({ cmd: packet.cmd, messageId: packet.messageId, granted: [...packet.granted] });
+            deliver?.({
+              cmd: packet.cmd,
+              messageId: packet.messageId,
+              granted: [...packet.granted],
+            });
             break;
           case 'pingresp':
             deliver?.(packet);
             break;
           case 'disconnect':
-            deliver?.({ cmd: 'disconnect', reasonCode: 0 });
+            deliver?.({ cmd: 'disconnect', reasonCode: packet.reasonCode ?? 0 });
             break;
-          case 'publish':
-            if (packet.qos === 1) throw new Error('Unsupported incoming MQTT QoS 1');
-            deliver?.({
-              cmd: 'publish',
+          case 'publish': {
+            const message = {
+              cmd: 'publish' as const,
               topic: packet.topic,
               payload: packet.payload,
-              qos: 0,
-              dup: false,
               retain: packet.retain ?? false,
               userProperties: packet.userProperties,
-            });
+            };
+            if (packet.qos === 1) {
+              if (!onQosOneMessage) throw new Error('Unsupported incoming MQTT QoS 1');
+              deliver?.({
+                ...message,
+                qos: 1,
+                dup: packet.dup ?? false,
+                messageId: packet.messageId,
+              });
+            } else deliver?.({ ...message, qos: 0, dup: false });
             break;
+          }
           case 'connect':
           case 'pingreq':
           case 'subscribe':
@@ -132,19 +149,29 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
             keepAlive: packet.keepalive,
             username: packet.username,
             password: packet.password,
+            receiveMaximum: packet.properties?.receiveMaximum,
           };
           break;
-        case 'subscribe':
+        case 'subscribe': {
           if (packet.messageId === undefined) throw new Error('SUBSCRIBE requires a packet identifier');
+          const qos = packet.subscriptions[0]?.qos;
+          if (qos === 2 || packet.subscriptions.some((subscription: Readonly<{ qos: number }>) => subscription.qos !== qos))
+            throw new Error('Unsupported browser subscription options');
           encoded = {
             cmd: 'subscribe',
             messageId: packet.messageId,
             topics: packet.subscriptions.map(({ topic }: Readonly<{ topic: string }>) => topic),
+            qos,
           };
           break;
+        }
         case 'unsubscribe':
           if (packet.messageId === undefined) throw new Error('UNSUBSCRIBE requires a packet identifier');
-          encoded = { cmd: 'unsubscribe', messageId: packet.messageId, topics: packet.unsubscriptions };
+          encoded = {
+            cmd: 'unsubscribe',
+            messageId: packet.messageId,
+            topics: packet.unsubscriptions,
+          };
           break;
         case 'publish': {
           if (packet.qos === 2) throw new Error('Unsupported browser PUBLISH QoS');
@@ -160,14 +187,24 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
           } else encoded = fields;
           break;
         }
-        case 'pingreq':
+        case 'puback':
+          if (packet.messageId === undefined) throw new Error('PUBACK requires a packet identifier');
+          encoded = {
+            cmd: 'puback',
+            messageId: packet.messageId,
+            reasonCode: packet.reasonCode ?? 0,
+          };
+          break;
         case 'disconnect':
+          if (packet.reasonCode !== undefined && packet.reasonCode !== 0x93) throw new Error('Unsupported DISCONNECT reason');
+          encoded = { cmd: 'disconnect', reasonCode: packet.reasonCode };
+          break;
+        case 'pingreq':
           encoded = { cmd: packet.cmd };
           break;
         case 'auth':
         case 'connack':
         case 'pingresp':
-        case 'puback':
         case 'pubcomp':
         case 'pubrec':
         case 'pubrel':
@@ -204,6 +241,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
     username: options.username,
     timeoutMs,
     onMessage: options.onMessage,
+    onQosOneMessage,
   });
   if (options.signal?.aborted === true) {
     await transport.close(true);

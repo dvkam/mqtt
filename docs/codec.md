@@ -16,24 +16,24 @@ Send encoded bytes through `openBrowserTransport` and feed its `onBytes` values 
 
 | Packet | Supported fields |
 | --- | --- |
-| CONNECT | MQTT 5, client identifier, Clean Start, Keep Alive, username, binary password, User Properties |
+| CONNECT | MQTT 5, client identifier, Clean Start, Keep Alive, Receive Maximum, username, binary password, User Properties |
 | CONNACK | Session Present, reason code, Receive Maximum, Maximum QoS, Topic Alias Maximum, User Properties |
 | PUBLISH | QoS 0 or 1, nonempty topic name, binary payload, retain, User Properties. QoS 1 also carries a nonzero packet identifier and DUP. |
 | PUBACK | Nonzero packet identifier, reason code, Reason String and ordered User Properties |
-| SUBSCRIBE | Packet identifier, ordinary topic filters requesting QoS 0, User Properties |
+| SUBSCRIBE | Packet identifier, ordinary topic filters with a uniform requested QoS of 0 or 1, User Properties |
 | SUBACK | Packet identifier, reason codes, Reason String, User Properties |
 | UNSUBSCRIBE | Packet identifier, ordinary topic filters, User Properties |
 | UNSUBACK | Packet identifier, reason codes, Reason String, User Properties |
 | PINGREQ and PINGRESP | Empty bodies |
-| DISCONNECT | Normal disconnect, accepting the zero-, one- and two-byte body abbreviations |
+| DISCONNECT | Normal disconnect and Receive Maximum exceeded. Zero-, one- and two-byte bodies when permitted by the reason. |
 
 User Properties are ordered key/value tuples. Duplicate keys and empty keys or values are preserved.
 
-The encoder checks packet fields against this profile. Wills, reasoned disconnects, shared subscriptions and additional properties require profile expansion. The decoder rejects unsupported properties, including those allowed in broader MQTT 5 profiles.
+The encoder checks packet fields against this profile. Wills, other disconnect reasons, shared subscriptions and additional properties require profile expansion. The decoder rejects unsupported properties, including those allowed in broader MQTT 5 profiles.
 
 Pass `qos: 1` and `messageId` on a QoS 1 PUBLISH. QoS 0 packets may omit `qos` and decode to their existing shape. PUBACK decodes the omitted reason as success and accepts explicit reasons with or without the zero Property Length field. Its encoder emits the shortest form for the supplied reason and properties.
 
-The browser adapter forwards Receive Maximum, Maximum QoS and PUBACK identifiers and reason codes to the session. The [outbound QoS 1 guide](qos1-publish.md) describes quota and acknowledgment ownership. The browser session rejects incoming QoS 1 PUBLISH frames pending inbound acknowledgment support.
+The browser adapter forwards Receive Maximum, Maximum QoS and PUBACK identifiers and reason codes to the session. The [outbound QoS 1 guide](qos1-publish.md) describes quota and acknowledgment ownership. The [inbound QoS 1 guide](qos1-receive.md) describes the opt-in callback and receive window.
 
 The encoder uses the compact two-byte normal DISCONNECT. mqtt-packet 9.0.2 regenerates the same operation with an explicit reason and empty properties. Both forms are valid under MQTT 5 section 3.14.
 

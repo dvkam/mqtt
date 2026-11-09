@@ -6,6 +6,26 @@ export async function mqttClientSession(url) {
   /** @type {((message: {readonly topic: string, readonly payload: readonly number[]}) => void) | undefined} */
   let receive;
   let timer;
+  /** @type {string[]} */
+  const inbound = [];
+  let releaseInbound = () => {};
+  let arrivedFirst = () => {};
+  let arrivedSecond = () => {};
+  const held = new Promise((resolve) => {
+    releaseInbound = () => {
+      resolve(undefined);
+    };
+  });
+  const first = new Promise((resolve) => {
+    arrivedFirst = () => {
+      resolve(undefined);
+    };
+  });
+  const second = new Promise((resolve) => {
+    arrivedSecond = () => {
+      resolve(undefined);
+    };
+  });
   const client = await createBrowserClient({
     url,
     clientId: 'browser-client-ci',
@@ -13,10 +33,25 @@ export async function mqttClientSession(url) {
     onMessage(packet) {
       receive?.({ topic: packet.topic, payload: Array.from(packet.payload) });
     },
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Check the mutable browser payload through the installed API.
+    async onQosOneMessage(packet) {
+      if (!(packet.payload instanceof Uint8Array) || packet.messageId <= 0) throw new Error('Unexpected browser QoS 1 message');
+      inbound.push(new TextDecoder().decode(packet.payload));
+      if (inbound.length === 1) {
+        arrivedFirst();
+        await held;
+      } else arrivedSecond();
+    },
   }).connect();
   try {
     await Promise.all([client.subscribe('ci/browser-client'), client.subscribe('ci/browser-other'), client.ping()]);
-    await Promise.all([client.publish('ci/qos1', 'first', { qos: 1 }), client.publish('ci/qos1', 'second', { qos: 1 })]);
+    await client.subscribe('ci/qos1', { qos: 1 });
+    await Promise.all([client.publish('ci/qos1', 'first', { qos: 1 }), client.publish('ci/qos1', 'second', { qos: 1 }), first]);
+    await client.ping();
+    if (inbound.join(',') !== 'first') throw new Error('Browser broker sent a second QoS 1 message before PUBACK');
+    releaseInbound();
+    await second;
+    if (inbound.join(',') !== 'first,second') throw new Error('Unexpected browser QoS 1 delivery order');
     const reply = new Promise(
       /** @param {(message: {readonly topic: string, readonly payload: readonly number[]}) => void} resolve */ (
         resolve,
@@ -34,6 +69,7 @@ export async function mqttClientSession(url) {
     await client.disconnect();
     return message;
   } finally {
+    releaseInbound();
     clearTimeout(timer);
     await client.disconnect();
   }

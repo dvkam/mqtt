@@ -46,3 +46,5 @@ export async function checkBrowserTypes(signal: AbortSignal) {
   transport.send(encodePacket({ cmd: 'connect', clientId: 'types' }));
   await transport.close();
 }
+
+export * from '../../packed/browser/consumer.js';

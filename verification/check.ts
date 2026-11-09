@@ -118,6 +118,14 @@ const models: readonly VerificationCase[] = [
   ['QosOneOutbound', 'QosOneOutboundQueuedAbort', 'CanceledQueueNeverDispatches'],
   ['QosOneOutbound', 'QosOneOutboundStop', 'NoDispatchAfterStop'],
   ['QosOneOutbound', 'QosOneOutboundTerminal', 'HeldUntilSettled'],
+  ['QosOneInbound', 'QosOneInbound'],
+  ['QosOneInbound', 'QosOneInboundBudget', 'BoundedFollower'],
+  ['QosOneInbound', 'QosOneInboundOpening', 'PreserveOpeningMessage'],
+  ['QosOneInbound', 'QosOneInboundEarly', 'AckAfterHandler'],
+  ['QosOneInbound', 'QosOneInboundLate', 'NoAckAfterStop'],
+  ['QosOneInbound', 'QosOneInboundAdvance', 'NoDispatchBeforeAckSettles'],
+  ['QosOneInbound', 'QosOneInboundRetention', 'TerminalClearsFollower'],
+  ['QosOneInbound', 'QosOneInboundForce', 'GracefulCloseOwnsRetirement'],
 ];
 
 for (const [model, configuration, expectedInvariant] of models) {

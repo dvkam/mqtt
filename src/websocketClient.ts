@@ -36,7 +36,7 @@ export function createWebSocketClient(options: Readonly<WebSocketClientOptions>)
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
 async function openClient(options: Readonly<WebSocketClientOptions>) {
-  const { signal, timeoutMs = 3000, agent, ca, cert, key, headers } = options;
+  const { onQosOneMessage, signal, timeoutMs = 3000, agent, ca, cert, key, headers } = options;
   const isAborted = (): boolean => signal?.aborted === true;
   const abortReason = () => {
     const reason: unknown = signal?.reason;
@@ -117,7 +117,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
       });
     },
     listen(onPacket, onClose) {
-      return input.listen(onPacket, onClose);
+      return input.listen(onPacket, onClose, onQosOneMessage !== undefined);
     },
     async close(force) {
       input.detachCore();
@@ -150,7 +150,13 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
       socket.once('close', failed);
     });
     if (socket.protocol !== 'mqtt') throw new Error('MQTT WebSocket subprotocol was not negotiated');
-    const client = await connectPortable(transport, { ...options, ...publicationLimits, ...subscriptionLimits, timeoutMs });
+    const client = await connectPortable(transport, {
+      ...options,
+      ...publicationLimits,
+      ...subscriptionLimits,
+      timeoutMs,
+      onQosOneMessage,
+    });
     if (isAborted()) throw abortReason();
     return client;
   } catch (error) {

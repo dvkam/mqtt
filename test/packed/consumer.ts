@@ -11,6 +11,14 @@ type Received = Parameters<NonNullable<import('mqtt').TcpClientOptions['onMessag
 export type PackedPayloadIsSpecific = RequireFalse<IsAny<Received['payload']>>;
 export type PackedPayloadIsBuffer = RequireTrue<Received['payload'] extends Buffer ? true : false>;
 export type PackedQosIsZero = RequireTrue<Received['qos'] extends 0 ? true : false>;
+type NodeQosOne = Parameters<NonNullable<import('mqtt').TcpClientOptions['onQosOneMessage']>>[0];
+type BrowserQosOne = Parameters<NonNullable<import('mqtt/browser').BrowserClientOptions['onQosOneMessage']>>[0];
+export type NodeQosOnePayloadIsSpecific = RequireFalse<IsAny<NodeQosOne['payload']>>;
+export type NodeQosOnePayloadIsBuffer = RequireTrue<NodeQosOne['payload'] extends Buffer ? true : false>;
+export type BrowserQosOnePayloadIsSpecific = RequireFalse<IsAny<BrowserQosOne['payload']>>;
+export type BrowserQosOnePayloadIsBytes = RequireTrue<BrowserQosOne['payload'] extends Uint8Array ? true : false>;
+export type QosOneHasIdentifier = RequireTrue<(NodeQosOne | BrowserQosOne)['messageId'] extends number ? true : false>;
+export type QosOneIsOne = RequireTrue<(NodeQosOne | BrowserQosOne)['qos'] extends 1 ? true : false>;
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
 export async function checkDeclarations(transport: PacketTransport) {
@@ -42,6 +50,7 @@ export async function checkTcpDeclarations(signal: AbortSignal) {
     },
   });
   const connected = await tcp.connect();
+  await connected.subscribe('consumer/qos1', { qos: 1 });
   await connected.publish('consumer/qos1', 'hello', { qos: 1, signal });
   await connected.ping();
   await connected.disconnect();
@@ -84,7 +93,7 @@ export async function checkBrowserClientDeclarations(signal: AbortSignal) {
       bytes.byteLength.toFixed();
     },
   }).connect();
-  await client.subscribe('a');
+  await client.subscribe('a', { qos: 1 });
   await client.publish('a', 'hello');
   await client.ping();
   await client.disconnect();
