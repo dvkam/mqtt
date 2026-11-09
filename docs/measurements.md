@@ -17,6 +17,7 @@ Keep workload, environment, tool versions, individual observations, summary and 
 | Outbound QoS 1 | [CI observations](baseline/qos1-outbound-checks.md) | Packed QoS 1 exchange validation, QoS 0 echo timings and fixture sizes |
 | Packet identifier allocator | [Set and bitset observations](baseline/packet-id-allocator.md) | Sparse and nearly full occupancy, five repetitions per variant |
 | Shared unsubscribe | [CI observations](baseline/unsubscribe-checks.md) | Packed unsubscribe validation, QoS 0 echo timings and fixture sizes |
+| Inbound QoS 1 | [CI and local observations](baseline/qos1-inbound-checks.md) | Packed delivery validation, QoS 0 echo timings and browser fixture measurements |
 
 The compact runner now uses the private production decoder described in [TCP packet input](tcp-packet-input.md) and [Node WebSocket packet input](websocket-packet-input.md). Historical prototype runs remain pinned in the measurement record. Decoder-only throughput excludes the input helper, session and native socket.
 
