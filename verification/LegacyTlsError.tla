@@ -1,4 +1,5 @@
 ---------------------------- MODULE LegacyTlsError ----------------------------
+EXTENDS Naturals
 CONSTANT Fault
 VARIABLE state
 vars == <<state>>
