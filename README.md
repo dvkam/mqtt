@@ -85,13 +85,13 @@ The [deadline guide](docs/deadlines.md) defines timeout validation, captured set
 
 The [outgoing admission guide](docs/outgoing-admission.md) defines publication count and wire-byte limits. Defaults allow 32 pending publications within 1 MiB. Capacity rejection occurs before sending and leaves the session usable.
 
-Pass `{ qos: 1 }` to publish with broker acknowledgment. The [QoS 1 guide](docs/qos1-publish.md) explains quota, shared identifiers and cancellation.
+Pass `{ qos: 1 }` to publish with broker acknowledgment. The [publishing guide](docs/qos1-publish.md) explains quota, shared identifiers and cancellation. To receive at QoS 1, configure `onQosOneMessage` and request QoS 1 when subscribing. See the [delivery guide](docs/qos1-receive.md) for the callback contract.
 
 The [concurrent subscription guide](docs/concurrent-subscriptions.md) defines independent packet-ID correlation and count/encoded-byte admission. Defaults permit 32 pending subscriptions within 1 MiB. Subscriptions can complete in a different order while ping remains independent.
 
 The [native write reserve](docs/native-write-reserve.md) checks observed queued bytes before each application send and preserves control admission room. TCP and WS/WSS default to a 1 MiB total with a 128 KiB control reserve. These settings preserve wire order and do not give control packets priority over queued data.
 
-- The supported clients open MQTT 5 clean sessions with Keep Alive set to zero. They support ordinary QoS 0 subscriptions, text publishing, received binary payloads, explicit ping and graceful disconnect.
+- The supported clients open MQTT 5 clean sessions with Keep Alive set to zero. They support ordinary QoS 0 and 1 subscriptions, text publishing, received binary payloads, explicit ping and graceful disconnect.
 - Only one ping can await PINGRESP. A failed ping retires the connection because a later PINGRESP cannot identify which request it answers.
 - Any operation timeout retires the session and starts forced cleanup. Later work cannot send. Already-admitted QoS 0 bytes may still reach the broker; a timeout does not prove non-delivery. The deadline guide explains custom transport cleanup requirements.
 - Successful QoS 0 publication reports local send completion or admission according to the adapter. It does not prove broker receipt or durable storage.
