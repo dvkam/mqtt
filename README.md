@@ -97,7 +97,7 @@ The [native write reserve](docs/native-write-reserve.md) checks observed queued 
 - Successful QoS 0 publication reports local send completion or admission according to the adapter. It does not prove broker receipt or durable storage.
 - Publishing rejects empty topic names, wildcards, null characters, unpaired surrogates and names exceeding 65,535 UTF-8 bytes before sending. Rejection leaves an active session usable. Topic aliases are not supported by this publishing API.
 - The browser transport has a write budget and the browser codec has a separate packet allocation limit. These are not a bound on every retained application object or an offline message queue.
-- Inbound QoS 1, QoS 2, reconnect, durable sessions, automatic keepalive scheduling, full authentication and the complete MQTT 5 property set remain planned work. The [codec profile](docs/codec.md) lists accepted packets and properties.
+- QoS 2, reconnect, durable sessions, automatic keepalive scheduling, full authentication and the complete MQTT 5 property set remain planned work. The [codec profile](docs/codec.md) lists accepted packets and properties.
 - The legacy `connect()` export remains for baseline comparisons. Its [retained option types](docs/legacy-options.md) do not imply implementation of all historical MQTT.js features.
 
 ## Entry points
