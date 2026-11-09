@@ -12,7 +12,7 @@ export interface BrowserTransport {
   close(): Promise<void>;
 }
 
-interface BrowserTransportOptions extends NativeWriteLimits {
+export interface BrowserTransportOptions extends NativeWriteLimits {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- This transport boundary uses native sockets, signals and mutable byte views.
   onBytes: (bytes: Uint8Array<ArrayBuffer>) => void;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- This transport boundary uses native sockets, signals and mutable byte views.

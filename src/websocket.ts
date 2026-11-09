@@ -1,6 +1,6 @@
 import { resolveTimeout } from './timeout.js';
 
-interface WebSocketOptions {
+export interface WebSocketOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
 }

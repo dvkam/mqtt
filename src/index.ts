@@ -87,4 +87,4 @@ export { createWebSocketClient } from './websocketClient.js';
 export type { TcpClientOptions } from './tcpClient.js';
 export type { WebSocketClientOptions } from './websocketClient.js';
 export type { ClientFactory, ClientSession, PublishOptions, QosOneMessage, SubscribeOptions } from './session.js';
-export type { NodeMessage } from './nodeMessage.js';
+export type { NodeMessage, NodeQosOneMessage } from './nodeMessage.js';
