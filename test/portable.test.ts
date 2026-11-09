@@ -166,21 +166,31 @@ function peer() {
 }
 
 test('completes the MQTT 5 QoS 0 tracer through an injected packet transport', async () => {
-  const { transport, packets } = peer();
-  const messages: Packet[] = [];
+  const broker = peer();
+  const { transport, packets } = broker;
+  const messages: unknown[] = [];
   const client = await connectPortable(transport, {
     clientId: 'tracer',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onMessage: (packet) => {
+    onMessage: (packet: Readonly<{ topic: string }>) => {
       messages.push(packet);
     },
   });
   await client.subscribe('tracer/echo');
-  await client.publish('tracer/echo', 'hello');
-  await client.disconnect();
+  await client.publish.call(undefined, 'tracer/echo', 'hello');
+  const pendingPing = client.ping.call(undefined);
+  broker.receive({ cmd: 'pingresp' });
+  await pendingPing;
+  const closing = client.disconnect.call(undefined);
+  expect(client.disconnect.call(undefined)).toBe(closing);
+  await closing;
 
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  expect(packets.map(({ cmd }) => cmd)).toEqual(['connect', 'subscribe', 'publish', 'disconnect']);
+  expect(packets.map(({ cmd }: Readonly<{ cmd: string }>) => cmd)).toEqual([
+    'connect',
+    'subscribe',
+    'publish',
+    'pingreq',
+    'disconnect',
+  ]);
   expect(messages).toEqual([{ cmd: 'publish', qos: 0, topic: 'tracer/echo', payload: 'hello', dup: false, retain: false }]);
 });
 

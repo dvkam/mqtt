@@ -2,10 +2,24 @@ import type { ConnectOptions } from '../../dist/interface/connectOptions.js';
 import type { PacketTransport } from '../../dist/portable.js';
 import { createBrowserClient, openBrowserTransport } from '../../dist/browser.js';
 
+type Same<Left, Right> =
+  (<Value>(_value: Value) => Value extends Left ? 1 : 2) extends <Value>(_value: Value) => Value extends Right ? 1 : 2
+    ? true
+    : false;
+type RequireTrue<Value extends true> = Value;
+type PacketListener = Parameters<PacketTransport['listen']>[0];
+type PacketCloseListener = Parameters<PacketTransport['listen']>[1];
+type Publish = Extract<Parameters<PacketListener>[0], { cmd: 'publish' }>;
+export type PacketTopicIsWritable = RequireTrue<Same<Pick<Publish, 'topic'>, { topic: string }>>;
+export type PacketErrorMessageIsWritable = RequireTrue<
+  Same<Pick<Parameters<PacketCloseListener>[0], 'message'>, { message: string }>
+>;
+
 export const packetTransport: PacketTransport = {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The assignment below checks that packed transport adapters can replace the payload.
   async send(packet) {
-    if (packet.cmd === 'publish') packet.payload = 'adapter-owned payload';
+    const admitted = await Promise.resolve(packet);
+    if (admitted.cmd === 'publish') admitted.payload = 'adapter-owned payload';
   },
   listen(_receive, onClose) {
     const error = new Error('transport failure');

@@ -21,6 +21,7 @@ Keep workload, environment, tool versions, individual observations, summary and 
 | Subscription acknowledgment validation | [CI observations](baseline/subscription-protocol-checks.md) | Valid broker echo timings and fixture bundle sizes |
 | Parser acknowledgment reporting | [CI observations](baseline/parser-ack-checks.md) | Valid broker echo timings and fixture bundle sizes |
 | Legacy TLS and comment audit | [CI observations](baseline/legacy-audit-checks.md) | Valid broker echo timings and fixture bundle sizes |
+| Session lint cleanup | [CI observations](baseline/lint-audit-checks.md) | Valid broker echo timings and fixture bundle sizes |
 
 The compact runner now uses the private production decoder described in [TCP packet input](tcp-packet-input.md) and [Node WebSocket packet input](websocket-packet-input.md). Historical prototype runs remain pinned in the measurement record. Decoder-only throughput excludes the input helper, session and native socket.
 

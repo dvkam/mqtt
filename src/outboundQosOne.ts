@@ -23,20 +23,18 @@ export class OutboundQosOne {
   private readonly queued = new Set<Publication>();
   private readonly active = new Map<number, Exchange>();
   private readonly quota: number;
-  private readonly identifiers: PacketIdentifiers;
+  private readonly identifiers: Readonly<Pick<PacketIdentifiers, 'reserve'>>;
   private readonly transmit: Transmit;
   private stopped?: Readonly<Error>;
   private draining = false;
 
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- All identified exchanges share the same mutable allocator.
-  constructor(quota: number, identifiers: PacketIdentifiers, transmit: Transmit) {
+  constructor(quota: number, identifiers: Readonly<Pick<PacketIdentifiers, 'reserve'>>, transmit: Transmit) {
     this.quota = quota;
     this.identifiers = identifiers;
     this.transmit = transmit;
   }
 
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- A native signal owns the cancellation listener.
-  async enqueue(topic: string, payload: string, releaseBudget: () => void, signal?: AbortSignal): Promise<void> {
+  async enqueue(topic: string, payload: string, releaseBudget: () => void, signal?: Readonly<AbortSignal>): Promise<void> {
     return new Promise((resolve, reject) => {
       if (this.stopped) {
         releaseBudget();
@@ -53,7 +51,7 @@ export class OutboundQosOne {
         detach();
         if (queue.delete(publication)) releaseBudget();
         const reason: unknown = cancellation?.reason;
-        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- AbortSignal permits an arbitrary caller-supplied reason.
+        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- AbortSignal.reason can be a symbol. The queued cancellation regression checks that callers receive it unchanged.
         reject(reason);
       }
       function cancelIfAborted(): boolean {
