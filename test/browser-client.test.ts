@@ -2,7 +2,7 @@ import { once } from 'node:events';
 import { generate, parser, type Packet } from 'mqtt-packet';
 import { WebSocketServer } from 'ws';
 import { afterEach, expect, test, vi } from 'vitest';
-import { createBrowserClient } from '../src/browserClient.js';
+import { createBrowserClient, type BrowserMessage } from '../src/browserClient.js';
 import * as portable from '../src/portable.js';
 
 afterEach(() => {
@@ -12,7 +12,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-async function peer(reasonCode = 0, dropPing = false) {
+async function peer(reasonCode = 0, dropPing = false, properties?: Readonly<{ receiveMaximum?: number; maximumQoS?: number }>) {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
   const address = server.address();
@@ -32,7 +32,13 @@ async function peer(reasonCode = 0, dropPing = false) {
       const send = (value: Packet) => {
         socket.send(generate(value, { protocolVersion: 5 }));
       };
-      if (packet.cmd === 'connect') send({ cmd: 'connack', sessionPresent: false, reasonCode });
+      if (packet.cmd === 'connect')
+        send({
+          cmd: 'connack',
+          sessionPresent: false,
+          reasonCode,
+          properties,
+        });
       if (packet.cmd === 'subscribe') send({ cmd: 'suback', messageId: packet.messageId, granted: [0] });
       if (packet.cmd === 'publish') send({ ...packet, payload: Buffer.from([0, 255, 128]) });
       if (packet.cmd === 'pingreq' && !dropPing) send({ cmd: 'pingresp' });
@@ -41,6 +47,9 @@ async function peer(reasonCode = 0, dropPing = false) {
   return {
     url: 'ws://127.0.0.1:' + address.port,
     packets,
+    sendWire(bytes: readonly number[]) {
+      for (const socket of server.clients) socket.send(Buffer.from(bytes));
+    },
     async disconnect() {
       const closed: Promise<unknown[]>[] = [];
       for (const socket of server.clients) {
@@ -60,10 +69,53 @@ async function peer(reasonCode = 0, dropPing = false) {
   };
 }
 
+test('forwards broker limits and PUBACK to the portable session', async () => {
+  const broker = await peer(0, false, { receiveMaximum: 1, maximumQoS: 0 });
+  const connect = portable.connectPortable;
+  const received: unknown[] = [];
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The test observes the existing mutable packet transport contract.
+  vi.spyOn(portable, 'connectPortable').mockImplementation(async (transport, options) => {
+    const listen = transport.listen.bind(transport);
+    transport.listen = (onPacket, onClose) =>
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Forward the adapter's original mutable packets to the session.
+      listen((packet) => {
+        if (packet.cmd === 'connack' || packet.cmd === 'puback') received.push(packet);
+        onPacket(packet);
+      }, onClose);
+    return connect(transport, options);
+  });
+  try {
+    const client = await createBrowserClient({ url: broker.url, clientId: 'receive-maximum' }).connect();
+    broker.sendWire([0x40, 3, 0, 7, 0x97]);
+    await client.ping();
+    expect(received).toMatchObject([
+      { cmd: 'connack', properties: { receiveMaximum: 1, maximumQoS: 0 } },
+      { cmd: 'puback', messageId: 7, reasonCode: 0x97 },
+    ]);
+    await client.disconnect();
+  } finally {
+    await broker.close();
+  }
+});
+
+test('keeps a decoded QoS 1 publication out of the QoS 0 message callback', async () => {
+  const broker = await peer(0, true);
+  const onMessage = vi.fn<() => void>();
+  try {
+    const client = await createBrowserClient({ url: broker.url, clientId: 'qos-1-inbound', onMessage }).connect();
+    const pending = client.ping();
+    broker.sendWire([0x32, 7, 0, 1, 97, 0, 1, 0, 255]);
+    await expect(pending).rejects.toThrow('Unsupported incoming MQTT QoS 1');
+    expect(onMessage).not.toHaveBeenCalled();
+  } finally {
+    await broker.close();
+  }
+});
+
 test('runs a public browser MQTT session with native codec and binary message payloads', async () => {
   const broker = await peer();
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  const onMessage = vi.fn<(packet: Extract<import('../src/codec.js').WirePacket, { cmd: 'publish' }>) => void>();
+  const onMessage = vi.fn<(packet: BrowserMessage) => void>();
   try {
     const factory = createBrowserClient({ url: broker.url, clientId: 'browser', onMessage });
     const opening = factory.connect();

@@ -62,8 +62,18 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
     onBytes(chunk) {
       for (const packet of decoder.push(chunk)) {
         switch (packet.cmd) {
-          case 'connack':
-            deliver?.({ cmd: 'connack', sessionPresent: packet.sessionPresent, reasonCode: packet.reasonCode });
+          case 'connack': {
+            const { receiveMaximum, maximumQoS } = packet;
+            deliver?.({
+              cmd: 'connack',
+              sessionPresent: packet.sessionPresent,
+              reasonCode: packet.reasonCode,
+              properties: receiveMaximum === undefined && maximumQoS === undefined ? undefined : { receiveMaximum, maximumQoS },
+            });
+            break;
+          }
+          case 'puback':
+            deliver?.({ cmd: 'puback', messageId: packet.messageId, reasonCode: packet.reasonCode });
             break;
           case 'suback':
             deliver?.({ cmd: 'suback', messageId: packet.messageId, granted: [...packet.granted] });
@@ -75,6 +85,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
             deliver?.({ cmd: 'disconnect', reasonCode: 0 });
             break;
           case 'publish':
+            if (packet.qos === 1) throw new Error('Unsupported incoming MQTT QoS 1');
             deliver?.({
               cmd: 'publish',
               topic: packet.topic,
