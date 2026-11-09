@@ -39,6 +39,7 @@ const client = await factory.connect();
 try {
   await assert.rejects(client.subscribe('ci/\u0000invalid'), /Invalid MQTT topic filter/);
   await Promise.all([client.subscribe('ci/echo'), client.subscribe('ci/other'), client.ping()]);
+  await Promise.all([client.publish('ci/qos1', 'first', { qos: 1 }), client.publish('ci/qos1', 'second', { qos: 1 })]);
   await client.ping();
   const samples = [];
   const iterations = Number(process.env['MQTT_TEST_ITERATIONS'] ?? 1);

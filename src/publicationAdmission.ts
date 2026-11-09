@@ -46,10 +46,11 @@ export class PublicationAdmission {
     this.limits = resolvePublicationLimits(options);
   }
 
-  reserve(topic: string, payload: string): () => void {
+  reserve(topic: string, payload: string, qos: 0 | 1 = 0): () => void {
     const available = this.limits.maxPendingPublishBytes - this.bytes;
     if (this.items >= this.limits.maxPendingPublishes) throw new RangeError('MQTT publication capacity exceeded');
-    const remaining = 3 + utf8Bytes(topic, available) + utf8Bytes(payload, available);
+    const identifierBytes = qos === 1 ? 2 : 0;
+    const remaining = 3 + identifierBytes + utf8Bytes(topic, available) + utf8Bytes(payload, available);
     let lengthBytes = 1;
     for (let value = remaining; value >= 128; value = Math.floor(value / 128)) lengthBytes++;
     const size = 1 + lengthBytes + remaining;

@@ -1,3 +1,5 @@
+import { PacketIdentifiers, type IdentifierLease } from './packetIdentifiers.js';
+
 export interface SubscriptionLimits {
   maxPendingSubscriptions?: number;
   maxPendingSubscriptionBytes?: number;
@@ -18,6 +20,7 @@ export function resolveSubscriptionLimits(options: Readonly<SubscriptionLimits>)
 
 interface Entry {
   bytes: number;
+  identifier: IdentifierLease;
   resolve: (code: number | undefined) => void;
   reject: (reason: Readonly<Error>) => void;
 }
@@ -25,12 +28,14 @@ interface Entry {
 export class SubscriptionExchanges {
   private readonly limits: ReturnType<typeof resolveSubscriptionLimits>;
   private readonly entries = new Map<number, Entry>();
+  private readonly identifiers: PacketIdentifiers;
   private bytes = 0;
-  private cursor = 0;
   private failure?: Error;
 
-  constructor(options: Readonly<SubscriptionLimits>) {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- All identified exchanges share the same mutable allocator.
+  constructor(options: Readonly<SubscriptionLimits>, identifiers = new PacketIdentifiers()) {
     this.limits = resolveSubscriptionLimits(options);
+    this.identifiers = identifiers;
   }
 
   reserve(topic: string) {
@@ -48,19 +53,16 @@ export class SubscriptionExchanges {
     for (let value = remaining; value >= 128; value = Math.floor(value / 128)) lengthBytes++;
     const bytes = 1 + lengthBytes + remaining;
     if (bytes > available) throw new RangeError('MQTT subscription capacity exceeded');
-    let messageId = this.cursor;
-    do {
-      messageId = messageId === 65_535 ? 1 : messageId + 1;
-    } while (this.entries.has(messageId));
+    const identifier = this.identifiers.reserve();
+    const { messageId } = identifier;
     let resolve!: Entry['resolve'];
     let reject!: Entry['reject'];
     const acknowledged = new Promise<number | undefined>((accept, refuse) => {
       resolve = accept;
       reject = refuse;
     });
-    const entry: Entry = { bytes, resolve, reject };
+    const entry: Entry = { bytes, identifier, resolve, reject };
     this.entries.set(messageId, entry);
-    this.cursor = messageId;
     this.bytes += bytes;
     return {
       messageId,
@@ -69,6 +71,7 @@ export class SubscriptionExchanges {
         if (this.entries.get(messageId) !== entry) return;
         this.entries.delete(messageId);
         this.bytes -= entry.bytes;
+        identifier.release();
       },
     };
   }
@@ -83,7 +86,10 @@ export class SubscriptionExchanges {
 
   retire(reason: Readonly<Error>): void {
     this.failure ??= reason;
-    for (const entry of this.entries.values()) entry.reject(this.failure);
+    for (const entry of this.entries.values()) {
+      entry.reject(this.failure);
+      entry.identifier.release();
+    }
     this.entries.clear();
     this.bytes = 0;
   }

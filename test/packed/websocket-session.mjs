@@ -16,6 +16,7 @@ export async function mqttClientSession(url) {
   }).connect();
   try {
     await Promise.all([client.subscribe('ci/browser-client'), client.subscribe('ci/browser-other'), client.ping()]);
+    await Promise.all([client.publish('ci/qos1', 'first', { qos: 1 }), client.publish('ci/qos1', 'second', { qos: 1 })]);
     const reply = new Promise(
       /** @param {(message: {readonly topic: string, readonly payload: readonly number[]}) => void} resolve */ (
         resolve,
