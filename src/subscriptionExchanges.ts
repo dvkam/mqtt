@@ -18,9 +18,12 @@ export function resolveSubscriptionLimits(options: Readonly<SubscriptionLimits>)
   return { maxPendingSubscriptions, maxPendingSubscriptionBytes };
 }
 
+type AcknowledgmentKind = 'suback' | 'unsuback';
+
 interface Entry {
   bytes: number;
   identifier: IdentifierLease;
+  kind: AcknowledgmentKind;
   resolve: (code: number | undefined) => void;
   reject: (reason: Readonly<Error>) => void;
 }
@@ -38,12 +41,12 @@ export class SubscriptionExchanges {
     this.identifiers = identifiers;
   }
 
-  reserve(topic: string) {
+  reserve(topic: string, kind: AcknowledgmentKind = 'suback') {
     if (this.failure) throw this.failure;
     const available = this.limits.maxPendingSubscriptionBytes - this.bytes;
     if (this.entries.size >= this.limits.maxPendingSubscriptions) throw new RangeError('MQTT subscription capacity exceeded');
     // Validation has already established valid Unicode and the MQTT string limit.
-    let remaining = 6;
+    let remaining = kind === 'suback' ? 6 : 5;
     for (const character of topic) {
       const code = character.codePointAt(0)!;
       remaining += code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4;
@@ -61,7 +64,7 @@ export class SubscriptionExchanges {
       resolve = accept;
       reject = refuse;
     });
-    const entry: Entry = { bytes, identifier, resolve, reject };
+    const entry: Entry = { bytes, identifier, kind, resolve, reject };
     this.entries.set(messageId, entry);
     this.bytes += bytes;
     return {
@@ -76,10 +79,10 @@ export class SubscriptionExchanges {
     };
   }
 
-  accept(messageId: number | undefined, granted: readonly unknown[]): void {
+  accept(messageId: number | undefined, granted: readonly unknown[], kind: AcknowledgmentKind = 'suback'): void {
     if (messageId === undefined) return;
     const entry = this.entries.get(messageId);
-    if (!entry) return;
+    if (!entry || entry.kind !== kind) return;
     const code = granted[0];
     entry.resolve(granted.length === 1 && typeof code === 'number' ? code : undefined);
   }

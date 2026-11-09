@@ -19,6 +19,7 @@ export async function checkDeclarations(transport: PacketTransport) {
 
   const portable = await connectPortable(transport, { clientId: 'consumer' });
   await portable.subscribe('consumer/test');
+  await portable.unsubscribe('consumer/test');
   await portable.publish('consumer/test', 'hello');
   // @ts-expect-error The experimental tracer accepts string payloads.
   await portable.publish('consumer/test', 42);

@@ -2,6 +2,7 @@ export type PublishOptions = { qos?: 0; signal?: never } | { qos: 1; signal?: Ab
 
 export interface ClientSession {
   subscribe(topic: string): Promise<void>;
+  unsubscribe(topic: string): Promise<void>;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The cancellation signal retains its native identity.
   publish(topic: string, payload: string, options?: Readonly<PublishOptions>): Promise<void>;
   ping(): Promise<void>;
