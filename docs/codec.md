@@ -31,7 +31,7 @@ The encoder checks packet fields against this profile. Wills, reasoned disconnec
 
 Pass `qos: 1` and `messageId` on a QoS 1 PUBLISH. QoS 0 packets may omit `qos` and decode to their existing shape. PUBACK decodes the omitted reason as success and accepts explicit reasons with or without the zero Property Length field. Its encoder emits the shortest form for the supplied reason and properties.
 
-The browser adapter forwards Receive Maximum, Maximum QoS and PUBACK identifiers and reason codes to the session. The current session discards PUBACK because it has no active QoS 1 publications. Send quota and exchange ownership are tracked in #10. The browser session rejects incoming QoS 1 PUBLISH frames pending inbound acknowledgment support.
+The browser adapter forwards Receive Maximum, Maximum QoS and PUBACK identifiers and reason codes to the session. The [outbound QoS 1 guide](qos1-publish.md) describes quota and acknowledgment ownership. The browser session rejects incoming QoS 1 PUBLISH frames pending inbound acknowledgment support.
 
 The encoder uses the compact two-byte normal DISCONNECT. mqtt-packet 9.0.2 regenerates the same operation with an explicit reason and empty properties. Both forms are valid under MQTT 5 section 3.14.
 

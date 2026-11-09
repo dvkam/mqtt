@@ -50,7 +50,7 @@ A subscription send rejection can mean that bytes reached the peer. The client r
 
 Identifiers use the range 1 through 65,535. Allocation wraps and skips occupied identifiers. Each release owns its entry identity. An old callback cannot delete a newer entry after numeric identifier reuse. A local identity token cannot distinguish an arbitrary stale same-kind wire acknowledgment after legitimate reuse within one connection. This design assumes the peer follows MQTT exchange and ordering rules. Reconnect generation fencing remains separate work under #12.
 
-The native [control reserve](native-write-reserve.md), [publication admission](outgoing-admission.md), subscription pool and ping response fence describe different resources. Concurrent subscriptions add no priority scheduler and cannot overtake an earlier native write. Publication remains QoS 0. A future QoS 1 operation needs its own negotiated quota, acknowledgment lifetime and shared identifier ownership under #10.
+The native [control reserve](native-write-reserve.md), [publication admission](outgoing-admission.md), subscription pool and ping response fence describe different resources. Concurrent subscriptions preserve native write order. [Outbound QoS 1 publications](qos1-publish.md) share the identifier allocator and own separate negotiated quota.
 
 ## Verification
 
