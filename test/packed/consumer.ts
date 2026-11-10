@@ -144,12 +144,10 @@ export function checkCodecDeclarations() {
 export async function checkBrowserTransportDeclarations(signal: AbortSignal) {
   const transport = await openBrowserTransport('wss://localhost/mqtt', {
     signal,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onBytes(bytes) {
+    onBytes(bytes: Readonly<{ byteLength: number }>) {
       bytes.byteLength.toFixed();
     },
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onClose(reason) {
+    onClose(reason: Readonly<Error>) {
       reason.message.toLowerCase();
     },
   });
