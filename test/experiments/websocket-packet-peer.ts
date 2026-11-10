@@ -6,7 +6,7 @@ const publication = Uint8Array.of(0x30, 6, 0, 1, 97, 0, 104, 105);
 const connack = Uint8Array.of(0x20, 3, 0, 0, 0);
 const excess = Uint8Array.of(0x30, 7);
 
-export async function startWebSocketPacketPeer(mode: string) {
+export async function startWebSocketPacketPeer(mode: string, pingReply?: readonly number[]) {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
   const address = server.address();
@@ -52,7 +52,8 @@ export async function startWebSocketPacketPeer(mode: string) {
         } else socket.send(publication);
       }
       if (packet.cmd === 'pingreq') {
-        if (mode === 'tiny-messages') {
+        if (pingReply) socket.send(Uint8Array.from(pingReply));
+        else if (mode === 'tiny-messages') {
           for (const byte of excess) socket.send(Uint8Array.of(byte));
         } else if (mode === 'fragmented-limit') {
           socket.send(Uint8Array.of(0x30, 0x80));

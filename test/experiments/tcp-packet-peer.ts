@@ -6,7 +6,7 @@ const publication = Uint8Array.of(0x30, 6, 0, 1, 97, 0, 104, 105);
 const connack = Uint8Array.of(0x20, 3, 0, 0, 0);
 const excess = Uint8Array.of(0x30, 7);
 
-export async function startTcpPacketPeer(mode: string) {
+export async function startTcpPacketPeer(mode: string, pingReply?: readonly number[]) {
   const sockets = new Set<Socket>();
   const commands: string[] = [];
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer owns a mutable native socket.
@@ -51,7 +51,8 @@ export async function startTcpPacketPeer(mode: string) {
       }
       if (packet.cmd === 'publish') socket.write(publication);
       if (packet.cmd === 'pingreq') {
-        if (mode === 'noncanonical-ping') socket.write(Uint8Array.of(0xd0, 0x80, 0));
+        if (pingReply) socket.write(Uint8Array.from(pingReply));
+        else if (mode === 'noncanonical-ping') socket.write(Uint8Array.of(0xd0, 0x80, 0));
         else if (mode === 'limit-ping') socket.write(excess);
         else if (mode === 'prefix-ping') socket.write(Uint8Array.from([0xd0, 0, ...excess]));
         else if (mode === 'fragmented-limit') {
