@@ -1,5 +1,5 @@
 import type { DiagnosticObserver } from './diagnostics.js';
-import { ProtocolInputError } from './protocolInputError.js';
+import { brokerPacketDirectionError, isClientOnlyCommand, ProtocolInputError } from './protocolInputError.js';
 import { openBrowserTransport } from './browserTransport.js';
 import { encodePacket, PacketDecoder, type UserProperty, type WirePacket } from './codec.js';
 import { connectPortable, type PacketTransport } from './portable.js';
@@ -76,12 +76,16 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
       if (failure) return;
       const batch = decoder.pushBatch(chunk);
       const rejected = !Array.isArray(batch);
-      const error = rejected ? batch.error : undefined;
+      let error = rejected ? batch.error : undefined;
       if (error && (!(error instanceof ProtocolInputError) || !protocolError)) throw error;
       const packets = rejected ? batch.packets : batch;
       const listener = deliver;
       for (const packet of packets) {
         if (deliver !== listener) return;
+        if (isClientOnlyCommand(packet.cmd)) {
+          error = brokerPacketDirectionError(packet.cmd);
+          break;
+        }
         switch (packet.cmd) {
           case 'connack': {
             const { receiveMaximum, maximumQoS } = packet;
@@ -133,17 +137,12 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
             } else deliver?.({ ...message, qos: 0, dup: false });
             break;
           }
-          case 'connect':
-          case 'pingreq':
-          case 'subscribe':
-          case 'unsubscribe':
-          default:
-            throw new Error('Unexpected MQTT packet from broker: ' + packet.cmd);
         }
       }
       if (deliver !== listener || !error) return;
+      if (!protocolError) throw error;
       failure = error;
-      protocolError?.(error);
+      protocolError(error);
     },
     onClose(reason: Readonly<Error>, kind) {
       let terminalReason = reason;

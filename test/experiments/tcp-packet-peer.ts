@@ -9,6 +9,7 @@ const excess = Uint8Array.of(0x30, 7);
 export async function startTcpPacketPeer(mode: string, pingReply?: readonly number[]) {
   const sockets = new Set<Socket>();
   const commands: string[] = [];
+  const disconnectReasons: number[] = [];
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer owns a mutable native socket.
   const server = createServer((socket) => {
     sockets.add(socket);
@@ -70,7 +71,10 @@ export async function startTcpPacketPeer(mode: string, pingReply?: readonly numb
         else if (mode === 'transfer-prefix-ping') socket.write(Uint8Array.from([...publication, 0xd0, 0]));
         else socket.write(Uint8Array.of(0xd0, 0));
       }
-      if (packet.cmd === 'disconnect') socket.end();
+      if (packet.cmd === 'disconnect') {
+        disconnectReasons.push(packet.reasonCode ?? 0);
+        socket.end();
+      }
     });
   });
   server.listen(0, '127.0.0.1');
@@ -81,6 +85,7 @@ export async function startTcpPacketPeer(mode: string, pingReply?: readonly numb
     host: '127.0.0.1',
     port: address.port,
     commands,
+    disconnectReasons,
     endPartial() {
       for (const socket of sockets) socket.end(Uint8Array.of(0x30, 6, 0));
     },

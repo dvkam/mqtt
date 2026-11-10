@@ -12,6 +12,7 @@ export async function startWebSocketPacketPeer(mode: string, pingReply?: readonl
   const address = server.address();
   if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
   const commands: string[] = [];
+  const disconnectReasons: number[] = [];
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The scripted peer owns mutable native WebSockets.
   server.on('connection', (socket) => {
     socket.on('error', () => {});
@@ -83,12 +84,16 @@ export async function startWebSocketPacketPeer(mode: string, pingReply?: readonl
           socket.send(Uint8Array.of(0));
         } else socket.send(Uint8Array.of(0xd0, 0));
       }
-      if (packet.cmd === 'disconnect') socket.close();
+      if (packet.cmd === 'disconnect') {
+        disconnectReasons.push(packet.reasonCode ?? 0);
+        socket.close();
+      }
     });
   });
   return {
     url: 'ws://127.0.0.1:' + address.port,
     commands,
+    disconnectReasons,
     async close() {
       for (const socket of server.clients) socket.terminate();
       await new Promise<void>((resolve) => {
