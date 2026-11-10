@@ -180,3 +180,16 @@ test.each(['tcp', 'websocket'] as const)('%s timeout releases cancellation befor
     await peer.close();
   }
 });
+
+test('a timed-out ping rejects while forced transport close remains pending', async () => {
+  vi.useFakeTimers();
+  const peer = stalledPeer('pending');
+  const client = await connectPortable(peer.transport, { clientId: 'ping-timeout', timeoutMs: 100 });
+  const ping = client.ping().catch((error: unknown) => error);
+  vi.advanceTimersByTime(100);
+  const reason = await ping;
+  expect(reason).toMatchObject({ message: 'MQTT operation timed out' });
+  expect(peer.close).toHaveBeenCalledExactlyOnceWith(true);
+  await expect(client.ping()).rejects.toBe(reason);
+  peer.writes[0]?.resolve();
+}, 500);
