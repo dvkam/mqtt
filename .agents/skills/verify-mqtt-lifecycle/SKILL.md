@@ -457,3 +457,9 @@ ParserAckNotice still checks the accepted, opening and local-close notice decisi
 ## Packed ready batch probe
 
 Harness sync commit 46e6a3a drives the existing ready-batch queue through the installed browser WebSocket client. It holds 64 messages while three controls settle, drains a FIFO phase, repeats, then checks native close and zero observed listeners and timers. ReadyBatch and MessageQueueOwnership keep their transitions and bounds. The packed test checks actual payload sequence, dispatch count, control wire order and cleanup. Changing one delivered batch value fails its checksum assertion. The timing and resource samples in docs/packed-batch-network.md are concrete observations outside the model.
+
+## Generic browser decoder failure order
+
+Source sync commit ac659d1 delivers the decoded prefix while the current listener owns input. If an earlier packet causes retirement, the decoder suffix cannot replace that result. Otherwise the browser reports a classified error to the session or throws a generic error through the byte transport. Only the classified path can send a reasoned notice. The standalone codec result and failure identity are unchanged.
+
+BrowserAckOrder now includes a generic suffix alongside the malformed acknowledgment suffix. GenericPrefixRetained checks that an accepted CONNACK still reaches the core. GenericDoesNotReport checks that a generic error sends no protocol notice. The old refusal property covers both suffix types. The added generic-drop and generic-notice faults violate their corresponding properties. The model abstracts one CONNACK and one decoder error. Concrete tests cover active PUBLISH delivery, a direction error ahead of a later invalid header, the first refusal, and actual notice bytes. The old early throw fails three regressions. A source fault promoting a generic error to 0x82 sends a notice and fails the wire test.
