@@ -4,6 +4,7 @@ import { WebSocketServer } from 'ws';
 import { afterEach, expect, test, vi } from 'vitest';
 import { createBrowserClient } from '../src/browserClient.js';
 import * as portable from '../src/portable.js';
+import type { SessionEnd } from '../src/session.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -480,6 +481,41 @@ test.each([
     }
   },
 );
+
+test.each(['abort', 'throw'] as const)('keeps the prefix handler %s ahead of a decoder failure', async (mode) => {
+  const broker = await peer(0, true);
+  const controller = new AbortController();
+  const cause = new Error('Stopped by the first PUBLISH');
+  const ends: SessionEnd[] = [];
+  const onMessage = vi.fn<() => void>(() => {
+    if (mode === 'throw') throw cause;
+    controller.abort(cause);
+  });
+  try {
+    const client = await createBrowserClient({
+      url: broker.url,
+      clientId: 'prefix-handler-' + mode,
+      signal: controller.signal,
+      onMessage,
+      onSessionEnd(event) {
+        ends.push(event);
+      },
+    }).connect();
+    const pending = client.ping();
+    broker.sendWire([0x30, 5, 0, 1, 97, 0, 42, ...invalidHeader]);
+    await expect(pending).rejects.toBe(cause);
+    await expect(client.ping()).rejects.toBe(cause);
+    await expect.poll(() => broker.closed).toBe(true);
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(ends).toHaveLength(1);
+    const end = ends[0];
+    if (end?.kind !== 'error') throw new Error('Expected error retirement');
+    expect(end.error).toBe(cause);
+    expect(broker.packets.slice(2)).toEqual([]);
+  } finally {
+    await broker.close();
+  }
+});
 
 test('browser clients forward opt-in diagnostics', async () => {
   const broker = await peer();
