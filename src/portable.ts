@@ -1,3 +1,4 @@
+import { packetReceiver, packetSender, reportDiagnostic, type DiagnosticObserver } from './diagnostics.js';
 import { ProtocolInputError } from './protocolInputError.js';
 import type { IConnectPacket, IPublishPacket, Packet } from 'mqtt-packet';
 import type { ClientSession, QosOneMessage, SubscribeOptions } from './session.js';
@@ -9,6 +10,7 @@ import { PacketIdentifiers } from './packetIdentifiers.js';
 import { OutboundQosOne } from './outboundQosOne.js';
 import { isPubackReason } from './pubackReason.js';
 
+export type { ClientDiagnostic, DiagnosticObserver } from './diagnostics.js';
 export type { ProtocolInputCode, ProtocolInputError } from './protocolInputError.js';
 
 type PublishMessage = Omit<IPublishPacket, 'payload'> & { payload: unknown };
@@ -36,6 +38,7 @@ export interface PortableOptions<Message extends PublishMessage = IPublishPacket
   username?: IConnectPacket['username'];
   password?: IConnectPacket['password'];
   timeoutMs?: number;
+  onDiagnostic?: DiagnosticObserver;
   onMessage?: (packet: Message) => void;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Delivery preserves the adapter's mutable byte buffer type.
   onQosOneMessage?: (packet: QosOneMessage<Message>) => void | Promise<void>;
@@ -53,6 +56,8 @@ type Acknowledgment =
 
 class PortableClient<Message extends PublishMessage> {
   private readonly transport: PacketTransport<Message>;
+  private readonly sendPacket: PacketTransport<Message>['send'];
+  private readonly onDiagnostic: DiagnosticObserver | undefined;
   private readonly options: PortableOptions<Message>;
   private pendingAck?: (packet: Acknowledgment) => void;
   private readonly pendingOperations = new Set<(error: Readonly<Error>) => void>();
@@ -76,53 +81,59 @@ class PortableClient<Message extends PublishMessage> {
     this.publications = new PublicationAdmission(options);
     this.subscriptions = new SubscriptionExchanges(options, this.identifiers);
     this.transport = transport;
+    this.onDiagnostic = options.onDiagnostic;
+    this.sendPacket = packetSender(transport, this.onDiagnostic);
     this.options = options;
     this.onQosOneMessage = options.onQosOneMessage;
     this.unlisten = transport.listen(
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
-      (packet) => {
-        if (this.failure) return;
-        if (packet.cmd === 'disconnect') {
-          void this.abort(Object.assign(new Error('MQTT broker disconnected'), { code: packet.reasonCode ?? 0 })).catch(() => {});
-          return;
-        }
-        if (packet.cmd === 'suback' || packet.cmd === 'unsuback') {
-          const code = this.subscriptions.accept(packet.messageId, packet.granted, packet.cmd);
-          if (code !== undefined) {
-            this.rejectProtocolInput(new ProtocolInputError('Invalid MQTT subscription acknowledgment', code));
+      packetReceiver(
+        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
+        (packet: IncomingPacket<Message>) => {
+          if (this.failure) return;
+          if (packet.cmd === 'disconnect') {
+            void this.abort(Object.assign(new Error('MQTT broker disconnected'), { code: packet.reasonCode ?? 0 })).catch(() => {});
             return;
           }
-        }
-        if (packet.cmd === 'puback') {
-          const { messageId, reasonCode: code = 0 } = packet;
-          if (messageId === undefined || !Number.isInteger(messageId) || messageId < 1 || messageId > 65_535) {
-            void this.abort(new Error('Invalid PUBACK packet identifier')).catch(() => {});
-            return;
+          if (packet.cmd === 'suback' || packet.cmd === 'unsuback') {
+            const code = this.subscriptions.accept(packet.messageId, packet.granted, packet.cmd);
+            if (code !== undefined) {
+              this.rejectProtocolInput(new ProtocolInputError('Invalid MQTT subscription acknowledgment', code));
+              return;
+            }
           }
-          if (!isPubackReason(code)) {
-            void this.abort(new Error('Invalid PUBACK reason code')).catch(() => {});
-            return;
+          if (packet.cmd === 'puback') {
+            const { messageId, reasonCode: code = 0 } = packet;
+            if (messageId === undefined || !Number.isInteger(messageId) || messageId < 1 || messageId > 65_535) {
+              void this.abort(new Error('Invalid PUBACK packet identifier')).catch(() => {});
+              return;
+            }
+            if (!isPubackReason(code)) {
+              void this.abort(new Error('Invalid PUBACK reason code')).catch(() => {});
+              return;
+            }
+            this.outbound?.accept(messageId, code);
           }
-          this.outbound?.accept(messageId, code);
-        }
-        if (packet.cmd === 'connack' || packet.cmd === 'pingresp') this.pendingAck?.(packet);
-        if (this.closing || packet.cmd !== 'publish') return;
-        if (this.activation === 'active' && packet.qos === 0) options.onMessage?.(packet);
-        if (packet.qos === 1 && this.onQosOneMessage) {
-          const { messageId, dup } = packet;
-          if (
-            messageId === undefined ||
-            !Number.isInteger(messageId) ||
-            messageId < 1 ||
-            messageId > 65_535 ||
-            typeof dup !== 'boolean'
-          ) {
-            void this.abort(new Error('Invalid inbound QoS 1 PUBLISH')).catch(() => {});
-            return;
+          if (packet.cmd === 'connack' || packet.cmd === 'pingresp') this.pendingAck?.(packet);
+          if (this.closing || packet.cmd !== 'publish') return;
+          if (this.activation === 'active' && packet.qos === 0) options.onMessage?.(packet);
+          if (packet.qos === 1 && this.onQosOneMessage) {
+            const { messageId, dup } = packet;
+            if (
+              messageId === undefined ||
+              !Number.isInteger(messageId) ||
+              messageId < 1 ||
+              messageId > 65_535 ||
+              typeof dup !== 'boolean'
+            ) {
+              void this.abort(new Error('Invalid inbound QoS 1 PUBLISH')).catch(() => {});
+              return;
+            }
+            this.receiveQosOne({ ...packet, qos: 1, messageId, dup });
           }
-          this.receiveQosOne({ ...packet, qos: 1, messageId, dup });
-        }
-      },
+        },
+        this.onDiagnostic,
+        () => this.failure === undefined,
+      ),
       (error: Readonly<Error>) => {
         this.fail(error);
       },
@@ -157,6 +168,8 @@ class PortableClient<Message extends PublishMessage> {
     }
     this.activation = 'active';
     this.advanceInbound();
+    const interrupted = this.reportConnection('active');
+    if (interrupted) throw interrupted;
   }
 
   async changeSubscription(topic: string, command: 'subscribe' | 'unsubscribe', qos = 0): Promise<void> {
@@ -212,7 +225,7 @@ class PortableClient<Message extends PublishMessage> {
         await this.onQosOneMessage?.(packet);
         if (this.failure || this.closing) return;
         this.inboundPhase = 'acknowledging';
-        await this.transport.send({ cmd: 'puback', messageId, reasonCode: 0 });
+        await this.sendPacket({ cmd: 'puback', messageId, reasonCode: 0 });
       }, false);
     } catch (reason) {
       if (!this.failure && !this.closing)
@@ -249,7 +262,7 @@ class PortableClient<Message extends PublishMessage> {
     const release = this.publications.reserve(topic, payload);
     await this.run(async () => {
       try {
-        await this.transport.send({
+        await this.sendPacket({
           cmd: 'publish',
           topic,
           payload,
@@ -288,7 +301,7 @@ class PortableClient<Message extends PublishMessage> {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The transport accepts the original mutable packet shape.
   private async sendIdentified(packet: Packet, fallback: string): Promise<void> {
     try {
-      await this.transport.send(packet);
+      await this.sendPacket(packet);
     } catch (reason) {
       void this.abort(reason instanceof Error ? reason : new Error(fallback)).catch(() => {});
       throw reason;
@@ -334,7 +347,7 @@ class PortableClient<Message extends PublishMessage> {
       const deadline = new Promise<void>((resolve) => {
         timer = setTimeout(resolve, this.timeoutMs);
       });
-      await Promise.race([deadline, this.transport.send({ cmd: 'disconnect', reasonCode })]);
+      await Promise.race([deadline, this.sendPacket({ cmd: 'disconnect', reasonCode })]);
     } catch {
       // The first protocol failure remains the public cause if DISCONNECT cannot be sent.
     } finally {
@@ -344,7 +357,7 @@ class PortableClient<Message extends PublishMessage> {
 
   private async end(): Promise<void> {
     try {
-      await this.run(async () => this.transport.send({ cmd: 'disconnect' }));
+      await this.run(async () => this.sendPacket({ cmd: 'disconnect' }));
     } catch (error) {
       await this.abort(error instanceof Error ? error : new Error('MQTT disconnect failed')).catch(() => {});
       throw error;
@@ -378,7 +391,7 @@ class PortableClient<Message extends PublishMessage> {
     });
     try {
       const reply = await this.run(async () => {
-        const [received] = await Promise.all([ack, this.transport.send(packet)]);
+        const [received] = await Promise.all([ack, this.sendPacket(packet)]);
         return received;
       });
       if (reply.cmd === 'connack' && reply.reasonCode !== 0)
@@ -424,6 +437,13 @@ class PortableClient<Message extends PublishMessage> {
     this.outbound?.retire(error);
     for (const reject of this.pendingOperations) reject(error);
     this.unlisten?.();
+    this.reportConnection('retired');
+  }
+
+  private reportConnection(state: 'active' | 'retired'): Error | undefined {
+    if (state === 'active' && this.failure) return this.failure;
+    if (this.onDiagnostic) void reportDiagnostic(this.onDiagnostic, { kind: 'connection', state });
+    return this.failure;
   }
 }
 

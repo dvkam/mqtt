@@ -256,3 +256,120 @@ test('ignores a queued application frame delivered after transport failure', asy
   await expect(client.publish('late', 'reply')).rejects.toBe(reason);
   expect(messages).toEqual([]);
 });
+
+test('opt-in diagnostics include only connection state and packet commands', async () => {
+  const broker = peer();
+  const events: unknown[] = [];
+  const client = await connectPortable(broker.transport, {
+    clientId: 'private-client',
+    username: 'private-user',
+    password: Buffer.from('private-password'),
+    onDiagnostic(event: unknown) {
+      events.push(event);
+    },
+  });
+  broker.receive({
+    cmd: 'auth',
+    reasonCode: 0x18,
+    properties: { authenticationMethod: 'private-method', authenticationData: Buffer.from('private-auth') },
+  });
+  Reflect.apply(broker.receive, undefined, [{ cmd: 'private-unrecognized-command' }]);
+  await client.publish('private/topic', 'private-payload');
+  broker.close(new Error('private-failure'));
+  expect(events).toEqual([
+    { kind: 'packet', direction: 'inbound', command: 'connack' },
+    { kind: 'packet', direction: 'outbound', command: 'connect' },
+    { kind: 'connection', state: 'active' },
+    { kind: 'packet', direction: 'inbound', command: 'auth' },
+    { kind: 'packet', direction: 'inbound', command: 'publish' },
+    { kind: 'packet', direction: 'outbound', command: 'publish' },
+    { kind: 'connection', state: 'retired' },
+  ]);
+});
+
+test.each(['throw', 'reject'])('a diagnostic observer can %s without replacing session outcomes', async (mode) => {
+  const broker = peer();
+  const observerFailure = new Error('observer failure');
+  let calls = 0;
+  const client = await connectPortable(broker.transport, {
+    clientId: 'observer',
+    onDiagnostic:
+      mode === 'throw'
+        ? () => {
+            calls++;
+            throw observerFailure;
+          }
+        : async () => {
+            calls++;
+            await Promise.reject(observerFailure);
+          },
+  });
+  const pending = client.ping();
+  broker.receive({ cmd: 'pingresp' });
+  await pending;
+  const terminal = new Error('transport failure');
+  broker.close(terminal);
+  await expect(client.ping()).rejects.toBe(terminal);
+  expect(calls).toBeGreaterThan(0);
+});
+
+test('retirement during the active diagnostic rejects the connection with its first reason', async () => {
+  const broker = peer();
+  const failure = new Error('retired during diagnostics');
+  const states: string[] = [];
+  await expect(
+    connectPortable(broker.transport, {
+      clientId: 'diagnostic-retirement',
+      onDiagnostic(event) {
+        if (event.kind !== 'connection') return;
+        states.push(event.state);
+        if (event.state === 'active') broker.close(failure);
+      },
+    }),
+  ).rejects.toBe(failure);
+  expect(states).toEqual(['active', 'retired']);
+});
+
+test('a synchronous send failure reaches the session before diagnostics', async () => {
+  const broker = peer();
+  const original = new Error('write failed');
+  const replacement = new Error('observer retired transport');
+  const client = await connectPortable(broker.transport, {
+    clientId: 'diagnostic-sync-send',
+    onDiagnostic(event) {
+      if (event.kind === 'packet' && event.direction === 'outbound' && event.command === 'pingreq') broker.close(replacement);
+    },
+  });
+  broker.transport.send = () => {
+    throw original;
+  };
+  await expect(client.ping()).rejects.toBe(original);
+  await expect(client.ping()).rejects.toBe(original);
+});
+
+test('a rejected observer promise with an overridden catch cannot escape', async () => {
+  const broker = peer();
+  const overriddenCatch = vi.fn<() => never>(() => {
+    throw new Error('overridden catch');
+  });
+  const onDiagnostic = vi.fn<(event: unknown) => void | Promise<void>>();
+  onDiagnostic.mockReturnValue(Object.assign(Promise.reject(new Error('observer rejection')), { catch: overriddenCatch }));
+  const client = await connectPortable(broker.transport, { clientId: 'rejecting-observer', onDiagnostic });
+  await client.disconnect();
+  expect(onDiagnostic).toHaveBeenCalled();
+  expect(overriddenCatch).not.toHaveBeenCalled();
+});
+
+test.each([false, true])('keeps the opening QoS 1 retirement with diagnostics enabled = %s', async (enabled) => {
+  const broker = peer();
+  const failure = new Error('opening handler retired transport');
+  const connecting = connectPortable(broker.transport, {
+    clientId: 'opening-handler',
+    onDiagnostic: enabled ? () => {} : undefined,
+    onQosOneMessage() {
+      broker.close(failure);
+    },
+  });
+  broker.receive({ cmd: 'publish', topic: 'early', payload: 'message', qos: 1, messageId: 1, dup: false, retain: false });
+  await expect(connecting).rejects.toBe(failure);
+});

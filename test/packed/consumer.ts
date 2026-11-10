@@ -1,4 +1,11 @@
-import { connect, createTcpClient, createWebSocketClient, type NodeQosOneMessage } from 'mqtt';
+import {
+  connect,
+  createTcpClient,
+  createWebSocketClient,
+  type ClientDiagnostic,
+  type DiagnosticObserver,
+  type NodeQosOneMessage,
+} from 'mqtt';
 export type { ConnectOptions, LegacyAckCompletion, LegacyAckHandler, PacketIdentifier, PacketLookup, PacketStore } from 'mqtt';
 export type { ClientFactory, ClientSession, NodeMessage, PublishOptions, TcpClientOptions, WebSocketClientOptions } from 'mqtt';
 export type { BrowserClientOptions, ClientFactory as BrowserFactory, ClientSession as BrowserClientSession } from 'mqtt/browser';
@@ -50,7 +57,11 @@ export async function checkDeclarations(transport: PacketTransport) {
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
 export async function checkTcpDeclarations(signal: AbortSignal) {
+  const observer: DiagnosticObserver = (event: ClientDiagnostic) => {
+    if (event.kind === 'connection') event.state.toUpperCase();
+  };
   const tcp = createTcpClient({
+    onDiagnostic: observer,
     host: '127.0.0.1',
     maxPacketBytes: 4096,
     clientId: 'consumer',

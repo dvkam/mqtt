@@ -7,7 +7,9 @@ import type {
   BrowserQosOneMessage,
   BrowserSession,
   BrowserTransportOptions,
+  ClientDiagnostic,
   ClientFactory,
+  DiagnosticObserver,
   ClientSession,
   PublishOptions,
   QosOneMessage,
@@ -34,7 +36,12 @@ export type BrowserOwnsTls = RequireTrue<
   Extract<'ca' | 'cert' | 'key' | 'agent', keyof BrowserClientOptions> extends never ? true : false
 >;
 
+const observer: DiagnosticObserver = (event: ClientDiagnostic) => {
+  if (event.kind === 'packet') event.command.toUpperCase();
+};
+
 const options: BrowserClientOptions = {
+  onDiagnostic: observer,
   url: 'wss://localhost/mqtt',
   clientId: 'packed-browser-types',
   maxWebSocketMessageBytes: 4096,

@@ -410,3 +410,74 @@ test.each([
     }
   },
 );
+
+test('browser clients forward opt-in diagnostics', async () => {
+  const broker = await peer();
+  try {
+    const events: unknown[] = [];
+    const client = await createBrowserClient({
+      url: broker.url,
+      clientId: 'browser-diagnostics',
+      onDiagnostic(event: unknown) {
+        events.push(event);
+      },
+    }).connect();
+    await client.ping();
+    await client.disconnect();
+    expect(events).toEqual([
+      { kind: 'packet', direction: 'outbound', command: 'connect' },
+      { kind: 'packet', direction: 'inbound', command: 'connack' },
+      { kind: 'connection', state: 'active' },
+      { kind: 'packet', direction: 'outbound', command: 'pingreq' },
+      { kind: 'packet', direction: 'inbound', command: 'pingresp' },
+      { kind: 'packet', direction: 'outbound', command: 'disconnect' },
+      { kind: 'connection', state: 'retired' },
+    ]);
+  } finally {
+    await broker.close();
+  }
+});
+
+test('a message handler failure reaches the browser client before diagnostics', async () => {
+  const broker = await peer(0, true);
+  const controller = new AbortController();
+  const original = new Error('handler failed');
+  const replacement = new Error('diagnostics aborted');
+  try {
+    const client = await createBrowserClient({
+      url: broker.url,
+      clientId: 'diagnostic-handler',
+      signal: controller.signal,
+      onMessage() {
+        throw original;
+      },
+      onDiagnostic(event) {
+        if (event.kind === 'packet' && event.direction === 'inbound' && event.command === 'publish') controller.abort(replacement);
+      },
+    }).connect();
+    const pending = client.ping();
+    broker.sendWire([0x30, 4, 0, 1, 97, 0]);
+    await expect(pending).rejects.toBe(original);
+    expect(controller.signal.aborted).toBe(false);
+  } finally {
+    await broker.close();
+  }
+});
+
+test('a throwing browser diagnostic option is read before opening the socket', async () => {
+  const failure = new Error('diagnostic option access failed');
+  let urlReads = 0;
+  await expect(
+    createBrowserClient({
+      get url(): string {
+        urlReads++;
+        throw new Error('URL should not be read');
+      },
+      clientId: 'diagnostic-option',
+      get onDiagnostic(): never {
+        throw failure;
+      },
+    }).connect(),
+  ).rejects.toBe(failure);
+  expect(urlReads).toBe(0);
+});

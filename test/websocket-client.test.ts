@@ -221,3 +221,30 @@ test.each([
     }
   },
 );
+
+test('Node WebSocket diagnostics keep URL credentials out of observer events', async () => {
+  const broker = await peer();
+  try {
+    const url = new URL(broker.url);
+    url.username = 'private-url-user';
+    url.password = 'private-url-password';
+    const events: unknown[] = [];
+    const client = await createWebSocketClient({
+      url,
+      clientId: 'private-id',
+      onDiagnostic(event: unknown) {
+        events.push(event);
+      },
+    }).connect();
+    await client.disconnect();
+    expect(events).toEqual([
+      { kind: 'packet', direction: 'outbound', command: 'connect' },
+      { kind: 'packet', direction: 'inbound', command: 'connack' },
+      { kind: 'connection', state: 'active' },
+      { kind: 'packet', direction: 'outbound', command: 'disconnect' },
+      { kind: 'connection', state: 'retired' },
+    ]);
+  } finally {
+    await broker.close();
+  }
+});
