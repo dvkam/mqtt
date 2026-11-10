@@ -26,7 +26,7 @@ The WHATWG Streams standard defines high-water marks as backpressure thresholds 
 
 All modes consume the same 2,000 ordered QoS 0 message objects with 256-byte payloads. The producer offers batches of sixteen and waits for each batch's consumption. The gate checks attempted and received counts, order and a sequence checksum before accepting measurements. It reports throughput, delivery p99, peak queue items and accounted data bytes.
 
-This is a delivery microbenchmark. It excludes encoding, decoding, broker throughput and network latency. Callback consumption runs synchronously; queued modes add compact payload copies and promise work. Those costs are part of the comparison. Timing is informational, with no performance threshold. Allocation sampling, retained-heap profiles, GC behavior and slower browser workloads still need #18 and #54.
+This is a delivery microbenchmark. It excludes encoding, decoding, broker throughput and network latency. Callback consumption runs synchronously; queued modes add compact payload copies and promise work. Those costs are part of the comparison. Timing is informational, with no performance threshold. The Node allocation and post-drain observations below supplement this comparison. Browser profiling, GC behavior under load and stalled-consumer retention still need #18 and #54.
 
 The packed harness runs ownership cases through the installed browser client and a scripted MQTT 5 WebSocket peer. After iterator break, stream cancellation or overflow, the same session publishes, receives SUBACK, receives PINGRESP and disconnects. Node tests also stall a stream and verify normal source completion settles an outstanding read. Reader cancellation, iterator return and throw, pipe cancellation, destination failure and source failure have focused regressions.
 
@@ -43,3 +43,34 @@ Keep callbacks as the default. Retain this bounded queue as a comparison candida
 The packed browser comparison wires the optional public `onSessionEnd` observer to the experimental queue. A successful local MQTT DISCONNECT lets the queue drain before the stream finishes. Session failure clears queued work and rejects pending reads with the first session error. An earlier consumer cancellation or overflow keeps its original outcome. The queue still owns neither the protocol reader nor the socket.
 
 The packed Chromium fixture covers a queued delivery after local disconnect and an aborted session with a pending read. The Node packed Mosquitto fixture checks that TCP, WS and WSS pass through the same cancellation Error. The facade remains experimental. The permanent API decision and allocation and retained-memory comparisons stay open under #54 and #18.
+
+## Node allocation and post-drain memory
+
+These observations use Node 26.13.0 on WSL2. Every process warms up with 20,000 ordered QoS 0 messages of 256 bytes, then checks counts, checksum, order and queue bounds in each measured pass. Five fresh processes per mode rotate the mode order.
+
+The allocation run samples one 20,000-message pass with the V8 inspector at a 1,024-byte interval. It includes sampled objects collected by major and minor GC. The observed totals include producer, latency bookkeeping, queue and inspector activity. They are sampled JavaScript allocation bytes. Native and ArrayBuffer backing allocations are outside that measure.
+
+| Mode | Five sampled totals in bytes | Median |
+| --- | --- | ---: |
+| Callback | 12,527,464 · 12,546,232 · 12,337,512 · 12,595,272 · 12,641,608 | 12,546,232 |
+| Async iterator | 27,383,584 · 27,441,776 · 27,392,608 · 27,589,296 · 29,382,776 | 27,441,776 |
+| Web Streams | 49,283,024 · 49,262,320 · 49,765,152 · 49,362,192 · 49,070,128 | 49,283,024 |
+
+The post-drain run uses a separate process without sampling. It waits one event-loop turn and requests GC before and after five measured passes. The table reports process-wide deltas after all queues drain. Runtime caches and measurement overhead can remain. This experiment does not measure live stalled queues, process resident memory or browser retention.
+
+| Mode | Five heap used deltas in bytes | Median | ArrayBuffer deltas |
+| --- | --- | ---: | --- |
+| Callback | 24,752 · 24,752 · 24,752 · 24,752 · 24,752 | 24,752 | All zero |
+| Async iterator | 27,544 · 27,544 · 32,144 · 32,144 · 32,144 | 32,144 | All zero |
+| Web Streams | 34,392 · 33,912 · 33,824 · 33,824 · 33,912 | 33,912 | All zero |
+
+Web Streams had the largest temporary allocation sample in this workload. Both queued modes also copy payloads and incur asynchronous bookkeeping. The sample totals alone cannot attribute the difference to individual call sites. Keep callbacks as the default while #54 compares browser and stalled-consumer workloads.
+
+Run from the repository root with the pinned development runtime. Repeat five times in fresh processes, rotating the mode order across runs.
+
+```sh
+for mode in callback iterator web-stream; do
+  node --expose-gc test/bench/delivery-memory.ts "$mode" allocations
+  node --expose-gc test/bench/delivery-memory.ts "$mode" retained
+done
+```
