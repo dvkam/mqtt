@@ -30,7 +30,7 @@ export function createTcpClient(options: Readonly<TcpClientOptions>): ClientFact
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
 async function openTcpClient(options: Readonly<TcpClientOptions>) {
-  const { onQosOneMessage, signal } = options;
+  const { onDiagnostic, onQosOneMessage, signal } = options;
   const isAborted = (): boolean => signal?.aborted === true;
   const abortReason = () => {
     const reason: unknown = signal?.reason;
@@ -129,7 +129,11 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
     });
     clearTimeout(timer);
     const client = await connectPortable(transport, {
-      ...options,
+      clientId: options.clientId,
+      username: options.username,
+      password: options.password,
+      onMessage: options.onMessage,
+      onDiagnostic,
       ...publicationLimits,
       ...subscriptionLimits,
       timeoutMs,
