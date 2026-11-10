@@ -88,12 +88,11 @@ test('settles a pending operation and refuses later sends when the WebSocket clo
 test('does not deliver application messages before MQTT connection acceptance', async () => {
   const broker = await peer(true);
   try {
-    const delivered: Packet[] = [];
+    const delivered: unknown[] = [];
     const client = await createWebSocketClient({
       url: broker.url,
       clientId: 'early',
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-      onMessage: (packet) => {
+      onMessage: (packet: unknown) => {
         delivered.push(packet);
       },
     }).connect();
