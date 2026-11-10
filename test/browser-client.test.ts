@@ -4,6 +4,7 @@ import { WebSocketServer } from 'ws';
 import { afterEach, expect, test, vi } from 'vitest';
 import { createBrowserClient } from '../src/browserClient.js';
 import * as portable from '../src/portable.js';
+import type { SessionEnd } from '../src/session.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -385,11 +386,19 @@ test('preserves the CONNACK refusal ahead of a malformed acknowledgment', async 
 });
 
 const brokerPingreq = [0xc0, 0];
+const invalidHeader = [0xff, 0];
 
 test.each([
   {
     order: 'after a split CONNACK and before a malformed ACK',
     replies: [acceptedConnack.slice(0, 3), [...acceptedConnack.slice(3), ...brokerPingreq, ...malformedSuback]],
+    code: 0x82,
+    message: 'Unexpected MQTT packet from broker: PINGREQ',
+    notice: true,
+  },
+  {
+    order: 'after a split CONNACK and before an invalid header',
+    replies: [acceptedConnack.slice(0, 3), [...acceptedConnack.slice(3), ...brokerPingreq, ...invalidHeader]],
     code: 0x82,
     message: 'Unexpected MQTT packet from broker: PINGREQ',
     notice: true,
@@ -434,17 +443,29 @@ test.each([
   },
 );
 
+test('preserves a CONNACK refusal ahead of a generic decoder failure', async () => {
+  const broker = await peer(0, false, undefined, undefined, [[0x20, 3, 0, 0x87, 0, ...invalidHeader]]);
+  try {
+    const opening = createBrowserClient({ url: broker.url, clientId: 'generic-refusal-order' }).connect();
+    await expect(opening).rejects.toMatchObject({ code: 0x87, message: 'MQTT acknowledgment refused' });
+    await expect.poll(() => broker.closed).toBe(true);
+    expect(broker.packets).toHaveLength(1);
+  } finally {
+    await broker.close();
+  }
+});
+
 test.each([
-  { suffix: malformedSuback, description: 'classified ACK', received: 1, message: 'Invalid SUBACK' },
+  { suffix: malformedSuback, description: 'classified ACK', notice: true, message: 'Invalid SUBACK' },
   {
-    suffix: [0xff, 0],
+    suffix: invalidHeader,
     description: 'generic error',
-    received: 0,
+    notice: false,
     message: 'Unsupported MQTT packet or invalid fixed-header flags',
   },
 ])(
   'handles the PUBLISH prefix before a $description',
-  async ({ suffix, received, message }: Readonly<{ suffix: readonly number[]; received: number; message: string }>) => {
+  async ({ suffix, notice, message }: Readonly<{ suffix: readonly number[]; notice: boolean; message: string }>) => {
     const broker = await peer(0, true);
     try {
       const onMessage = vi.fn<() => void>();
@@ -453,12 +474,48 @@ test.each([
       broker.sendWire([0x30, 5, 0, 1, 97, 0, 42, ...suffix]);
       await expect(ping).rejects.toThrow(message);
       await expect.poll(() => broker.closed).toBe(true);
-      expect(onMessage).toHaveBeenCalledTimes(received);
+      expect(onMessage).toHaveBeenCalledTimes(1);
+      expect(broker.packets.slice(2)).toMatchObject(notice ? [{ cmd: 'disconnect', reasonCode: 0x81 }] : []);
     } finally {
       await broker.close();
     }
   },
 );
+
+test.each(['abort', 'throw'] as const)('keeps the prefix handler %s ahead of a decoder failure', async (mode) => {
+  const broker = await peer(0, true);
+  const controller = new AbortController();
+  const cause = new Error('Stopped by the first PUBLISH');
+  const ends: SessionEnd[] = [];
+  const onMessage = vi.fn<() => void>(() => {
+    if (mode === 'throw') throw cause;
+    controller.abort(cause);
+  });
+  try {
+    const client = await createBrowserClient({
+      url: broker.url,
+      clientId: 'prefix-handler-' + mode,
+      signal: controller.signal,
+      onMessage,
+      onSessionEnd(event) {
+        ends.push(event);
+      },
+    }).connect();
+    const pending = client.ping();
+    broker.sendWire([0x30, 5, 0, 1, 97, 0, 42, ...invalidHeader]);
+    await expect(pending).rejects.toBe(cause);
+    await expect(client.ping()).rejects.toBe(cause);
+    await expect.poll(() => broker.closed).toBe(true);
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(ends).toHaveLength(1);
+    const end = ends[0];
+    if (end?.kind !== 'error') throw new Error('Expected error retirement');
+    expect(end.error).toBe(cause);
+    expect(broker.packets.slice(2)).toEqual([]);
+  } finally {
+    await broker.close();
+  }
+});
 
 test('browser clients forward opt-in diagnostics', async () => {
   const broker = await peer();

@@ -156,6 +156,8 @@ const models: readonly VerificationCase[] = [
   ['BrowserAckOrder', 'BrowserAckOrder'],
   ['BrowserAckOrder', 'BrowserAckOrderDrop', 'AcceptedPrefixReports'],
   ['BrowserAckOrder', 'BrowserAckOrderReplace', 'RefusalKeepsFirstCause'],
+  ['BrowserAckOrder', 'BrowserAckOrderGenericDrop', 'GenericPrefixRetained'],
+  ['BrowserAckOrder', 'BrowserAckOrderGenericNotice', 'GenericDoesNotReport'],
   ['DiagnosticRetirement', 'DiagnosticRetirement'],
   ['DiagnosticRetirement', 'DiagnosticRetirementThrow', 'ObserverFailureIsolated'],
   ['DiagnosticRetirement', 'DiagnosticRetirementHandoff', 'RetirementFencesHandoff'],
