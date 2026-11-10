@@ -403,3 +403,11 @@ Source commit df8f76a984d5c7ae72e5fdc0a7e3cf1601a3362b rejects a terminal zero w
 NodeCanonicalLength covers one declaration with up to four bytes. Continuation maps to the stored continuation count and the fourth-byte rejection. Terminator maps to the check before size admission. The model explores 12 states and abstracts lower digits, allocation size, callbacks and network timing. Its skip fault admits a redundant terminal zero and violates CanonicalBeforeAdmission. NodePacketAdmission still covers size, completion and retirement after a canonical declaration. The streaming comparator and previous bounds are unchanged.
 
 Run the existing full checker. The direct allocator spy in test/bounded-node-decoder.test.ts observes zero compact allocations on malformed split input. The canonical 128-byte body uses 131 wire bytes and passes at that exact cap. A 130-byte cap rejects its declaration before the body. The test scope covers byte representation and frame admission.
+
+## Inbound PUBLISH topic bytes
+
+Source commit 7b1b8e2e846cbdcb58fed792a4aaeceaa68b96e4 validates the raw PUBLISH Topic Name in the completed compact frame before passing the remainder to mqtt-packet. The first header byte still reaches the parser for early flag checks. Topic validation reads a Buffer view without copying the payload. Errors retire through the existing Node input path.
+
+NodePublishTopic covers an abstract completed PUBLISH with a valid, ill-formed, NUL-containing or truncated Topic Name. Complete maps to the guard before the native parser sees the remainder. Dispatch maps to the native parser callback. The skip fault violates ValidateBeforeDelivery. The model abstracts the UTF-8 algorithm, remaining fields, network timing and actual teardown. NodePacketAdmission and NodeInputLifecycle keep their prior framing, retirement and callback mappings.
+
+Run the full checker and test/inbound-publish-topic.test.ts. The test feeds both truncated field shapes, ill-formed bytes and NUL before PINGRESP over the public TCP, Node WebSocket and browser client entries. The valid control keeps BOM, a literal replacement character and a supplementary character, with invalid UTF-8 bytes allowed in the binary payload. The old Node path delivered the malformed topics. The tests also check first Error identity on the next operation.

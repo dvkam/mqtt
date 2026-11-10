@@ -72,6 +72,8 @@ const models: readonly VerificationCase[] = [
   ['NodePacketAdmission', 'NodePacketAdmissionEof', 'RejectTruncatedCompletion'],
   ['NodeCanonicalLength', 'NodeCanonicalLength'],
   ['NodeCanonicalLength', 'NodeCanonicalLengthSkip', 'CanonicalBeforeAdmission'],
+  ['NodePublishTopic', 'NodePublishTopic'],
+  ['NodePublishTopic', 'NodePublishTopicSkip', 'ValidateBeforeDelivery'],
   ['NodeInputLifecycle', 'NodeInputLifecycle'],
   ['NodeInputLifecycle', 'NodeInputLifecycleReplay', 'ReplayInstalled'],
   ['NodeInputLifecycle', 'NodeInputLifecycleStop', 'RetirementStopsDecoder'],

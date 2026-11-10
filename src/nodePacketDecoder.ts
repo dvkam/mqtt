@@ -1,10 +1,11 @@
+import { isUtf8 } from 'node:buffer';
 import { parser, type Packet } from 'mqtt-packet';
 import { ProtocolInputError } from './protocolInputError.ts';
 
 export class NodePacketDecoder {
   private decoder: ReturnType<typeof parser> | undefined;
   private readonly maxPacketBytes: number;
-  private firstByte = true;
+  private header: number | undefined;
   private lengthBytes: number[] = [];
   private remainder: Buffer<ArrayBuffer> | undefined;
   private offset = 0;
@@ -51,8 +52,8 @@ export class NodePacketDecoder {
           continue;
         }
         const digit = bytes[index++]!;
-        if (this.firstByte) {
-          this.firstByte = false;
+        if (this.header === undefined) {
+          this.header = digit;
           this.parse(Buffer.of(digit));
           continue;
         }
@@ -76,7 +77,6 @@ export class NodePacketDecoder {
         this.remainder = Buffer.allocUnsafeSlow(size - 1);
         this.remainder.set(this.lengthBytes);
         this.offset = this.lengthBytes.length;
-        this.lengthBytes = [];
         this.flush();
       }
     } catch (reason) {
@@ -89,7 +89,7 @@ export class NodePacketDecoder {
   finish(): void {
     this.assertOpen();
     if (this.pushing) throw this.reject(new Error('MQTT decoder completion is reentrant'));
-    if (!this.firstByte) throw this.reject(new Error('Truncated MQTT packet at end of input'));
+    if (this.header !== undefined) throw this.reject(new Error('Truncated MQTT packet at end of input'));
     this.ended = true;
     this.decoder = undefined;
   }
@@ -99,11 +99,20 @@ export class NodePacketDecoder {
   }
 
   private flush(): void {
-    if (!this.remainder || this.offset !== this.remainder.length) return;
+    if (this.header === undefined || !this.remainder || this.offset !== this.remainder.length) return;
     const completed = this.remainder;
+    if (this.header >>> 4 === 3) {
+      const topicStart = this.lengthBytes.length + 2;
+      if (topicStart > completed.length) throw new Error('Truncated MQTT PUBLISH topic');
+      const topicEnd = topicStart + completed.readUInt16BE(topicStart - 2);
+      if (topicEnd > completed.length) throw new Error('Truncated MQTT PUBLISH topic');
+      const topic = completed.subarray(topicStart, topicEnd);
+      if (!isUtf8(topic) || topic.includes(0)) throw new Error('Invalid MQTT PUBLISH topic UTF-8');
+    }
     this.remainder = undefined;
     this.offset = 0;
-    this.firstByte = true;
+    this.header = undefined;
+    this.lengthBytes = [];
     this.parse(completed);
   }
 
@@ -124,7 +133,7 @@ export class NodePacketDecoder {
     this.remainder = undefined;
     this.lengthBytes = [];
     this.offset = 0;
-    this.firstByte = true;
+    this.header = undefined;
     return this.failure;
   }
 }
