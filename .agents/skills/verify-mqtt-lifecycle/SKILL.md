@@ -447,3 +447,9 @@ Source sync commit 4306b97 keeps one QoS 1 PUBLISH refusal local when the native
 The 18-state model checks that refusal keeps the session usable and returns the identifier and publication charge. Five faults exercise terminal refusal, leaked identifier, leaked publication charge, accepted replay, and local handling of an uncertain write. QosOneOutbound still checks ownership until send and ACK settlement on the admitted path. NativeWriteReserve keeps its admission arithmetic and bounds.
 
 TCP uses a corked socket to check queued bytes, identifier release, PINGREQ admission and a second publication at broker Receive Maximum one. Node WebSocket and browser tests control the live native counter. The packed browser test checks that the peer never sees the refused publication and acknowledges the next one on the same connection. Source faults that recognize a replayed error by its message or omit identifier release fail the runtime tests. The model abstracts object identity, native callbacks and queue measurements.
+
+## Broker packet direction
+
+Source sync commit 4ee6c8a rejects decoded CONNECT, SUBSCRIBE, UNSUBSCRIBE and PINGREQ packets at supported client input. Node routes the classified error through NodePacketInput detachment. The browser stops the current batch at the first wrong-direction packet and uses the same protocol error callback as a classified decoder failure. An earlier listener retirement keeps its outcome.
+
+ParserAckNotice still checks the accepted, opening and local-close notice decisions. BrowserAckOrder still models decoder-classified acknowledgment order. No state bounds changed. Fixed wire tests check direction classification, prefix delivery, suffix fencing, notice bytes and the first failure across split and coalesced browser opening input. Removing Node direction validation or continuing the browser batch after rejection fails a concrete test. Generic browser decoder failures still follow the existing batch policy.

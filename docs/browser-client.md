@@ -36,6 +36,8 @@ Subscriptions can run concurrently with independent identifiers. The [subscripti
 
 The optional signal applies while opening and during the active connection. Cancellation rejects pending operations and prevents later writes. Cancellation that wins before the final connection handoff rejects `connect`.
 
+The supported TCP, Node WebSocket and browser clients reject decoded CONNECT, SUBSCRIBE, UNSUBSCRIBE and PINGREQ packets from the broker with protocol error `0x82`. They stop processing at that packet and attempt to send DISCONNECT after a successful CONNACK, while the client is still open. The standalone codec can decode packets from both directions. [MQTT 5 sections 2.1.2 and 4.13](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html)
+
 A peer close completes the decoder. If MQTT input ends inside a packet, pending operations reject with the truncation error. A clean packet boundary retains the transport close reason. Local disconnect, cancellation and earlier errors keep their original outcome, even with partial input. Decoder completion runs once and does not wait for another message.
 
 Write admission and per-packet receive allocation have separate budgets. A successful QoS 0 publish means local send admission. The [QoS 1 publishing](qos1-publish.md) and [delivery](qos1-receive.md) guides describe their separate acknowledgment contracts.

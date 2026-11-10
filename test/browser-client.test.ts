@@ -384,6 +384,56 @@ test('preserves the CONNACK refusal ahead of a malformed acknowledgment', async 
   }
 });
 
+const brokerPingreq = [0xc0, 0];
+
+test.each([
+  {
+    order: 'after a split CONNACK and before a malformed ACK',
+    replies: [acceptedConnack.slice(0, 3), [...acceptedConnack.slice(3), ...brokerPingreq, ...malformedSuback]],
+    code: 0x82,
+    message: 'Unexpected MQTT packet from broker: PINGREQ',
+    notice: true,
+  },
+  {
+    order: 'before a successful CONNACK',
+    replies: [[...brokerPingreq, ...acceptedConnack]],
+    code: 0x82,
+    message: 'Unexpected MQTT packet from broker: PINGREQ',
+    notice: false,
+  },
+  {
+    order: 'after a refused CONNACK',
+    replies: [[0x20, 3, 0, 0x87, 0, ...brokerPingreq]],
+    code: 0x87,
+    message: 'MQTT acknowledgment refused',
+    notice: false,
+  },
+])(
+  'honors wire order when PINGREQ appears $order',
+  async ({
+    replies,
+    code,
+    message,
+    notice,
+  }: Readonly<{
+    replies: readonly (readonly number[])[];
+    code: number;
+    message: string;
+    notice: boolean;
+  }>) => {
+    const broker = await peer(0, false, undefined, undefined, replies);
+    try {
+      const opening = createBrowserClient({ url: broker.url, clientId: 'direction-order' }).connect();
+      await expect(opening).rejects.toMatchObject({ code, message });
+      await expect.poll(() => broker.closed).toBe(true);
+      expect(broker.packets).toHaveLength(notice ? 2 : 1);
+      expect(broker.packets.slice(1)).toMatchObject(notice ? [{ cmd: 'disconnect', reasonCode: code }] : []);
+    } finally {
+      await broker.close();
+    }
+  },
+);
+
 test.each([
   { suffix: malformedSuback, description: 'classified ACK', received: 1, message: 'Invalid SUBACK' },
   {

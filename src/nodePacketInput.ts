@@ -1,4 +1,4 @@
-import { ProtocolInputError } from './protocolInputError.js';
+import { brokerPacketDirectionError, isClientOnlyCommand, ProtocolInputError } from './protocolInputError.js';
 import type { PacketTransport } from './portable.js';
 import type { NodeMessage } from './nodeMessage.js';
 import { NodePacketDecoder } from './nodePacketDecoder.js';
@@ -25,6 +25,7 @@ export class NodePacketInput {
       maxPacketBytes,
       // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Forward the retained parser's mutable packets without changing Buffer payloads.
       onPacket: (packet) => {
+        if (isClientOnlyCommand(packet.cmd)) throw brokerPacketDirectionError(packet.cmd);
         this.registration?.received(packet);
       },
     });
