@@ -272,7 +272,8 @@ async function probeStalledQosOne(url: string) {
   const release = completion();
   const acknowledged = completion();
   const received: boolean[] = [];
-  let acknowledgments = 0;
+  const acknowledgments: boolean[] = [];
+  let handlerFinished = false;
   const client = await createBrowserClient({
     url,
     clientId: 'stream-stalled-qos-one',
@@ -282,10 +283,11 @@ async function probeStalledQosOne(url: string) {
       received.push(packet.topic === 'control/inbound' && packet.messageId === 23 && packet.payload.byteLength === 3);
       entered.finish();
       await release.promise;
+      handlerFinished = true;
     },
     onDiagnostic(event) {
       if (event.kind === 'packet' && event.direction === 'outbound' && event.command === 'puback') {
-        acknowledgments++;
+        acknowledgments.push(handlerFinished);
         acknowledged.finish();
       }
     },
@@ -299,7 +301,7 @@ async function probeStalledQosOne(url: string) {
     await client.subscribe('control/inbound', { qos: 1 });
     await entered.promise;
     await client.ping();
-    const heldBeforeRelease = initiallyQueued && queue.snapshot().messages === 1 && acknowledgments === 0;
+    const heldBeforeRelease = initiallyQueued && queue.snapshot().messages === 1 && acknowledgments.length === 0;
     release.finish();
     await acknowledged.promise;
     await client.ping();
@@ -308,7 +310,7 @@ async function probeStalledQosOne(url: string) {
     return {
       received: received.length === 1 && received[0] === true,
       heldBeforeRelease,
-      acknowledged: acknowledgments === 1,
+      acknowledged: acknowledgments.length === 1 && acknowledgments[0] === true,
       queueCleared: messages === 0 && bytes === 0,
     };
   } finally {

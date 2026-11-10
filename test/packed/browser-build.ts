@@ -158,6 +158,17 @@ if (engines.length > 0) {
           queueCleared: true,
         });
         assert.deepEqual(peer.acknowledgments.slice(acknowledgedBefore), [{ messageId: 23, reasonCode: 0 }]);
+        assert.deepEqual(peer.commands.slice(peer.commands.lastIndexOf('connect')), [
+          'connect',
+          'subscribe',
+          'publish',
+          'pingreq',
+          'subscribe',
+          'pingreq',
+          'puback',
+          'pingreq',
+          'disconnect',
+        ]);
         console.log(JSON.stringify({ engine, ...comparison }));
         const receive = await page.evaluate(async (url) => (await import('/receive.js')).probeReceive(url), receivePeer.url);
         assert.deepEqual(
