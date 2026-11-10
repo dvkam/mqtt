@@ -378,7 +378,8 @@ class PortableClient<Message extends PublishMessage> {
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
   private async exchange(packet: Packet, matches: (ack: Acknowledgment) => boolean): Promise<Acknowledgment> {
-    if (this.failure) throw this.failure;
+    const failureBeforeExchange = this.failure;
+    if (failureBeforeExchange) throw failureBeforeExchange;
     if (this.pendingAck) throw new Error('Another acknowledgment is pending');
     const ack = new Promise<Acknowledgment>((resolve) => {
       this.pendingAck = (reply) => {
@@ -409,7 +410,6 @@ class PortableClient<Message extends PublishMessage> {
       return reply;
     } catch (error) {
       // Retire before freeing the acknowledgment slot. PINGRESP has no request ID.
-      // oxlint-disable-next-line typescript/no-unnecessary-condition, typescript/strict-boolean-expressions -- Transport callbacks can record failure while this exchange awaits I/O.
       if (packet.cmd === 'pingreq' && !this.failure) {
         await this.abort(error instanceof Error ? error : new Error('MQTT ping failed')).catch(() => {});
       }
