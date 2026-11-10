@@ -13,6 +13,8 @@ import type {
   ClientSession,
   PublishOptions,
   QosOneMessage,
+  SessionEnd,
+  SessionEndObserver,
   SubscribeOptions,
 } from 'mqtt/browser';
 
@@ -40,7 +42,15 @@ const observer: DiagnosticObserver = (event: ClientDiagnostic) => {
   if (event.kind === 'packet') event.command.toUpperCase();
 };
 
+type EndNotice = Parameters<NonNullable<BrowserClientOptions['onSessionEnd']>>[0];
+export type BrowserEndNoticeIsSpecific = RequireFalse<IsAny<EndNotice>>;
+export type BrowserEndNoticeUsesNamedType = RequireTrue<SessionEnd extends EndNotice ? true : false>;
+const onSessionEnd: SessionEndObserver = (event) => {
+  if (event.kind === 'error') event.error.message.toUpperCase();
+};
+
 const options: BrowserClientOptions = {
+  onSessionEnd,
   onDiagnostic: observer,
   url: 'wss://localhost/mqtt',
   clientId: 'packed-browser-types',

@@ -1,7 +1,7 @@
-import { packetReceiver, packetSender, reportDiagnostic, type DiagnosticObserver } from './diagnostics.js';
+import { notifyObserver, packetReceiver, packetSender, type DiagnosticObserver } from './diagnostics.js';
 import { ProtocolInputError } from './protocolInputError.js';
 import type { IConnectPacket, IPublishPacket, Packet } from 'mqtt-packet';
-import type { ClientSession, QosOneMessage, SubscribeOptions } from './session.js';
+import type { ClientSession, QosOneMessage, SessionEndObserver, SubscribeOptions } from './session.js';
 import { validateTopic } from './util/validateTopic.js';
 import { resolveTimeout } from './timeout.js';
 import { PublicationAdmission, type PublicationLimits } from './publicationAdmission.js';
@@ -11,6 +11,7 @@ import { OutboundQosOne } from './outboundQosOne.js';
 import { isPubackReason } from './pubackReason.js';
 
 export type { ClientDiagnostic, DiagnosticObserver } from './diagnostics.js';
+export type { SessionEnd, SessionEndObserver } from './session.js';
 export type { ProtocolInputCode, ProtocolInputError } from './protocolInputError.js';
 
 type PublishMessage = Omit<IPublishPacket, 'payload'> & { payload: unknown };
@@ -39,6 +40,7 @@ export interface PortableOptions<Message extends PublishMessage = IPublishPacket
   password?: IConnectPacket['password'];
   timeoutMs?: number;
   onDiagnostic?: DiagnosticObserver;
+  onSessionEnd?: SessionEndObserver;
   onMessage?: (packet: Message) => void;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Delivery preserves the adapter's mutable byte buffer type.
   onQosOneMessage?: (packet: QosOneMessage<Message>) => void | Promise<void>;
@@ -58,6 +60,7 @@ class PortableClient<Message extends PublishMessage> {
   private readonly transport: PacketTransport<Message>;
   private readonly sendPacket: PacketTransport<Message>['send'];
   private readonly onDiagnostic: DiagnosticObserver | undefined;
+  private readonly onSessionEnd: SessionEndObserver | undefined;
   private readonly options: PortableOptions<Message>;
   private pendingAck?: (packet: Acknowledgment) => void;
   private readonly pendingOperations = new Set<(error: Readonly<Error>) => void>();
@@ -82,6 +85,7 @@ class PortableClient<Message extends PublishMessage> {
     this.subscriptions = new SubscriptionExchanges(options, this.identifiers);
     this.transport = transport;
     this.onDiagnostic = options.onDiagnostic;
+    this.onSessionEnd = options.onSessionEnd;
     this.sendPacket = packetSender(transport, this.onDiagnostic);
     this.options = options;
     this.onQosOneMessage = options.onQosOneMessage;
@@ -139,7 +143,13 @@ class PortableClient<Message extends PublishMessage> {
       },
       this.rejectProtocolInput.bind(this),
     );
-    if (this.failure) this.unlisten();
+    if (this.failure) {
+      try {
+        this.unlisten();
+      } catch {
+        // A synchronous close already owns the opening result.
+      }
+    }
   }
 
   async open(): Promise<void> {
@@ -324,13 +334,13 @@ class PortableClient<Message extends PublishMessage> {
   }
 
   async abort(error: Readonly<Error>, disconnectReason?: number): Promise<void> {
+    this.forcedClose ??= Promise.resolve().then(async () => {
+      if (disconnectReason !== undefined) await this.reportProtocolError(disconnectReason);
+      await this.transport.close(true);
+    });
     try {
       this.fail(error);
     } finally {
-      this.forcedClose ??= Promise.resolve().then(async () => {
-        if (disconnectReason !== undefined) await this.reportProtocolError(disconnectReason);
-        await this.transport.close(true);
-      });
       await this.forcedClose;
     }
   }
@@ -362,7 +372,7 @@ class PortableClient<Message extends PublishMessage> {
       await this.abort(error instanceof Error ? error : new Error('MQTT disconnect failed')).catch(() => {});
       throw error;
     }
-    this.fail(new Error('Client disconnected'));
+    this.fail(new Error('Client disconnected'), 'disconnect');
     await this.transport.close();
   }
 
@@ -429,20 +439,29 @@ class PortableClient<Message extends PublishMessage> {
     }
   }
 
-  private fail(error: Readonly<Error>): void {
+  private fail(error: Readonly<Error>, kind: 'error' | 'disconnect' = 'error'): void {
     if (this.failure) return;
     this.failure = error;
     this.nextInbound = undefined;
     this.subscriptions.retire(error);
     this.outbound?.retire(error);
     for (const reject of this.pendingOperations) reject(error);
-    this.unlisten?.();
-    this.reportConnection('retired');
+    try {
+      this.unlisten?.();
+      this.reportConnection('retired');
+    } finally {
+      const observer = this.onSessionEnd;
+      if (observer !== undefined) {
+        queueMicrotask(() => {
+          void notifyObserver(observer, kind === 'disconnect' ? { kind } : { kind, error });
+        });
+      }
+    }
   }
 
   private reportConnection(state: 'active' | 'retired'): Error | undefined {
     if (state === 'active' && this.failure) return this.failure;
-    if (this.onDiagnostic) void reportDiagnostic(this.onDiagnostic, { kind: 'connection', state });
+    if (this.onDiagnostic) void notifyObserver(this.onDiagnostic, { kind: 'connection', state });
     return this.failure;
   }
 }

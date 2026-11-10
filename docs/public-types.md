@@ -10,6 +10,7 @@ Use `import type` for the named contracts. TypeScript 7.0.2 is the supported com
 | `BrowserClientOptions` | `mqtt/browser` | URL, session options, cancellation and independent byte and packet budgets |
 | `BrowserMessage`, `BrowserQosOneMessage` | `mqtt/browser` | Received QoS 0 and 1 PUBLISH with a mutable Uint8Array payload |
 | `ClientDiagnostic`, `DiagnosticObserver` | Both client entries and `mqtt/portable` | Optional packet command and connection state metadata |
+| `SessionEnd`, `SessionEndObserver` | Both client entries and `mqtt/portable` | First logical retirement and its optional observer |
 | `ClientFactory` | Both client entries | One cached connection attempt through `connect()` |
 | `ClientSession` | Both client entries | Subscribe, unsubscribe, text publish, ping and disconnect promises |
 | `BrowserSession` | `mqtt/browser` | Alias for `ClientSession` |
@@ -30,3 +31,12 @@ Build and pack the package. Install the tarball and the pinned Node types into a
 Run Publint 0.3.25 and Are the Types Wrong 0.18.5 against the tarball. Use the latter's `esm-only` profile for the package's ESM and bundler resolution modes. The profile excludes Node 10 and CommonJS resolution modes.
 
 Refs #50.
+
+## Session end
+
+Set `onSessionEnd` on a TCP, Node WebSocket, browser or portable client to observe its first MQTT retirement. The observer runs after pending protocol work has been retired. It can run during MQTT connection setup if the transport has already reached the portable session. Use the `connect()` rejection for failures before that point.
+
+- `{ kind: 'disconnect' }` means the local MQTT DISCONNECT write completed and won the retirement race. An application queue can drain its admitted messages. The native socket may still be closing, so await `disconnect()` for that result.
+- `{ kind: 'error', error }` carries the original Error used to retire protocol work. A broker DISCONNECT, transport close, cancellation and protocol failure can all produce this outcome. Treat the error as application data. Use `onDiagnostic` for redacted command and state metadata.
+
+The callback is queued once. Its return value never delays socket closure or protocol settlement, and thrown or rejected callbacks leave the first outcome intact. Application cancellation of a message consumer is separate from cancellation of its session.

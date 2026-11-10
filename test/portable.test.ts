@@ -1,6 +1,8 @@
 import type { Packet } from 'mqtt-packet';
 import { expect, test, vi } from 'vitest';
 import { connectPortable, type PacketTransport } from '../src/portable.js';
+import { ProtocolInputError } from '../src/protocolInputError.js';
+import type { SessionEnd } from '../src/session.js';
 
 test.each(['', '+', 'a/#', 'a+b', 'a\u0000b', '\uD800', '\uDC00', 'a'.repeat(65_536), 'é'.repeat(32_768)])(
   'rejects an invalid publication before transport send and keeps the session active',
@@ -133,6 +135,7 @@ function peer() {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
   let receive: (packet: Packet) => void;
   let closed: (error: Readonly<Error>) => void;
+  let rejectProtocolInput: NonNullable<Parameters<PacketTransport['listen']>[2]> | undefined;
   const packets: Packet[] = [];
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- The fixture exercises native mutable objects and packet buffers with their declared API types.
   const sent: PacketTransport['send'] = async (packet) => {
@@ -143,9 +146,10 @@ function peer() {
   };
   const transport: PacketTransport = {
     send: sent,
-    listen(onPacket, onClose) {
+    listen(onPacket, onClose, onProtocolError) {
       receive = onPacket;
       closed = onClose;
+      rejectProtocolInput = onProtocolError;
       return () => {};
     },
     async close() {},
@@ -159,6 +163,9 @@ function peer() {
     },
     close: (error: Readonly<Error>) => {
       closed(error);
+    },
+    rejectProtocolInput(error: Readonly<ProtocolInputError>) {
+      rejectProtocolInput?.(error);
     },
   };
 }
@@ -369,4 +376,116 @@ test.each([false, true])('keeps the opening QoS 1 retirement with diagnostics en
   });
   broker.receive({ cmd: 'publish', topic: 'early', payload: 'message', qos: 1, messageId: 1, dup: false, retain: false });
   await expect(connecting).rejects.toBe(failure);
+});
+
+test('reports local MQTT retirement once before the native close finishes', async () => {
+  const broker = peer();
+  const close = deferredEnd();
+  vi.spyOn(broker.transport, 'close').mockImplementation(async () => close.promise);
+  const onSessionEnd = vi.fn<(event: SessionEnd) => void>();
+  const client = await connectPortable(broker.transport, { clientId: 'graceful-source-end', onSessionEnd });
+  const disconnected = client.disconnect();
+  expect(client.disconnect()).toBe(disconnected);
+  await vi.waitFor(() => {
+    expect(onSessionEnd).toHaveBeenCalledExactlyOnceWith({ kind: 'disconnect' });
+  });
+  const failure = new Error('native close timed out');
+  close.reject(failure);
+  await expect(disconnected).rejects.toBe(failure);
+  expect(onSessionEnd).toHaveBeenCalledTimes(1);
+});
+
+test('reports the first failure when remote closure interrupts a local DISCONNECT write', async () => {
+  const broker = peer();
+  const onSessionEnd = vi.fn<(event: SessionEnd) => void>();
+  const client = await connectPortable(broker.transport, { clientId: 'remote-source-end', onSessionEnd });
+  const write = deferredEnd();
+  const sent = vi.spyOn(broker.transport, 'send').mockImplementation(async () => write.promise);
+  const reason = new Error('remote closure');
+  const result = client.disconnect().catch((error: unknown) => error);
+  await vi.waitFor(() => {
+    expect(sent).toHaveBeenCalledExactlyOnceWith({ cmd: 'disconnect' });
+  });
+  broker.close(reason);
+  broker.close(new Error('later close'));
+  write.resolve();
+  await expect(result).resolves.toBe(reason);
+  expect(onSessionEnd).toHaveBeenCalledExactlyOnceWith({ kind: 'error', error: reason });
+  const event = onSessionEnd.mock.calls[0]?.[0];
+  expect(event?.kind === 'error' && event.error).toBe(reason);
+});
+
+test.each(['throw', 'reject'] as const)('isolates an observer that fails by %s', async (mode) => {
+  const broker = peer();
+  const observerFailure = new Error('application observer failure');
+  const onSessionEnd = vi.fn<(event: SessionEnd) => void | Promise<void>>();
+  if (mode === 'throw') {
+    onSessionEnd.mockImplementation(() => {
+      throw observerFailure;
+    });
+  } else onSessionEnd.mockRejectedValue(observerFailure);
+  const client = await connectPortable(broker.transport, { clientId: 'source-end-observer-failure', onSessionEnd });
+  const reason = new Error('disconnect write failed');
+  vi.spyOn(broker.transport, 'send').mockRejectedValue(reason);
+  await expect(client.disconnect()).rejects.toBe(reason);
+  expect(onSessionEnd).toHaveBeenCalledExactlyOnceWith({ kind: 'error', error: reason });
+});
+
+test('reports a CONNECT write failure that retires the portable attempt', async () => {
+  const broker = peer();
+  const onSessionEnd = vi.fn<(event: SessionEnd) => void>();
+  const reason = new Error('CONNECT write failed');
+  vi.spyOn(broker.transport, 'send').mockRejectedValue(reason);
+  await expect(connectPortable(broker.transport, { clientId: 'source-end-before-handoff', onSessionEnd })).rejects.toBe(reason);
+  expect(onSessionEnd).toHaveBeenCalledExactlyOnceWith({ kind: 'error', error: reason });
+});
+
+test('starts the protocol DISCONNECT notice before a session observer can reenter', async () => {
+  const broker = peer();
+  const order: string[] = [];
+  const client = await connectPortable(broker.transport, {
+    clientId: 'source-end-notice',
+    onSessionEnd: () => {
+      order.push('observer');
+    },
+  });
+  vi.spyOn(broker.transport, 'send').mockImplementation(async () => {
+    order.push('send');
+    await Promise.resolve();
+  });
+  const ping = client.ping();
+  broker.rejectProtocolInput(new ProtocolInputError('malformed acknowledgment', 0x81));
+  await expect(ping).rejects.toThrow('malformed acknowledgment');
+  expect(order).toEqual(['send', 'send', 'observer']);
+});
+
+function deferredEnd() {
+  let resolve!: () => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<void>((accept, refuse) => {
+    resolve = accept;
+    reject = refuse;
+  });
+  return { promise, resolve, reject };
+}
+
+test('synchronous listen failure keeps its first cause when listener cleanup throws', async () => {
+  const broker = peer();
+  const first = new Error('transport was already closed');
+  const cleanup = vi.fn<() => never>(() => {
+    throw new Error('listener cleanup failed');
+  });
+  const close = vi.spyOn(broker.transport, 'close');
+  let cleanupsAtNotice = 0;
+  const onSessionEnd = vi.fn<(event: SessionEnd) => void>(() => {
+    cleanupsAtNotice = cleanup.mock.calls.length;
+  });
+  broker.transport.listen = (_onPacket, onClose) => {
+    onClose(first);
+    return cleanup;
+  };
+  await expect(connectPortable(broker.transport, { clientId: 'source-end-sync-close', onSessionEnd })).rejects.toBe(first);
+  expect(close).toHaveBeenCalledExactlyOnceWith(true);
+  expect(cleanupsAtNotice).toBe(1);
+  expect(onSessionEnd).toHaveBeenCalledExactlyOnceWith({ kind: 'error', error: first });
 });

@@ -26,16 +26,16 @@ export type ClientDiagnostic =
 
 export type DiagnosticObserver = (event: ClientDiagnostic) => void | Promise<void>;
 
-export async function reportDiagnostic(observer: DiagnosticObserver, event: ClientDiagnostic): Promise<void> {
+export async function notifyObserver<Event>(observer: (event: Event) => void | Promise<void>, event: Event): Promise<void> {
   try {
     await observer(event);
   } catch {
-    // Diagnostics cannot replace a protocol result.
+    // Observer failures cannot replace a protocol result.
   }
 }
 
 function reportPacket(observer: DiagnosticObserver, direction: Direction, command: Command): void {
-  if (allowedCommands.has(command)) void reportDiagnostic(observer, { kind: 'packet', direction, command });
+  if (allowedCommands.has(command)) void notifyObserver(observer, { kind: 'packet', direction, command });
 }
 
 export function packetSender<Packet extends Readonly<{ cmd: Command }>, Result>(

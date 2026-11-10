@@ -36,7 +36,7 @@ export function createWebSocketClient(options: Readonly<WebSocketClientOptions>)
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
 async function openClient(options: Readonly<WebSocketClientOptions>) {
-  const { onDiagnostic, onQosOneMessage, signal, timeoutMs = 3000, agent, ca, cert, key, headers } = options;
+  const { onDiagnostic, onSessionEnd, onQosOneMessage, signal, timeoutMs = 3000, agent, ca, cert, key, headers } = options;
   const isAborted = (): boolean => signal?.aborted === true;
   const abortReason = () => {
     const reason: unknown = signal?.reason;
@@ -155,6 +155,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
       password: options.password,
       onMessage: options.onMessage,
       onDiagnostic,
+      onSessionEnd,
       ...publicationLimits,
       ...subscriptionLimits,
       timeoutMs,

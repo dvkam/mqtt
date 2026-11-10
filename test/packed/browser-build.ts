@@ -114,7 +114,20 @@ if (engines.length > 0) {
           messages: ['hello'],
           outcome: 'closed before drain',
         });
-        const comparison = await page.evaluate(async (url) => (await import('/streams.js')).compareStreams(url), peer.url);
+        const comparison = await page.evaluate(async (url) => {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          try {
+            const comparison = (await import('/streams.js')).compareStreams(url);
+            const deadline = new Promise<never>((_, reject) => {
+              timer = setTimeout(() => {
+                reject(new Error('Packed message source did not settle'));
+              }, 8000);
+            });
+            return await Promise.race([comparison, deadline]);
+          } finally {
+            clearTimeout(timer);
+          }
+        }, peer.url);
         for (const result of comparison.results) {
           assert.equal(result.attempted, 2000);
           assert.equal(result.received, 2000);
@@ -128,7 +141,7 @@ if (engines.length > 0) {
           { mode: 'stream-cancel', first: null, failure: null, queued: 0 },
           { mode: 'overflow', first: null, failure: 'Application message queue capacity exceeded', queued: 0 },
         ]);
-        assert.deepEqual(comparison.terminal, { idleClosed: true, idleFailure: true, handed: true });
+        assert.deepEqual(comparison.terminal, { drained: true, abortObserved: true, handed: true });
         console.log(JSON.stringify({ engine, ...comparison }));
         const receive = await page.evaluate(async (url) => (await import('/receive.js')).probeReceive(url), receivePeer.url);
         assert.deepEqual(
