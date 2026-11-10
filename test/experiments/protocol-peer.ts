@@ -12,22 +12,47 @@ export async function startProtocolPeer() {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer drives the native mutable WebSocket object.
   server.on('connection', (socket) => {
     const decoder = parser({ protocolVersion: 5 });
+    let ignorePing = false;
+    let pace: ReturnType<typeof setInterval> | undefined;
+    socket.once('close', () => {
+      clearInterval(pace);
+    });
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The external parser consumes native Buffer objects.
     socket.on('message', (bytes) => {
       if (Buffer.isBuffer(bytes)) decoder.parse(bytes);
     });
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The external encoder consumes its mutable Packet union.
+    const send = (reply: Packet) => {
+      socket.send(generate(reply, { protocolVersion: 5 }));
+    };
+    const startLoad = (start: number, terminalTopic: string) => {
+      clearInterval(pace);
+      let sequence = start;
+      pace = setInterval(() => {
+        if (socket.readyState !== socket.OPEN) {
+          clearInterval(pace);
+          return;
+        }
+        for (let item = 0; item < 8; item++) {
+          send({ cmd: 'publish', topic: 'load/data', qos: 0, dup: false, retain: false, payload: Buffer.of(sequence++) });
+        }
+        if (sequence === start + 64) {
+          clearInterval(pace);
+          send({ cmd: 'publish', topic: terminalTopic, qos: 0, dup: false, retain: false, payload: '' });
+        }
+      }, 5);
+    };
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The external codec preserves its mutable Packet contract.
     decoder.on('packet', (packet: Packet) => {
       commands.push(packet.cmd);
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The external encoder consumes its mutable Packet union.
-      const send = (reply: Packet) => {
-        socket.send(generate(reply, { protocolVersion: 5 }));
-      };
       if (packet.cmd === 'connect') send({ cmd: 'connack', reasonCode: 0, sessionPresent: false });
       if (packet.cmd === 'publish') {
         if (packet.qos === 1 && packet.messageId !== undefined) {
           send({ cmd: 'puback', messageId: packet.messageId, reasonCode: 0 });
-        } else send(packet);
+        } else if (packet.topic === 'load/resume') startLoad(64, 'load/end');
+        else if (packet.topic === 'load/close') socket.close();
+        else if (packet.topic === 'load/timeout') ignorePing = true;
+        else send(packet);
       }
       if (packet.cmd === 'subscribe') {
         send({
@@ -35,6 +60,9 @@ export async function startProtocolPeer() {
           messageId: packet.messageId,
           granted: packet.subscriptions.map(({ qos }: Readonly<{ qos: number }>) => qos),
         });
+        if (packet.subscriptions.some(({ topic }: Readonly<{ topic: string }>) => topic === 'load/start')) {
+          startLoad(0, 'load/midpoint');
+        }
         if (
           packet.subscriptions.some(
             ({ topic, qos }: Readonly<{ topic: string; qos: number }>) => topic === 'control/inbound' && qos === 1,
@@ -44,7 +72,7 @@ export async function startProtocolPeer() {
         }
       }
       if (packet.cmd === 'puback') acknowledgments.push({ messageId: packet.messageId, reasonCode: packet.reasonCode ?? 0 });
-      if (packet.cmd === 'pingreq') send({ cmd: 'pingresp' });
+      if (packet.cmd === 'pingreq' && !ignorePing) send({ cmd: 'pingresp' });
     });
   });
   return {
