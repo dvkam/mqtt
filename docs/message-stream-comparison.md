@@ -28,7 +28,7 @@ All modes consume the same 2,000 ordered QoS 0 message objects with 256-byte pay
 
 This is a delivery microbenchmark. It excludes encoding, decoding, broker throughput and network latency. Callback consumption runs synchronously; queued modes add compact payload copies and promise work. Those costs are part of the comparison. Timing is informational, with no performance threshold. The Node and Chromium memory observations below supplement this comparison. GC behavior under network load remains in #18 and #54.
 
-The packed harness runs ownership cases through the installed browser client and a scripted MQTT 5 WebSocket peer. After iterator break, stream cancellation or overflow, the same session publishes, receives SUBACK, receives PINGRESP and disconnects. Node tests also stall a stream and verify normal source completion settles an outstanding read. Reader cancellation, iterator return and throw, pipe cancellation, destination failure and source failure have focused regressions.
+The packed harness runs ownership cases through the installed browser client and a scripted MQTT 5 WebSocket peer. After iterator break, stream cancellation or overflow, the same session publishes, receives SUBACK, receives PINGRESP and disconnects. Node tests also stall a stream and verify normal source completion settles an outstanding read. The packed matrix also covers direct iterator return and throw, destination failure and pipe abort. After each local stop, the installed client accepts another SUBACK and PINGRESP and completes a QoS 1 publication on PUBACK. A concurrent reader cancel and disconnect settle both promises. Cancelling after logical source close discards an admitted message that would otherwise drain. A throwing MQTT message callback retires the session and rejects pending ping and stream reads with the same Error.
 
 Run pnpm test for the contract gate. The existing packed browser harness builds the comparison on PRs and runs it in the scheduled browser matrix. Prepare the [installed consumer](public-types.md#packed-verification), then pass a browser engine to `test/packed/browser-build.ts` for a local runtime comparison. It also reports the isolated queue module size and verifies the callback fixture does not contain the experimental queue. The queue is not added to the npm artifact.
 
@@ -36,13 +36,13 @@ Run pnpm test for the contract gate. The existing packed browser harness builds 
 
 The [8 November measurement record](baseline/receive-validation-measurements.md) contains the individual delivery timings, queue peaks and bundled fixture sizes. The [measurement index](measurements.md) links the other workloads and their limitations.
 
-Keep callbacks as the default. Retain this bounded queue as a comparison candidate, with an iterator and an optional Streams facade sharing admission and terminal behavior. Do not make Web Streams the transport interface or couple application cancellation to the shared reader. Publish a facade only after source-end coupling, allocation and retained-memory measurements, and the remaining browser contract checks in #54 are complete. Do not add a stream-helper dependency for this prototype.
+Keep callbacks as the default. Retain this bounded queue as a comparison candidate, with an iterator and an optional Streams facade sharing admission and terminal behavior. Do not make Web Streams the transport interface or couple application cancellation to the shared reader. Keep any facade export behind the decision in #54. The allocation and batching experiment in #118 can test whether a narrower application interface earns its cost. Do not add a stream-helper dependency for this prototype.
 
 ## Session retirement
 
 The packed browser comparison wires the optional public `onSessionEnd` observer to the experimental queue. A successful local MQTT DISCONNECT lets the queue drain before the stream finishes. Session failure clears queued work and rejects pending reads with the first session error. An earlier consumer cancellation or overflow keeps its original outcome. The queue still owns neither the protocol reader nor the socket.
 
-The packed Chromium fixture covers a queued delivery after local disconnect and an aborted session with a pending read. The Node packed Mosquitto fixture checks that TCP, WS and WSS pass through the same cancellation Error. The facade remains experimental. The permanent facade decision and remaining packed cancellation cases stay open under #54.
+The packed Chromium fixture covers a queued delivery after local disconnect and an aborted session with a pending read. The Node packed Mosquitto fixture checks that TCP, WS and WSS pass through the same cancellation Error. The facade remains experimental. The permanent facade decision stays open under #54.
 
 ## Node allocation and post-drain memory
 
@@ -103,4 +103,4 @@ pnpm exec playwright install chromium
 timeout 120s node test/bench/chromium-delivery-memory.ts
 ```
 
-Callbacks remain the preview default. The Chromium samples favor callbacks for temporary allocations in this workload. Both queued modes held the same payload backing storage while stalled. The permanent facade decision still depends on the remaining packed cancellation cases in #54.
+Callbacks remain the preview default. The Chromium samples favor callbacks for temporary allocations in this workload. Both queued modes held the same payload backing storage while stalled. The permanent facade decision in #54 can use the fixed-rate and allocation attribution experiments in #118.

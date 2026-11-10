@@ -141,7 +141,15 @@ if (engines.length > 0) {
           { mode: 'stream-cancel', first: null, failure: null, queued: 0 },
           { mode: 'overflow', first: null, failure: 'Application message queue capacity exceeded', queued: 0 },
         ]);
-        assert.deepEqual(comparison.terminal, { drained: true, abortObserved: true, handed: true });
+        assert.deepEqual(comparison.terminal, { drained: true, abortObserved: true, handed: true, handlerFailure: true });
+        assert.deepEqual(comparison.cancellation, [
+          { mode: 'iterator-return', consumerSettled: true, retiredOnce: true, empty: true },
+          { mode: 'iterator-throw', consumerSettled: true, retiredOnce: true, empty: true },
+          { mode: 'destination-failure', consumerSettled: true, retiredOnce: true, empty: true },
+          { mode: 'pipe-abort', consumerSettled: true, retiredOnce: true, empty: true },
+          { mode: 'cancel-during-disconnect', consumerSettled: true, retiredOnce: true, empty: true },
+          { mode: 'cancel-after-source-close', consumerSettled: true, retiredOnce: true, empty: true },
+        ]);
         console.log(JSON.stringify({ engine, ...comparison }));
         const receive = await page.evaluate(async (url) => (await import('/receive.js')).probeReceive(url), receivePeer.url);
         assert.deepEqual(
