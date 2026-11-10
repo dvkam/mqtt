@@ -14,13 +14,20 @@ import { startReceivePeer } from '../experiments/receive-peer.ts';
 const inputRoot = process.argv[2];
 assert.ok(inputRoot !== undefined && inputRoot !== '', 'Expected packed consumer directory');
 const root = resolve(inputRoot);
-await checkSsrConsumer(root);
 cpSync(new URL('./browser', import.meta.url), resolve(root, 'browser'), { recursive: true });
+const floorCompiler = fileURLToPath(new URL('../../node_modules/typescript-stable/bin/tsc', import.meta.url));
+const floorVersion = execFileSync(process.execPath, [floorCompiler, '--version'], { encoding: 'utf8' }).trim();
+assert.equal(floorVersion, 'Version 7.0.2');
+console.log('Checking packed Node and browser declarations with TypeScript 7.0.2');
+for (const project of ['tsconfig.json', 'browser/tsconfig.json']) {
+  execFileSync(process.execPath, [floorCompiler, '-p', resolve(root, project)], { stdio: 'inherit' });
+}
 execFileSync(
   process.execPath,
   [fileURLToPath(new URL('../../node_modules/typescript/bin/tsc', import.meta.url)), '-p', resolve(root, 'browser/tsconfig.json')],
   { stdio: 'inherit' },
 );
+await checkSsrConsumer(root);
 /** @param {string} entry */
 async function bundleBrowser(entry) {
   const result = await build({
