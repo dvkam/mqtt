@@ -182,3 +182,108 @@ export async function probeNativeAdmission(url: string) {
     await client.disconnect().catch(() => {});
   }
 }
+
+export async function probeBatchNetwork(url: string, batchFirst: boolean) {
+  const modes = batchFirst ? (['batch-16', 'iterator'] as const) : (['iterator', 'batch-16'] as const);
+  const results = [];
+  for (const mode of modes) results.push(await runBatchNetwork(url, mode));
+  return results;
+}
+
+async function runBatchNetwork(url: string, mode: 'iterator' | 'batch-16') {
+  const queue = createMessageQueue({ maxMessages: 64, maxBytes: 1216 });
+  const consumer = mode === 'iterator' ? queue.iterate() : queue.iterateBatches(16);
+  const midpoint = completion();
+  const end = completion();
+  const controller = new AbortController();
+  const resources = observeBrowserResources(controller.signal);
+  const arrivals = new Float64Array(128);
+  let offered = 0;
+  let delivered = 0;
+  let dispatches = 0;
+  let checksum = 0;
+  let ordered = true;
+  const consume = (sequence: number | undefined) => {
+    ordered &&= sequence === delivered;
+    checksum += sequence ?? -1;
+    delivered++;
+  };
+  try {
+    const client = await createBrowserClient({
+      url,
+      clientId: 'packed-ready-' + mode,
+      signal: controller.signal,
+      timeoutMs: 1000,
+      onMessage(packet: Readonly<Omit<BrowserMessage, 'payload'>> & Readonly<{ payload: unknown }>) {
+        if (packet.topic === 'load/midpoint') midpoint.finish();
+        if (packet.topic === 'load/end') end.finish();
+        if (packet.topic !== 'load/data') return;
+        if (!(packet.payload instanceof Uint8Array)) throw new Error('Expected packed batch publication bytes');
+        arrivals[offered++] = performance.now();
+        queue.push({ ...packet, payload: packet.payload });
+      },
+      onSessionEnd(event) {
+        if (event.kind === 'disconnect') queue.close();
+        else queue.fail(event.error);
+      },
+    }).connect();
+    const nativeClosed = resources.nativeClosed();
+    const phases = [];
+    try {
+      await client.subscribe('load/start');
+      for (const phase of [midpoint.promise, end.promise]) {
+        await phase;
+        const { messages: backlog, bytes: queuedBytes } = queue.snapshot();
+        const subscribeStart = performance.now();
+        await client.subscribe('load/control');
+        const publishStart = performance.now();
+        await client.publish('load/control', '', { qos: 1 });
+        const pingStart = performance.now();
+        await client.ping();
+        const drainStart = performance.now();
+        const oldestArrival = arrivals[delivered];
+        if (oldestArrival === undefined || queue.snapshot().messages !== backlog || offered !== delivered + backlog) {
+          throw new Error('Packed batch backlog changed during control exchanges');
+        }
+        const phaseEnd = offered;
+        while (delivered < phaseEnd) {
+          const item = await consumer.next();
+          if (item.done === true) throw new Error('Packed batch consumer stopped before draining');
+          dispatches++;
+          if ('payload' in item.value) consume(item.value.payload[0]);
+          else for (const message of item.value) consume(message.payload[0]);
+        }
+        phases.push({
+          backlog,
+          queuedBytes,
+          oldestAgeMs: drainStart - oldestArrival,
+          subackMs: publishStart - subscribeStart,
+          pubackMs: pingStart - publishStart,
+          pingMs: drainStart - pingStart,
+          drainMs: performance.now() - drainStart,
+        });
+        if (phase === midpoint.promise) await client.publish('load/resume', '');
+      }
+      await client.disconnect();
+      await nativeClosed;
+      await resources.nextTask();
+      const terminal = await consumer.next();
+      if (terminal.done !== true) throw new Error('Packed batch consumer still had work after disconnect');
+      return {
+        mode,
+        offered,
+        delivered,
+        dispatches,
+        checksum,
+        ordered,
+        queue: queue.snapshot(),
+        phases,
+        settled: resources.snapshot(),
+      };
+    } finally {
+      await client.disconnect().catch(() => {});
+    }
+  } finally {
+    resources.restore();
+  }
+}

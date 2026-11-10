@@ -239,6 +239,60 @@ if (engines.length > 0) {
             'disconnect',
           ]);
           console.log(engine + ' packed QoS 1 admission passed');
+          const batchFirst = process.env['MQTT_BATCH_ORDER'] === 'batch-first';
+          const wireStart = peer.commands.length;
+          const networkBatches = await sustainedPage.evaluate(
+            async ({ url, batchFirst }: Readonly<{ url: string; batchFirst: boolean }>) => {
+              let timer: ReturnType<typeof setTimeout> | undefined;
+              try {
+                const deadline = new Promise<never>((_, reject) => {
+                  timer = setTimeout(() => {
+                    reject(new Error('Packed batch comparison did not settle'));
+                  }, 8000);
+                });
+                return await Promise.race([(await import('/streams.js')).probeBatchNetwork(url, batchFirst), deadline]);
+              } finally {
+                clearTimeout(timer);
+              }
+            },
+            { url: peer.url, batchFirst },
+          );
+          const modes = batchFirst ? ['batch-16', 'iterator'] : ['iterator', 'batch-16'];
+          assert.deepEqual(
+            networkBatches.map(({ mode }: Readonly<{ mode: string }>) => mode),
+            modes,
+          );
+          const expectedWire = [
+            'connect',
+            'subscribe',
+            'subscribe',
+            'publish',
+            'pingreq',
+            'publish',
+            'subscribe',
+            'publish',
+            'pingreq',
+            'disconnect',
+          ];
+          assert.deepEqual(peer.commands.slice(wireStart), [...expectedWire, ...expectedWire]);
+          for (const observation of networkBatches) {
+            assert.equal(observation.offered, 128);
+            assert.equal(observation.delivered, 128);
+            assert.equal(observation.dispatches, observation.mode === 'iterator' ? 128 : 8);
+            assert.equal(observation.checksum, 8128);
+            assert.equal(observation.ordered, true);
+            assert.deepEqual(observation.queue, { messages: 0, bytes: 0, peakMessages: 64, peakBytes: 1216 });
+            assert.deepEqual(observation.settled, { sockets: 1, socketListeners: 0, signalListeners: 0, timers: 0, expired: 0 });
+            assert.equal(observation.phases.length, 2);
+            for (const phase of observation.phases) {
+              assert.equal(phase.backlog, 64);
+              assert.equal(phase.queuedBytes, 1216);
+              for (const duration of [phase.oldestAgeMs, phase.subackMs, phase.pubackMs, phase.pingMs, phase.drainMs]) {
+                assert.ok(Number.isFinite(duration) && duration >= 0);
+              }
+            }
+          }
+          console.log(JSON.stringify({ engine, networkBatches }));
         } finally {
           await sustainedPage.close();
         }
