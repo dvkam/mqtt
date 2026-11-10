@@ -46,7 +46,7 @@ export function recordNativeBudgetFailure<Failure extends Readonly<Error>>(attem
 }
 
 export function takeNativeBudgetFailure(attempt: object, reason: unknown): Readonly<Error> | undefined {
-  if (!(reason instanceof Error) || !nativeBudgetFailures.get(reason)?.has(attempt)) return undefined;
+  if (!(reason instanceof Error) || nativeBudgetFailures.get(reason)?.has(attempt) !== true) return undefined;
   nativeBudgetFailures.delete(reason);
   return reason;
 }
