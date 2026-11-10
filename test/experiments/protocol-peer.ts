@@ -23,7 +23,11 @@ export async function startProtocolPeer() {
         socket.send(generate(reply, { protocolVersion: 5 }));
       };
       if (packet.cmd === 'connect') send({ cmd: 'connack', reasonCode: 0, sessionPresent: false });
-      if (packet.cmd === 'publish') send(packet);
+      if (packet.cmd === 'publish') {
+        if (packet.qos === 1 && packet.messageId !== undefined) {
+          send({ cmd: 'puback', messageId: packet.messageId, reasonCode: 0 });
+        } else send(packet);
+      }
       if (packet.cmd === 'subscribe') send({ cmd: 'suback', messageId: packet.messageId, granted: [0] });
       if (packet.cmd === 'pingreq') send({ cmd: 'pingresp' });
     });
