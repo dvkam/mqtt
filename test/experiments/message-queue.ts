@@ -18,8 +18,23 @@ export interface MessageQueue {
   close(): void;
   fail(reason: unknown): void;
   iterate(): AsyncIterableIterator<BrowserMessage, undefined, undefined>;
+  iterateBatches(maxItems: number): AsyncIterableIterator<readonly BrowserMessage[], undefined, undefined>;
   stream(): ReadableStream<BrowserMessage>;
   snapshot(): QueueSnapshot;
+}
+
+function weightOf(
+  message: Readonly<{
+    topic: string;
+    payload: Readonly<{ byteLength: number }>;
+    userProperties?: readonly (readonly [string, string])[];
+  }>,
+) {
+  return (
+    message.payload.byteLength +
+    message.topic.length * 2 +
+    (message.userProperties ?? []).reduce((total, [key, value]) => total + (key.length + value.length) * 2, 0)
+  );
 }
 
 export function createMessageQueue(limits: Readonly<QueueLimits>): MessageQueue {
@@ -65,6 +80,11 @@ export function createMessageQueue(limits: Readonly<QueueLimits>): MessageQueue 
     waiting?.reject(reason);
     notifyTerminal?.();
   };
+  const takeQueued = () => {
+    const entry = entries.shift();
+    if (entry !== undefined) bytes -= entry.weight;
+    return entry;
+  };
   const claim = (): AsyncIterableIterator<BrowserMessage, undefined, undefined> => {
     if (claimed) throw new Error('A message consumer already owns this queue');
     claimed = true;
@@ -74,11 +94,8 @@ export function createMessageQueue(limits: Readonly<QueueLimits>): MessageQueue 
       },
       async next() {
         if (state === 'failed') throw failure;
-        const entry = entries.shift();
-        if (entry !== undefined) {
-          bytes -= entry.weight;
-          return { done: false, value: entry.message };
-        }
+        const entry = takeQueued();
+        if (entry !== undefined) return { done: false, value: entry.message };
         if (state !== 'open') return { done: true, value: undefined };
         if (pending !== undefined) throw new Error('A message read is already pending');
         return new Promise<IteratorResult<BrowserMessage, undefined>>((resolve, reject) => {
@@ -100,10 +117,7 @@ export function createMessageQueue(limits: Readonly<QueueLimits>): MessageQueue 
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Incoming publications preserve the browser client's mutable native payload type.
     push(message) {
       if (state !== 'open') return;
-      const weight =
-        message.payload.byteLength +
-        message.topic.length * 2 +
-        (message.userProperties ?? []).reduce((total, [key, value]) => total + (key.length + value.length) * 2, 0);
+      const weight = weightOf(message);
       if (entries.length >= maxMessages || weight > maxBytes - bytes) {
         fail(new Error('Application message queue capacity exceeded'));
         return;
@@ -138,6 +152,46 @@ export function createMessageQueue(limits: Readonly<QueueLimits>): MessageQueue 
     },
     fail,
     iterate: claim,
+    iterateBatches(maxItems) {
+      if (!Number.isSafeInteger(maxItems) || maxItems <= 0) throw new RangeError('Batch capacity must be a positive safe integer');
+      const single = claim();
+      let reading = false;
+      return {
+        [Symbol.asyncIterator]() {
+          return this;
+        },
+        async next() {
+          if (reading) throw new Error('A batch read is already pending');
+          reading = true;
+          try {
+            const first = await single.next();
+            if (state === 'failed') throw failure;
+            if (state === 'cancelled' || first.done === true) return { done: true, value: undefined };
+
+            const batch = [first.value];
+            let weight = weightOf(first.value);
+            while (batch.length < maxItems) {
+              const head = entries[0];
+              if (head === undefined || head.weight > maxBytes - weight) break;
+              takeQueued();
+              batch.push(head.message);
+              weight += head.weight;
+            }
+            return { done: false, value: batch };
+          } finally {
+            reading = false;
+          }
+        },
+        async return() {
+          await single.return?.();
+          return { done: true, value: undefined };
+        },
+        async throw(reason: unknown) {
+          await single.throw?.(reason);
+          return { done: true, value: undefined };
+        },
+      };
+    },
     stream() {
       const iterator = claim();
       let cancelled = false;

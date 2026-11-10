@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { Session } from 'node:inspector/promises';
 import { fileURLToPath } from 'node:url';
-import type { DeliveryMode } from '../experiments/delivery-comparison.ts';
 import {
   assertFixedRateDelivery,
   fixedRatePlans,
+  isFixedRateMode,
+  type FixedRateMode,
   runFixedRateDelivery,
   type FixedRatePlan,
 } from '../experiments/fixed-rate-delivery.ts';
@@ -14,7 +15,7 @@ declare const BrowserFixedRate: typeof import('../experiments/fixed-rate-deliver
 const [runtime, workload, mode] = process.argv.slice(2);
 if (runtime !== 'node' && runtime !== 'chromium') throw new Error('Choose node or chromium');
 if (workload !== 'shallow' && workload !== 'deep') throw new Error('Choose shallow or deep');
-if (mode !== 'callback' && mode !== 'iterator' && mode !== 'web-stream') throw new Error('Choose callback, iterator or web-stream');
+if (!isFixedRateMode(mode)) throw new Error('Choose callback, iterator, web-stream, batch-1, batch-4 or batch-16');
 
 const plan = fixedRatePlans[workload];
 const sampling = {
@@ -25,7 +26,7 @@ const sampling = {
 const observation = runtime === 'node' ? await profileNode(mode, plan) : await profileChromium(mode, plan);
 console.log(JSON.stringify({ runtime, workload, mode, plan, sampling, ...observation }));
 
-async function profileNode(mode: DeliveryMode, plan: FixedRatePlan) {
+async function profileNode(mode: FixedRateMode, plan: FixedRatePlan) {
   assertFixedRateDelivery(await runFixedRateDelivery(mode, plan), plan);
   const unprofiled = await runFixedRateDelivery(mode, plan);
   assertFixedRateDelivery(unprofiled, plan);
@@ -42,7 +43,7 @@ async function profileNode(mode: DeliveryMode, plan: FixedRatePlan) {
   }
 }
 
-async function profileChromium(mode: DeliveryMode, plan: FixedRatePlan) {
+async function profileChromium(mode: FixedRateMode, plan: FixedRatePlan) {
   const [{ chromium }, { build }] = await Promise.all([import('playwright'), import('vite')]);
   const built = await build({
     configFile: false,
@@ -69,7 +70,7 @@ async function profileChromium(mode: DeliveryMode, plan: FixedRatePlan) {
     const protocol = await page.context().newCDPSession(page);
     const run = async () =>
       page.evaluate(
-        async ({ mode, plan }: Readonly<{ mode: DeliveryMode; plan: FixedRatePlan }>) =>
+        async ({ mode, plan }: Readonly<{ mode: FixedRateMode; plan: FixedRatePlan }>) =>
           BrowserFixedRate.runFixedRateDelivery(mode, plan),
         { mode, plan },
       );

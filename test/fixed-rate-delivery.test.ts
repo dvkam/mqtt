@@ -59,3 +59,14 @@ test('the allocation gate rejects silent drops, changed sequences, and reorderin
     assertFixedRateDelivery({ ...result, ordered: false }, plan);
   }).toThrow('delivery gate');
 });
+
+test('a batched profile validates delivery and its reduced dispatch count', async () => {
+  const result = await runFixedRateDelivery('batch-4', plan, clock());
+  expect(result).toMatchObject({ offered: 12, received: 12, ordered: true, checksum: 66, pending: 0, failure: null });
+  expect(result.dispatches).toBeLessThan(result.received);
+  expect(result.peakBatchMessages).toBe(4);
+  assertFixedRateDelivery(result, plan);
+  expect(() => {
+    assertFixedRateDelivery({ ...result, dispatches: 1 }, plan);
+  }).toThrow('delivery gate');
+});
