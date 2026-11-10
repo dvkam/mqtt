@@ -7,6 +7,7 @@ Keep workload, environment, tool versions, individual observations, summary and 
 | Pinned upstream comparison | [Baseline data](baseline/results.jsonl) and [runner](baseline/measure.mjs) | Initial Node and browser reference workloads |
 | Portable codec | [Codec measurements](codec.md#initial-measurements) | Encoding and decoding a 256-byte payload; three-run medians |
 | Application consumption | [Queue comparison](message-stream-comparison.md) | Callback, iterator and Web Streams delivery; queue accounting and ownership |
+| Fixed-rate delivery allocation | [Burst profiles](fixed-rate-delivery-allocation.md) | Node and Chromium allocation stacks and separate unprofiled queue age |
 | WebSocket transport | [WS/WSS comparison](websocket-comparison.md) | TLS, proxy, bufferedAmount admission and close observations |
 | Receive-limit validation | [8 November observations](baseline/receive-validation-measurements.md) | Individual broker smoke timings, browser delivery and fixture bundle sizes |
 | Bounded Node framing | [Individual measurements](baseline/node-framing-measurements.md) and [design](node-framing-experiment.md) | Compact assembly, streaming gate and native reference |
