@@ -10,7 +10,7 @@ type InvalidMatch<Kind extends Packet['cmd'], Expected extends Kind> = Kind exte
 // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- This compile-only negative fixture deliberately checks an invalid distributed type or member access.
 void (undefined as unknown as InvalidMatch<'publish' | 'puback', 'publish'>);
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Use the complete upstream PUBLISH and PUBACK types so the negative member check catches a declaration change.
 export function publishTopic(packet: PacketOf<'publish' | 'puback'>): string | undefined {
   if (packet.cmd === 'publish') return packet.topic;
 

@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs';
 import { Agent } from 'node:https';
 import { createTcpClient, createWebSocketClient } from 'mqtt';
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-/** @type {((packet: import('mqtt-packet').IPublishPacket | undefined) => void) | undefined} */
+/** @typedef {{readonly topic: string, readonly qos: 0, readonly payload: {readonly toString: () => string}}} EchoPacket */
+/** @type {((packet: EchoPacket | undefined) => void) | undefined} */
 let receive;
 const controller = new AbortController();
 /** @type {import('mqtt').SessionEnd[]} */
@@ -36,11 +36,11 @@ const options = {
   onSessionEnd(event) {
     outcomes.push(event);
   },
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+  /** @param {EchoPacket} packet */
   onMessage(packet) {
     receive?.(packet);
   },
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Check the mutable Node payload through the installed API.
+  /** @param {{readonly payload: unknown, readonly qos: 1, readonly messageId: number}} packet */
   async onQosOneMessage(packet) {
     assert.ok(Buffer.isBuffer(packet.payload));
     assert.equal(packet.qos, 1);
@@ -88,8 +88,7 @@ try {
   for (let index = 0; index < iterations; index++) {
     const started = performance.now();
     const received = new Promise(
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-      /** @param {(packet: import('mqtt-packet').IPublishPacket | undefined) => void} resolve */ (resolve) => {
+      /** @param {(packet: EchoPacket | undefined) => void} resolve */ (resolve) => {
         receive = resolve;
       },
     );
