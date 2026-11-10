@@ -1,5 +1,5 @@
 import type { BrowserMessage } from '../../src/browserClient.js';
-import { createMessageQueue } from './message-queue.js';
+import { createMessageQueue } from './message-queue.ts';
 
 export type DeliveryMode = 'callback' | 'iterator' | 'web-stream';
 
