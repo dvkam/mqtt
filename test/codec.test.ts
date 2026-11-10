@@ -258,3 +258,57 @@ test('reports the decoded prefix and keeps the first failure across later input'
     }),
   ).toBe(batch.error);
 });
+
+test.each([
+  { payloadBytes: 123, prefix: [0x30, 0x7f, 0, 1, 97, 0] },
+  { payloadBytes: 124, prefix: [0x30, 0x80, 1, 0, 1, 97, 0] },
+  { payloadBytes: 16_380, prefix: [0x30, 0x80, 0x80, 1, 0, 1, 97, 0] },
+])(
+  'encodes an owned PUBLISH frame across the length boundary at $payloadBytes bytes',
+  ({ payloadBytes, prefix }: Readonly<{ payloadBytes: number; prefix: readonly number[] }>) => {
+    const backing = new Uint8Array(payloadBytes + 2).fill(0x6f);
+    const payload = backing.subarray(1, payloadBytes + 1);
+    payload.fill(0x5a);
+    const frame = encodePacket({ cmd: 'publish', topic: 'a', payload });
+    backing.fill(0);
+    expect(frame.length).toBe(prefix.length + payloadBytes);
+    expect(Array.from(frame.subarray(0, prefix.length))).toEqual(prefix);
+    expect(frame.subarray(prefix.length)).toEqual(new Uint8Array(payloadBytes).fill(0x5a));
+  },
+);
+
+test('writes the true byte length when the payload shadows its length property', () => {
+  const payload = Uint8Array.of(0x5a);
+  Object.defineProperty(payload, 'length', { value: 0 });
+  expect(encodePacket({ cmd: 'publish', topic: 'a', payload })).toEqual(Uint8Array.of(0x30, 5, 0, 1, 97, 0, 0x5a));
+});
+
+test('sizes and copies the same PUBLISH payload when options use a getter', () => {
+  let reads = 0;
+  const frame = encodePacket({
+    cmd: 'publish',
+    topic: 'a',
+    get payload() {
+      reads++;
+      return reads === 1 ? Uint8Array.of(0x5a) : Uint8Array.of(0x6f, 0x6f);
+    },
+  });
+  expect(frame).toEqual(Uint8Array.of(0x30, 5, 0, 1, 97, 0, 0x5a));
+  expect(reads).toBe(1);
+});
+
+test('never emits a frame with a stale length if the payload grows during encoding', () => {
+  const storage: unknown = Reflect.construct(ArrayBuffer, [1, { maxByteLength: 2 }]);
+  if (!(storage instanceof ArrayBuffer)) throw new Error('Expected resizable storage');
+  const resize: unknown = Reflect.get(storage, 'resize');
+  if (typeof resize !== 'function') throw new Error('Expected resize');
+  const resizeBuffer = resize;
+  class GrowingPayload extends Uint8Array {
+    override get byteLength(): number {
+      const length = super.byteLength;
+      if (length === 1) Reflect.apply(resizeBuffer, storage, [2]);
+      return length;
+    }
+  }
+  expect(() => encodePacket({ cmd: 'publish', topic: 'a', payload: new GrowingPayload(storage) })).toThrow(RangeError);
+});

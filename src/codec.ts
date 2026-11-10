@@ -177,15 +177,28 @@ export function encodePacket(packet: Readonly<WirePacket>): Uint8Array<ArrayBuff
     case 'publish': {
       topic(packet.topic, false);
       header = 0x30 | (packet.retain === true ? 1 : 0);
-      integer(packet.qos ?? 0, 1);
-      if (packet.qos === 1) {
-        header |= 2 | (packet.dup === true ? 8 : 0);
-        body = join([utf8(packet.topic), uint16(integer(packet.messageId, 65_535, 1)), properties(packet), packet.payload]);
-      } else {
-        if ('messageId' in packet || 'dup' in packet) throw new Error('Unsupported QoS 0 PUBLISH field');
-        body = join([utf8(packet.topic), properties(packet), packet.payload]);
+      const { qos } = packet;
+      integer(qos ?? 0, 1);
+      if (qos === 1) header |= 2 | (packet.dup === true ? 8 : 0);
+      else if ('messageId' in packet || 'dup' in packet) throw new Error('Unsupported QoS 0 PUBLISH field');
+      const encodedTopic = utf8(packet.topic);
+      const identifier = qos === 1 ? uint16(integer(packet.messageId, 65_535, 1)) : undefined;
+      const encodedProperties = properties(packet);
+      const payload = packet.payload;
+      const remaining = encodedTopic.byteLength + (identifier?.byteLength ?? 0) + encodedProperties.byteLength + payload.byteLength;
+      const remainingLength = variable(remaining);
+      const frame = new Uint8Array(1 + remainingLength.byteLength + remaining);
+      frame[0] = header;
+      const fields = [remainingLength, encodedTopic];
+      if (identifier) fields.push(identifier);
+      fields.push(encodedProperties);
+      let offset = 1;
+      for (const field of fields) {
+        frame.set(field, offset);
+        offset += field.byteLength;
       }
-      break;
+      frame.set(payload, offset);
+      return frame;
     }
     case 'puback': {
       const identifier = uint16(integer(packet.messageId, 65_535, 1));
