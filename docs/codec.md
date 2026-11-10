@@ -14,18 +14,18 @@ Send encoded bytes through `openBrowserTransport` and feed its `onBytes` values 
 
 ## Supported profile
 
-| Packet | Supported fields |
-| --- | --- |
-| CONNECT | MQTT 5, client identifier, Clean Start, Keep Alive, Receive Maximum, username, binary password, User Properties |
-| CONNACK | Session Present, reason code, Receive Maximum, Maximum QoS, Topic Alias Maximum, User Properties |
-| PUBLISH | QoS 0 or 1, nonempty topic name, binary payload, retain, User Properties. QoS 1 also carries a nonzero packet identifier and DUP. |
-| PUBACK | Nonzero packet identifier, reason code, Reason String and ordered User Properties |
-| SUBSCRIBE | Packet identifier, ordinary topic filters with a uniform requested QoS of 0 or 1, User Properties |
-| SUBACK | Packet identifier, reason codes, Reason String, User Properties |
-| UNSUBSCRIBE | Packet identifier, ordinary topic filters, User Properties |
-| UNSUBACK | Packet identifier, reason codes, Reason String, User Properties |
-| PINGREQ and PINGRESP | Empty bodies |
-| DISCONNECT | Normal disconnect, Malformed Packet, Protocol Error and Receive Maximum exceeded. Zero-, one- and two-byte bodies when permitted by the reason. |
+| Packet               | Supported fields                                                                                                                                |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| CONNECT              | MQTT 5, client identifier, Clean Start, Keep Alive, Receive Maximum, username, binary password, User Properties                                 |
+| CONNACK              | Session Present, reason code, Receive Maximum, Maximum QoS, Topic Alias Maximum, User Properties                                                |
+| PUBLISH              | QoS 0 or 1, nonempty topic name, binary payload, retain, User Properties. QoS 1 also carries a nonzero packet identifier and DUP.               |
+| PUBACK               | Nonzero packet identifier, reason code, Reason String and ordered User Properties                                                               |
+| SUBSCRIBE            | Packet identifier, ordinary topic filters with a uniform requested QoS of 0 or 1, User Properties                                               |
+| SUBACK               | Packet identifier, reason codes, Reason String, User Properties                                                                                 |
+| UNSUBSCRIBE          | Packet identifier, ordinary topic filters, User Properties                                                                                      |
+| UNSUBACK             | Packet identifier, reason codes, Reason String, User Properties                                                                                 |
+| PINGREQ and PINGRESP | Empty bodies                                                                                                                                    |
+| DISCONNECT           | Normal disconnect, Malformed Packet, Protocol Error and Receive Maximum exceeded. Zero-, one- and two-byte bodies when permitted by the reason. |
 
 User Properties are ordered key/value tuples. Duplicate keys and empty keys or values are preserved.
 
@@ -41,7 +41,7 @@ The encoder uses the compact two-byte normal DISCONNECT. mqtt-packet 9.0.2 regen
 
 `push` accepts fragmented or coalesced frames and returns complete packets. It copies incoming bytes into an owned frame. Returned binary fields keep that frame alive and do not alias the caller's input.
 
-On failure, `push` throws. Use `pushBatch` when a transport needs the complete packets before a malformed frame in the same chunk. It returns the packet array on success, or `{ packets, error }` with the valid prefix and the stored error. The decoder stops at the first failure. Later batches return the same error with an empty prefix. The browser client uses the prefix for classified subscription acknowledgment errors. It dispatches the earlier packets first and reports the error only if the session still owns input.
+On failure, `push` throws. Use `pushBatch` when a transport needs the complete packets before a malformed frame in the same chunk. It returns the packet array on success, or `{ packets, error }` with the valid prefix and the stored error. The decoder stops at the first failure. Later batches return the same error with an empty prefix. The browser client uses the prefix for classified subscription acknowledgment errors. It dispatches earlier packets while the session owns input and stops at a client-only packet. If such a packet precedes the decoder error, the direction error takes precedence. Generic decode errors still retire the browser client before it dispatches the batch.
 
 The decoder validates Remaining Length and the per-packet limit before allocating a frame. Its default limit is 1 MiB, including the fixed header. Any decoding error permanently fails that decoder. Start a new decoder for a new connection.
 
@@ -66,9 +66,9 @@ Run `node test/bench/codec.ts` after building. The corpus is a QoS 0 PUBLISH wit
 These are medians of three runs. Allocation samples include measurement overhead and are estimates rather than exact allocation counts or peak memory.
 
 | Operation | Prototype operations/s | mqtt-packet 9.0.2 operations/s | Prototype sampled bytes | mqtt-packet sampled bytes |
-| --- | --- | --- | --- | --- |
-| Encode | 84,770 | 152,553 | 33,897,800 | 23,673,872 |
-| Decode | 113,552 | 64,152 | 25,561,384 | 51,438,720 |
+| --------- | ---------------------- | ------------------------------ | ----------------------- | ------------------------- |
+| Encode    | 84,770                 | 152,553                        | 33,897,800              | 23,673,872                |
+| Decode    | 113,552                | 64,152                         | 25,561,384              | 51,438,720                |
 
 Encoding is slower and allocates more in this workload. Decoding is faster with fewer sampled bytes. This corpus does not establish a general performance advantage. Keep raw measurements with the local research or CI artifacts when rerunning the benchmark.
 
