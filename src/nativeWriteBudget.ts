@@ -37,17 +37,16 @@ export function allowsNativeWrite(
   }
 }
 
-// A rejection belongs to the exact object presented to the native admission gate.
-const nativeBudgetFailures = new WeakMap<object, Readonly<Error>>();
+// The proof must outlive neither the failed attempt nor its error.
+const nativeBudgetFailures = new WeakMap<Readonly<Error>, WeakSet<object>>();
 
 export function recordNativeBudgetFailure<Failure extends Readonly<Error>>(attempt: object, failure: Failure): Failure {
-  nativeBudgetFailures.set(attempt, failure);
+  nativeBudgetFailures.set(failure, new WeakSet([attempt]));
   return failure;
 }
 
 export function takeNativeBudgetFailure(attempt: object, reason: unknown): Readonly<Error> | undefined {
-  const recorded = nativeBudgetFailures.get(attempt);
-  if (recorded === undefined || recorded !== reason) return undefined;
-  nativeBudgetFailures.delete(attempt);
-  return recorded;
+  if (!(reason instanceof Error) || !nativeBudgetFailures.get(reason)?.has(attempt)) return undefined;
+  nativeBudgetFailures.delete(reason);
+  return reason;
 }

@@ -442,7 +442,7 @@ This bounded model excludes the producer schedule, garbage collection, MQTT cont
 
 ## QoS 1 native write admission
 
-Source sync commit 4306b97 keeps one QoS 1 PUBLISH refusal local when the native adapter proves it rejected that exact attempt before submission. QosOneNativeAdmission maps Reserve to a live exchange with its identifier and publication charge, Refuse to the native budget guard, and Submit to the call to the native write. Ack and Complete cover either settlement order for admitted work. Replay represents a failure from a different attempt. Uncertain represents a send error without the proof. Retire stands for terminal session failure after either of those errors.
+Source sync commit 4306b97 keeps one QoS 1 PUBLISH refusal local when the native adapter proves it rejected that exact attempt before submission. QosOneNativeAdmission starts with a live exchange that owns its identifier and publication charge. Submit maps to the native write. Ack and Complete cover either settlement order for admitted work. Reject with a local cause represents a proven refusal at the budget guard. The replay cause represents a failure from a different attempt, and the uncertain cause represents a send error without the proof. Both take the terminal branch of Reject.
 
 The 18-state model checks that refusal keeps the session usable and returns the identifier and publication charge. Five faults exercise terminal refusal, leaked identifier, leaked publication charge, accepted replay, and local handling of an uncertain write. QosOneOutbound still checks ownership until send and ACK settlement on the admitted path. NativeWriteReserve keeps its admission arithmetic and bounds.
 
