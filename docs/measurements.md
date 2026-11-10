@@ -2,28 +2,29 @@
 
 Keep workload, environment, tool versions, individual observations, summary and reproduction commands with each experiment. State what the measurement excludes. Record changed validation or ownership rules before comparing speed. Raw profiler output stays in local research files or CI artifacts unless a checked-in fixture is needed to reproduce a regression.
 
-| Work | Record | Scope |
-| --- | --- | --- |
-| Pinned upstream comparison | [Baseline data](baseline/results.jsonl) and [runner](baseline/measure.mjs) | Initial Node and browser reference workloads |
-| Portable codec | [Codec measurements](codec.md#initial-measurements) | Encoding and decoding a 256-byte payload; three-run medians |
-| Application consumption | [Queue comparison](message-stream-comparison.md) | Callback, iterator and Web Streams delivery; queue accounting and ownership |
-| Fixed-rate delivery allocation | [Burst profiles](fixed-rate-delivery-allocation.md) | Node and Chromium allocation stacks and separate unprofiled queue age |
-| Ready message batches | [Batch comparison](ready-message-batches.md) | Iterator dispatch counts, allocation samples and oldest delivered age |
-| WebSocket transport | [WS/WSS comparison](websocket-comparison.md) | TLS, proxy, bufferedAmount admission and close observations |
-| Receive-limit validation | [8 November observations](baseline/receive-validation-measurements.md) | Individual broker smoke timings, browser delivery and fixture bundle sizes |
-| Bounded Node framing | [Individual measurements](baseline/node-framing-measurements.md) and [design](node-framing-experiment.md) | Compact assembly, streaming gate and native reference |
-| Node parser occupancy | [Individual observations](baseline/node-framing-occupancy.md) | Native fragment bytes/items and compact assembly capacity; no allocation or timing claim |
-| Mixed traffic preview | [Six observations](baseline/mixed-traffic-probe.md) and [method](mixed-traffic-probe.md) | QoS 0 bursts, capacity rejection, ping, subscriptions, delayed echoes and same-process metrics |
-| Concurrent subscriptions | [CI observations](baseline/concurrent-subscriptions-checks.md) | Individual packed-broker echo timings and fixture bundle sizes; no controlled performance comparison |
-| QoS 1 wire profile | [CI observations](baseline/qos1-wire-checks.md) | Packed QoS 0 echo timings and bundle sizes after expanding the codec |
-| Outbound QoS 1 | [CI observations](baseline/qos1-outbound-checks.md) | Packed QoS 1 exchange validation, QoS 0 echo timings and fixture sizes |
-| Packet identifier allocator | [Set and bitset observations](baseline/packet-id-allocator.md) | Sparse and nearly full occupancy, five repetitions per variant |
-| Shared unsubscribe | [CI observations](baseline/unsubscribe-checks.md) | Packed unsubscribe validation, QoS 0 echo timings and fixture sizes |
-| Inbound QoS 1 | [CI and local observations](baseline/qos1-inbound-checks.md) | Packed delivery validation, QoS 0 echo timings and browser fixture measurements |
-| Subscription acknowledgment validation | [CI observations](baseline/subscription-protocol-checks.md) | Valid broker echo timings and fixture bundle sizes |
-| Parser acknowledgment reporting | [CI observations](baseline/parser-ack-checks.md) | Valid broker echo timings and fixture bundle sizes |
-| Legacy TLS and comment audit | [CI observations](baseline/legacy-audit-checks.md) | Valid broker echo timings and fixture bundle sizes |
-| Session lint cleanup | [CI observations](baseline/lint-audit-checks.md) | Valid broker echo timings and fixture bundle sizes |
+| Work                                   | Record                                                                                                    | Scope                                                                                                |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Pinned upstream comparison             | [Baseline data](baseline/results.jsonl) and [runner](baseline/measure.mjs)                                | Initial Node and browser reference workloads                                                         |
+| Portable codec                         | [Codec measurements](codec.md#initial-measurements)                                                       | Encoding and decoding a 256-byte payload; three-run medians                                          |
+| Application consumption                | [Queue comparison](message-stream-comparison.md)                                                          | Callback, iterator and Web Streams delivery; queue accounting and ownership                          |
+| Fixed-rate delivery allocation         | [Burst profiles](fixed-rate-delivery-allocation.md)                                                       | Node and Chromium allocation stacks and separate unprofiled queue age                                |
+| Ready message batches                  | [Batch comparison](ready-message-batches.md)                                                              | Iterator dispatch counts, allocation samples and oldest delivered age                                |
+| Packed ready batches                   | [Browser network probe](packed-batch-network.md)                                                          | Oldest live backlog, control latency, dispatch and cleanup across three engines                      |
+| WebSocket transport                    | [WS/WSS comparison](websocket-comparison.md)                                                              | TLS, proxy, bufferedAmount admission and close observations                                          |
+| Receive-limit validation               | [8 November observations](baseline/receive-validation-measurements.md)                                    | Individual broker smoke timings, browser delivery and fixture bundle sizes                           |
+| Bounded Node framing                   | [Individual measurements](baseline/node-framing-measurements.md) and [design](node-framing-experiment.md) | Compact assembly, streaming gate and native reference                                                |
+| Node parser occupancy                  | [Individual observations](baseline/node-framing-occupancy.md)                                             | Native fragment bytes/items and compact assembly capacity; no allocation or timing claim             |
+| Mixed traffic preview                  | [Six observations](baseline/mixed-traffic-probe.md) and [method](mixed-traffic-probe.md)                  | QoS 0 bursts, capacity rejection, ping, subscriptions, delayed echoes and same-process metrics       |
+| Concurrent subscriptions               | [CI observations](baseline/concurrent-subscriptions-checks.md)                                            | Individual packed-broker echo timings and fixture bundle sizes; no controlled performance comparison |
+| QoS 1 wire profile                     | [CI observations](baseline/qos1-wire-checks.md)                                                           | Packed QoS 0 echo timings and bundle sizes after expanding the codec                                 |
+| Outbound QoS 1                         | [CI observations](baseline/qos1-outbound-checks.md)                                                       | Packed QoS 1 exchange validation, QoS 0 echo timings and fixture sizes                               |
+| Packet identifier allocator            | [Set and bitset observations](baseline/packet-id-allocator.md)                                            | Sparse and nearly full occupancy, five repetitions per variant                                       |
+| Shared unsubscribe                     | [CI observations](baseline/unsubscribe-checks.md)                                                         | Packed unsubscribe validation, QoS 0 echo timings and fixture sizes                                  |
+| Inbound QoS 1                          | [CI and local observations](baseline/qos1-inbound-checks.md)                                              | Packed delivery validation, QoS 0 echo timings and browser fixture measurements                      |
+| Subscription acknowledgment validation | [CI observations](baseline/subscription-protocol-checks.md)                                               | Valid broker echo timings and fixture bundle sizes                                                   |
+| Parser acknowledgment reporting        | [CI observations](baseline/parser-ack-checks.md)                                                          | Valid broker echo timings and fixture bundle sizes                                                   |
+| Legacy TLS and comment audit           | [CI observations](baseline/legacy-audit-checks.md)                                                        | Valid broker echo timings and fixture bundle sizes                                                   |
+| Session lint cleanup                   | [CI observations](baseline/lint-audit-checks.md)                                                          | Valid broker echo timings and fixture bundle sizes                                                   |
 
 The compact runner now uses the private production decoder described in [TCP packet input](tcp-packet-input.md) and [Node WebSocket packet input](websocket-packet-input.md). Historical prototype runs remain pinned in the measurement record. Decoder-only throughput excludes the input helper, session and native socket.
 
