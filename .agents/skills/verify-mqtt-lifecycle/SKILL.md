@@ -395,3 +395,11 @@ BrowserAckOrder covers one successful or refused CONNACK followed by a malformed
 CodecFrames now maps Declare, Copy, Emit and Reject to PacketDecoder.pushBatch. FailedInput maps to the stored-error result with an empty prefix. PacketDecoder.push continues to throw the same error. CodecEndOfInput retains its completion and first-failure mapping. The fixed wire tests cover fragmented CONNACK, the empty SUBACK payload, application delivery before a classified failure and the existing generic failure behavior.
 
 Run the full checker with the command in this guide. BrowserAckOrderDrop must violate AcceptedPrefixReports and BrowserAckOrderReplace must violate RefusalKeepsFirstCause. The browser tests reproduce both faults against the old batch behavior. The generic error case also fails if its prefix is dispatched. Restore the source before rerunning the suite.
+
+## Canonical Remaining Length on Node
+
+Source commit df8f76a984d5c7ae72e5fdc0a7e3cf1601a3362b rejects a terminal zero when a Remaining Length uses more than one byte. The check runs before the compact decoder calculates the declared body size or allocates its remainder. A single-byte zero remains valid. The public TCP test rejects a malformed PINGRESP and keeps that Error for later operations. Both Node adapters share the decoder.
+
+NodeCanonicalLength covers one declaration with up to four bytes. Continuation maps to the stored continuation count and the fourth-byte rejection. Terminator maps to the check before size admission. The model explores 12 states and abstracts lower digits, allocation size, callbacks and network timing. Its skip fault admits a redundant terminal zero and violates CanonicalBeforeAdmission. NodePacketAdmission still covers size, completion and retirement after a canonical declaration. The streaming comparator and previous bounds are unchanged.
+
+Run the existing full checker. The direct allocator spy in test/bounded-node-decoder.test.ts observes zero compact allocations on malformed split input. The canonical 128-byte body uses 131 wire bytes and passes at that exact cap. A 130-byte cap rejects its declaration before the body. The test scope covers byte representation and frame admission.

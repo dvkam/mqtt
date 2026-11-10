@@ -57,6 +57,8 @@ The bounded CodecFrames model checks allocation admission, completion before emi
 
 The bounded CodecEndOfInput model checks truncation rejection, no output after successful completion and failure reporting on repeated completion. It uses five abstract states for an open boundary, partial header, partial body, successful end and failure. Sequential method calls and ordinary byte-view reads are assumptions. It does not prove packet conformance, garbage collection behavior or transport shutdown.
 
+The [fixed-wire comparison](codec-comparison.md) records how the pinned decoders handle length encodings, AUTH and repeated User Properties.
+
 ## Initial measurements
 
 Run `node test/bench/codec.ts` after building. The corpus is a QoS 0 PUBLISH with a 256-byte payload. Each operation has 1,000 warmup calls and 10,000 measured calls under Node 26.13.0. V8 allocation sampling runs during measurement, including objects collected by GC.

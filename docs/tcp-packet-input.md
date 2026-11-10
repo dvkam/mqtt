@@ -18,7 +18,7 @@ This introduces a default limit where the supported TCP adapter previously had n
 
 ## Input and operation outcomes
 
-The decoder interprets the first byte through mqtt-packet, preserving its early flag and QoS errors. It collects at most four length bytes, checks total wire size before body allocation and copies the admitted remainder into compact owned storage. A declaration above the budget fails without waiting for its body, including a fragmented declaration. The adapter destroys the connection and reports a RangeError with message `MQTT packet allocation limit exceeded`.
+The decoder interprets the first byte through mqtt-packet, preserving its early flag and QoS errors. It collects at most four length bytes, rejects a non-minimal Remaining Length before frame allocation, checks total wire size and copies the admitted remainder into compact owned storage. A declaration above the budget fails without waiting for its body, including a fragmented declaration. The adapter destroys the connection and reports a RangeError with message `MQTT packet allocation limit exceeded`.
 
 Several complete packets can arrive in one chunk. Completed application publications are delivered synchronously before a later packet in that chunk fails. A still-pending connect, subscribe or ping operation fails on fatal input, even when a valid acknowledgment appeared earlier in the same callback. Tests cover CONNACK, SUBACK and PINGRESP prefixes. No artificial microtask delay selects the outcome. Operations already settled in an earlier turn keep their result.
 
