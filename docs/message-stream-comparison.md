@@ -30,7 +30,7 @@ This is a delivery microbenchmark. It excludes encoding, decoding, broker throug
 
 The packed harness runs ownership cases through the installed browser client and a scripted MQTT 5 WebSocket peer. After iterator break, stream cancellation or overflow, the same session publishes, receives SUBACK, receives PINGRESP and disconnects. Node tests also stall a stream and verify normal source completion settles an outstanding read. Reader cancellation, iterator return and throw, pipe cancellation, destination failure and source failure have focused regressions.
 
-Run pnpm test for the contract gate. The existing packed browser harness builds the comparison on PRs and runs it in the scheduled browser matrix. Prepare the [installed consumer](public-types.md#packed-verification), then pass a browser engine to `test/packed/browser-build.mjs` for a local runtime comparison. It also reports the isolated queue module size and verifies the callback fixture does not contain the experimental queue. The queue is not added to the npm artifact.
+Run pnpm test for the contract gate. The existing packed browser harness builds the comparison on PRs and runs it in the scheduled browser matrix. Prepare the [installed consumer](public-types.md#packed-verification), then pass a browser engine to `test/packed/browser-build.ts` for a local runtime comparison. It also reports the isolated queue module size and verifies the callback fixture does not contain the experimental queue. The queue is not added to the npm artifact.
 
 ## Decision
 
