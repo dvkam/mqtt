@@ -114,6 +114,7 @@ if (engines.length > 0) {
           messages: ['hello'],
           outcome: 'closed before drain',
         });
+        const acknowledgedBefore = peer.acknowledgments.length;
         const comparison = await page.evaluate(async (url) => {
           let timer: ReturnType<typeof setTimeout> | undefined;
           try {
@@ -150,6 +151,13 @@ if (engines.length > 0) {
           { mode: 'cancel-during-disconnect', consumerSettled: true, retiredOnce: true, empty: true },
           { mode: 'cancel-after-source-close', consumerSettled: true, retiredOnce: true, empty: true },
         ]);
+        assert.deepEqual(comparison.stalledQosOne, {
+          received: true,
+          heldBeforeRelease: true,
+          acknowledged: true,
+          queueCleared: true,
+        });
+        assert.deepEqual(peer.acknowledgments.slice(acknowledgedBefore), [{ messageId: 23, reasonCode: 0 }]);
         console.log(JSON.stringify({ engine, ...comparison }));
         const receive = await page.evaluate(async (url) => (await import('/receive.js')).probeReceive(url), receivePeer.url);
         assert.deepEqual(
