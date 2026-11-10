@@ -36,13 +36,23 @@ Run pnpm test for the contract gate. The existing packed browser harness builds 
 
 The [8 November measurement record](baseline/receive-validation-measurements.md) contains the individual delivery timings, queue peaks and bundled fixture sizes. The [measurement index](measurements.md) links the other workloads and their limitations.
 
-Keep callbacks as the default. Retain this bounded queue as a comparison candidate, with an iterator and an optional Streams facade sharing admission and terminal behavior. Do not make Web Streams the transport interface or couple application cancellation to the shared reader. Keep any facade export behind the decision in #54. The allocation and batching experiment in #118 can test whether a narrower application interface earns its cost. Do not add a stream-helper dependency for this prototype.
+The preview publishes callback delivery and the optional session-end observer. The bounded iterator and Web Streams adapters stay in the experiment. They share a single application queue. Overflow discards queued work and fails that facade with its first error. Consumer cancellation discards queued work without retiring the shared MQTT reader. #118 can revisit an application facade after a candidate demonstrates a measured benefit with those contracts intact.
 
 ## Session retirement
 
 The packed browser comparison wires the optional public `onSessionEnd` observer to the experimental queue. A successful local MQTT DISCONNECT lets the queue drain before the stream finishes. Session failure clears queued work and rejects pending reads with the first session error. An earlier consumer cancellation or overflow keeps its original outcome. The queue still owns neither the protocol reader nor the socket.
 
-The packed Chromium fixture covers a queued delivery after local disconnect and an aborted session with a pending read. The Node packed Mosquitto fixture checks that TCP, WS and WSS pass through the same cancellation Error. The facade remains experimental. The permanent facade decision stays open under #54.
+The packed Chromium fixture covers a queued delivery after local disconnect and an aborted session with a pending read. The Node packed Mosquitto fixture checks that TCP, WS and WSS pass through the same cancellation Error. The iterator and Web Streams facade remain experimental.
+
+## Sustained browser sessions
+
+The installed browser probe runs two cycles each of local disconnect, signal abort, remote WebSocket close and an MQTT operation timeout. Each session receives 128 sequenced QoS 0 publications from a scripted peer in two paced phases. It verifies counts, order and checksum. The peer paces groups of eight on a five-millisecond timer within each phase. A protocol checkpoint separates the phases. The test makes no throughput claim.
+
+The application queue stays backlogged across two control checks and reaches exactly 64 items and 1,216 accounted bytes. The same client completes SUBACK, outbound QoS 1 PUBACK and PINGRESP exchanges. The local case drains all 128 messages. The abort case cancels its iterator before the second phase. The remote and timeout cases overflow the held queue and still process later input and control traffic. Each session emits one logical retirement outcome.
+
+The probe records explicit listener registrations on the native WebSocket and the supplied AbortSignal. It wraps native timeout calls in a dedicated page and excludes its own deadline and task fence. After handoff, the socket has three tracked listeners and the signal has one. A pending ping arms one timeout and successful completion clears it. After logical retirement, native close and a browser task boundary, every case has zero tracked registrations and zero live timeout handles. Each timeout case records exactly one expiry. The other cases record zero.
+
+Chromium, Firefox and WebKit passed all eight cases. In the scratch install, omitting signal listener removal leaves one tracked registration after retirement. Omitting the operation timer clear leaves live handles. The probe observes JavaScript registrations and timeout handles. It retains socket references for inspection. Native memory and garbage collection are outside this measurement.
 
 ## Node allocation and post-drain memory
 
@@ -103,4 +113,4 @@ pnpm exec playwright install chromium
 timeout 120s node test/bench/chromium-delivery-memory.ts
 ```
 
-Callbacks remain the preview default. The Chromium samples favor callbacks for temporary allocations in this workload. Both queued modes held the same payload backing storage while stalled. The permanent facade decision in #54 can use the fixed-rate and allocation attribution experiments in #118.
+Callbacks remain the preview default. The Chromium samples favor callbacks for temporary allocations in this workload. Both queued modes held the same payload backing storage while stalled. The fixed-rate and allocation attribution experiments in #118 can inform future application delivery changes.
