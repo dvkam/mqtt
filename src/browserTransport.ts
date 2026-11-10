@@ -1,6 +1,12 @@
 import { openMqttWebSocket } from './websocket.js';
 import { resolveWebSocketMessageLimit } from './websocketLimits.js';
-import { allowsNativeWrite, resolveNativeWriteLimits, type NativeWriteLimits, type WriteTraffic } from './nativeWriteBudget.js';
+import {
+  allowsNativeWrite,
+  recordNativeBudgetFailure,
+  resolveNativeWriteLimits,
+  type NativeWriteLimits,
+  type WriteTraffic,
+} from './nativeWriteBudget.js';
 
 export type BrowserCloseKind = 'remote' | 'local' | 'abort' | 'error';
 
@@ -104,7 +110,7 @@ export async function openBrowserTransport(
       if (failure) throw failure;
       if (socket.readyState !== WebSocket.OPEN) throw new Error('MQTT WebSocket closed');
       if (!allowsNativeWrite(writeLimits, socket.bufferedAmount, bytes.byteLength, traffic))
-        throw new Error('WebSocket write budget exceeded');
+        throw recordNativeBudgetFailure(bytes, new Error('WebSocket write budget exceeded'));
       socket.send(bytes);
     },
     // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.

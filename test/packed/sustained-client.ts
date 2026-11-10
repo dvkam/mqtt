@@ -163,3 +163,22 @@ function completion() {
   });
   return { promise, finish };
 }
+
+export async function probeNativeAdmission(url: string) {
+  const client = await createBrowserClient({
+    url,
+    clientId: 'packed-qos-one-budget',
+    maxBufferedBytes: 64,
+    reservedControlBytes: 16,
+    maxPendingPublishes: 1,
+  }).connect();
+  try {
+    const refused = await client.publish('a', 'x'.repeat(80), { qos: 1 }).catch((error: unknown) => error);
+    await client.ping();
+    await client.publish('a', 'admitted', { qos: 1 });
+    await client.ping();
+    return refused instanceof Error ? refused.message : null;
+  } finally {
+    await client.disconnect().catch(() => {});
+  }
+}

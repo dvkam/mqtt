@@ -4,6 +4,7 @@ import { setTimeout } from 'node:timers/promises';
 import { generate, parser, type Packet } from 'mqtt-packet';
 import { expect, test, vi } from 'vitest';
 import { createTcpClient } from '../src/index.js';
+import { PacketIdentifiers } from '../src/packetIdentifiers.js';
 
 const connack: Packet = { cmd: 'connack', reasonCode: 0, sessionPresent: false };
 
@@ -377,6 +378,64 @@ test('closes on a parser-rejected SUBACK before CONNACK without writing a notice
     await closed;
     expect(peer.commands).toEqual(['connect']);
   } finally {
+    await peer.close();
+  }
+});
+
+test('rejects an unsent QoS 1 publication without retiring a corked TCP session', async () => {
+  const acceptedIdentifiers: number[] = [];
+  const peer = await broker((packet: Readonly<{ cmd: string; messageId?: number }>) => {
+    if (packet.cmd === 'connect') return { ...connack, properties: { receiveMaximum: 1 } };
+    if (packet.cmd === 'pingreq') return { cmd: 'pingresp' };
+    if (packet.cmd === 'publish' && packet.messageId !== undefined) {
+      acceptedIdentifiers.push(packet.messageId);
+      return { cmd: 'puback', messageId: packet.messageId };
+    }
+    return undefined;
+  });
+  const writes = vi.spyOn(Socket.prototype, 'write');
+  const leases = vi.spyOn(PacketIdentifiers.prototype, 'reserve');
+  let owner: Socket | undefined;
+  try {
+    const client = await createTcpClient({
+      ...peer.options,
+      maxBufferedBytes: 32,
+      reservedControlBytes: 8,
+      maxPendingPublishes: 2,
+    }).connect();
+    const connected: unknown = writes.mock.contexts.find(
+      (candidate: unknown) => candidate instanceof Socket && candidate.remotePort === peer.options.port,
+    );
+    writes.mockRestore();
+    if (!(connected instanceof Socket)) throw new Error('Expected TCP client socket');
+    owner = connected;
+    owner.cork();
+    const held = client.publish('a', 'x'.repeat(18)).catch((error: unknown) => error);
+    expect(owner.writableLength).toBe(24);
+    const refused = client.publish('a', 'refused', { qos: 1 });
+    const lease = leases.mock.results[0];
+    if (lease?.type !== 'return') throw new Error('Expected reserved packet identifier');
+    const release = vi.spyOn(lease.value, 'release');
+    await expect(refused).rejects.toThrow('TCP write budget exceeded');
+    expect(owner.writableLength).toBe(24);
+    expect(release).toHaveBeenCalledTimes(1);
+    const ping = client.ping().catch((error: unknown) => error);
+    expect(owner.writableLength).toBe(26);
+    expect(peer.commands).toEqual(['connect']);
+    owner.uncork();
+    await expect(held).resolves.toBeUndefined();
+    await expect(ping).resolves.toBeUndefined();
+    await client.publish('a', 'accepted', { qos: 1 });
+    const closed = once(peer.events, 'peer-close');
+    await client.disconnect();
+    await closed;
+    expect(acceptedIdentifiers).toEqual([2]);
+    expect(peer.commands).toEqual(['connect', 'publish', 'pingreq', 'publish', 'disconnect']);
+  } finally {
+    leases.mockRestore();
+    writes.mockRestore();
+    owner?.uncork();
+    owner?.destroy();
     await peer.close();
   }
 });

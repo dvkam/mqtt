@@ -226,6 +226,19 @@ if (engines.length > 0) {
             ),
           );
           console.log(JSON.stringify({ engine, sustained }));
+          const budget = await sustainedPage.evaluate(
+            async (url) => (await import('/streams.js')).probeNativeAdmission(url),
+            peer.url,
+          );
+          assert.equal(budget, 'WebSocket write budget exceeded');
+          assert.deepEqual(peer.commands.slice(peer.commands.lastIndexOf('connect')), [
+            'connect',
+            'pingreq',
+            'publish',
+            'pingreq',
+            'disconnect',
+          ]);
+          console.log(engine + ' packed QoS 1 admission passed');
         } finally {
           await sustainedPage.close();
         }
