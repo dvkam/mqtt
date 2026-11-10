@@ -150,3 +150,20 @@ test('rejects a missing topic from a JavaScript caller without writing PUBLISH',
     stream.destroy();
   }
 });
+
+test('legacy publish does not wait for drain after synchronous write teardown', async () => {
+  const { options, stream } = peer(5, { cmd: 'connack', sessionPresent: false, reasonCode: 0 });
+  const client = await connect(options);
+  const cork = vi.spyOn(stream, 'cork').mockImplementation(() => {
+    stream.destroy();
+  });
+  const once = vi.spyOn(stream, 'once');
+  try {
+    await expect(client.publish({ topic: 'baseline/topic', payload: 'hello' })).rejects.toThrow('Transport closed before drain');
+    expect(once.mock.calls.some(([event]: readonly unknown[]) => event === 'drain')).toBe(false);
+  } finally {
+    cork.mockRestore();
+    once.mockRestore();
+    stream.destroy();
+  }
+});
