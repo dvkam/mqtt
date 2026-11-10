@@ -3,7 +3,7 @@ CONSTANT Fault
 VARIABLES outcome, reported
 vars == <<outcome, reported>>
 
-Init == outcome = "pending" /\ ~reported
+Init == outcome = "pending" /\ reported = FALSE
 Dispatch(result) == outcome = "pending" /\ outcome' = result /\ UNCHANGED reported
 Report == ~reported /\ (outcome = "returned" \/ (outcome = "threw" /\ Fault = "finally"))
           /\ reported' = TRUE /\ UNCHANGED outcome
