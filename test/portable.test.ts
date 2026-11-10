@@ -132,8 +132,7 @@ test('DISCONNECT after CONNACK but before handoff rejects the opening attempt', 
 function peer() {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
   let receive: (packet: Packet) => void;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  let closed: (error: Error) => void;
+  let closed: (error: Readonly<Error>) => void;
   const packets: Packet[] = [];
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- The fixture exercises native mutable objects and packet buffers with their declared API types.
   const sent: PacketTransport['send'] = async (packet) => {
@@ -158,8 +157,7 @@ function peer() {
     receive: (packet: Packet) => {
       receive(packet);
     },
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    close: (error: Error) => {
+    close: (error: Readonly<Error>) => {
       closed(error);
     },
   };
@@ -242,11 +240,10 @@ test('retires a ping whose transport write rejects after admitting bytes', async
 
 test('ignores a queued application frame delivered after transport failure', async () => {
   const broker = peer();
-  const messages: Packet[] = [];
+  const messages: unknown[] = [];
   const client = await connectPortable(broker.transport, {
     clientId: 'late-frame',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onMessage: (packet) => {
+    onMessage: (packet: unknown) => {
       messages.push(packet);
     },
   });

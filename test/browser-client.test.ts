@@ -2,7 +2,7 @@ import { once } from 'node:events';
 import { generate, parser, type Packet } from 'mqtt-packet';
 import { WebSocketServer } from 'ws';
 import { afterEach, expect, test, vi } from 'vitest';
-import { createBrowserClient, type BrowserMessage } from '../src/browserClient.js';
+import { createBrowserClient } from '../src/browserClient.js';
 import * as portable from '../src/portable.js';
 
 afterEach(() => {
@@ -133,8 +133,7 @@ test('keeps a decoded QoS 1 publication out of the QoS 0 message callback', asyn
 
 test('runs a public browser MQTT session with native codec and binary message payloads', async () => {
   const broker = await peer();
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  const onMessage = vi.fn<(packet: BrowserMessage) => void>();
+  const onMessage = vi.fn<(packet: unknown) => void>();
   try {
     const factory = createBrowserClient({ url: broker.url, clientId: 'browser', onMessage });
     const opening = factory.connect();

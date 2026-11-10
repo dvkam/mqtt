@@ -98,8 +98,7 @@ test('never serializes CONNECT credentials or PUBLISH payloads for logging', asy
     await client.publish({ topic: 'baseline/topic', payload: 'test-payload' });
     await client.disconnect();
     const serializedPackets = stringify.mock.calls
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-      .map(([value]): unknown => value)
+      .map(([value]: readonly unknown[]) => value)
       .filter((value) => typeof value === 'object' && value !== null && 'cmd' in value);
     expect(serializedPackets).toEqual([]);
   } finally {

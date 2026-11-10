@@ -1,11 +1,11 @@
 # Test fixture layout
 
-The library and sample use TypeScript. Node runs the codec benchmark and the Mosquitto session, TLS gateway and proxy launchers directly from their TypeScript sources. The launchers start from the checkout and exercise an installed tarball.
+The library and sample use TypeScript. Node runs the codec benchmarks and the packed browser, WebSocket, Mosquitto session, TLS gateway and proxy launchers from TypeScript sources. The launchers start from the checkout and exercise an installed tarball.
 
 | Retained JavaScript | Purpose |
 | --- | --- |
 | `test/packed/broker.mjs`, `browser.mjs`, `websocket-browser.mjs`, `websocket-session.mjs` | Installed ESM consumers. Their public imports resolve from the clean consumer. The checkout type-checks them with checkJs. |
-| `test/packed/browser-build.mjs`, `websocket-check.mjs` | Host launchers called by path from GitHub Actions. Renaming them needs a coordinated workflow edit. They are checked with checkJs. |
+| `test/packed/browser-build.mjs`, `websocket-check.mjs` | One-line entry points for the paths in GitHub Actions. Each imports its TypeScript launcher. They are checked with checkJs. |
 | `oxlint.config.mjs`, `oxfmt.config.mjs` | Flat tool configuration loaded directly by the tools. |
 | `docs/baseline/browser.mjs`, `measure.mjs` | Historical baseline runners for the pinned upstream comparison. |
 
@@ -37,3 +37,15 @@ The installed tarball passed the stalled-peer check in WSL2 on Node 26.13.0 and 
 | Chromium WebSocket | 2 | 131072 | 500.500 |
 
 The Vite browser fixture measured 42,294 bytes and 10,778 bytes with gzip. These are smoke-check observations from one run. Native buffering and event scheduling affect the send counts and close times.
+
+## Packed launcher migration
+
+The before and after host launchers used the same installed tarball in WSL2 with Node 26.13.0 and Chromium 158.0.8127.18. The compiler checks, installed TCP and WebSocket probes, and Chromium receive and cancellation checks passed. The workflow paths load the TypeScript launchers through their existing JavaScript entry points.
+
+| Bundled fixture | Before bytes | After bytes | Before gzip | After gzip |
+| --- | ---: | ---: | ---: | ---: |
+| Portable browser trace | 20983 | 20983 | 5744 | 5744 |
+| Isolated queue | 3114 | 3114 | 1277 | 1277 |
+| Browser WebSocket probe | 43725 | 43725 | 11238 | 11238 |
+
+The full stream fixture measured 48,114 bytes on both runs. The WebSocket pressure check after migration recorded peak queued bytes of 65,550 for ws and 131,072 for Node and Chromium native WebSocket. All three used a 131,072-byte budget. These are smoke-check observations. The local transcripts retain the individual timings.

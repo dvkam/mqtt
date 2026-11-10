@@ -24,9 +24,9 @@ test('negotiates MQTT, transfers binary bytes and closes the Node WebSocket stre
       websocketSubProtocol: 'mqtt',
       wsOptions: {},
     });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    const failed = once(stream, 'error', { signal }).then(([error]) => {
-      throw error;
+    const failed = once(stream, 'error', { signal }).then(([error]: readonly unknown[]) => {
+      if (error instanceof Error) throw error;
+      throw Object.assign(new Error('Unexpected WebSocket stream failure'), { cause: error });
     });
     const acceptedArguments: unknown[] = await Promise.race([accepted, failed]);
     const [peer] = acceptedArguments;

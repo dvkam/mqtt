@@ -3,8 +3,7 @@ import { connectPortable } from 'mqtt/portable';
 export async function trace() {
   /** @type {Parameters<import('mqtt/portable').PacketTransport['listen']>[0]} */
   let receive;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  /** @type {(error: Error) => void} */
+  /** @type {(error: Readonly<Error>) => void} */
   let closed = () => {
     throw new Error('Missing close observer');
   };
@@ -33,8 +32,7 @@ export async function trace() {
   /** @type {Parameters<typeof connectPortable>[1]} */
   const options = {
     clientId: 'browser-ci',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onMessage: (packet) => {
+    onMessage: (/** @type {Readonly<{payload: unknown}>} */ packet) => {
       if (typeof packet.payload !== 'string') throw new Error('Expected fixture payload');
       messages.push(packet.payload);
     },

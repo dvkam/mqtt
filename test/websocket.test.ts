@@ -8,8 +8,8 @@ async function peer(selectProtocol = true) {
     host: '127.0.0.1',
     port: 0,
     perMessageDeflate: false,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    handleProtocols: (protocols) => (selectProtocol && protocols.has('mqtt') ? 'mqtt' : false),
+    handleProtocols: (protocols: { readonly has: (value: string) => boolean }) =>
+      selectProtocol && protocols.has('mqtt') ? 'mqtt' : false,
   });
   await once(server, 'listening');
   const address = server.address();
