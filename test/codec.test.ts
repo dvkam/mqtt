@@ -258,3 +258,21 @@ test('reports the decoded prefix and keeps the first failure across later input'
     }),
   ).toBe(batch.error);
 });
+
+test.each([
+  { payloadBytes: 123, prefix: [0x30, 0x7f, 0, 1, 97, 0] },
+  { payloadBytes: 124, prefix: [0x30, 0x80, 1, 0, 1, 97, 0] },
+  { payloadBytes: 16_380, prefix: [0x30, 0x80, 0x80, 1, 0, 1, 97, 0] },
+])(
+  'encodes an owned PUBLISH frame across the length boundary at $payloadBytes bytes',
+  ({ payloadBytes, prefix }: Readonly<{ payloadBytes: number; prefix: readonly number[] }>) => {
+    const backing = new Uint8Array(payloadBytes + 2).fill(0x6f);
+    const payload = backing.subarray(1, payloadBytes + 1);
+    payload.fill(0x5a);
+    const frame = encodePacket({ cmd: 'publish', topic: 'a', payload });
+    backing.fill(0);
+    expect(frame.length).toBe(prefix.length + payloadBytes);
+    expect(Array.from(frame.subarray(0, prefix.length))).toEqual(prefix);
+    expect(frame.subarray(prefix.length)).toEqual(new Uint8Array(payloadBytes).fill(0x5a));
+  },
+);

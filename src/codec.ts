@@ -178,14 +178,16 @@ export function encodePacket(packet: Readonly<WirePacket>): Uint8Array<ArrayBuff
       topic(packet.topic, false);
       header = 0x30 | (packet.retain === true ? 1 : 0);
       integer(packet.qos ?? 0, 1);
-      if (packet.qos === 1) {
-        header |= 2 | (packet.dup === true ? 8 : 0);
-        body = join([utf8(packet.topic), uint16(integer(packet.messageId, 65_535, 1)), properties(packet), packet.payload]);
-      } else {
-        if ('messageId' in packet || 'dup' in packet) throw new Error('Unsupported QoS 0 PUBLISH field');
-        body = join([utf8(packet.topic), properties(packet), packet.payload]);
-      }
-      break;
+      if (packet.qos === 1) header |= 2 | (packet.dup === true ? 8 : 0);
+      else if ('messageId' in packet || 'dup' in packet) throw new Error('Unsupported QoS 0 PUBLISH field');
+      const encodedTopic = utf8(packet.topic);
+      const identifier = packet.qos === 1 ? uint16(integer(packet.messageId, 65_535, 1)) : undefined;
+      const encodedProperties = properties(packet);
+      const remaining = encodedTopic.length + (identifier?.length ?? 0) + encodedProperties.length + packet.payload.length;
+      const parts: Uint8Array[] = [Uint8Array.of(header), variable(remaining), encodedTopic];
+      if (identifier) parts.push(identifier);
+      parts.push(encodedProperties, packet.payload);
+      return join(parts);
     }
     case 'puback': {
       const identifier = uint16(integer(packet.messageId, 65_535, 1));
