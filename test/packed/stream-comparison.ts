@@ -1,4 +1,4 @@
-import { createBrowserClient } from 'mqtt/browser';
+import { createBrowserClient, type SessionEndObserver } from 'mqtt/browser';
 import { createMessageQueue } from '../experiments/message-queue.js';
 import { compareDelivery } from '../experiments/delivery-comparison.js';
 
@@ -8,7 +8,12 @@ export async function compareStreams(url: string) {
   const ownership = [];
   for (const mode of ['iterator-break', 'stream-cancel', 'overflow'] as const) {
     const queue = createMessageQueue({ maxMessages: 1, maxBytes: 40 });
-    const client = await createBrowserClient({ url, clientId: mode, onMessage: queue.push }).connect();
+    const client = await createBrowserClient({
+      url,
+      clientId: mode,
+      onMessage: queue.push,
+      onSessionEnd: bindQueueEnd(queue),
+    }).connect();
     try {
       await client.publish('a', 'first');
       await client.ping();
@@ -40,28 +45,39 @@ export async function compareStreams(url: string) {
       });
     } finally {
       await client.disconnect();
-      queue.close();
     }
   }
-  const idle = createMessageQueue({ maxMessages: 1, maxBytes: 3 });
-  const idleReader = idle.stream().getReader();
-  let idleClosed = false;
-  void idleReader.closed.then(() => {
-    idleClosed = true;
-  });
-  idle.close();
-  await Promise.resolve();
-  idleReader.releaseLock();
+  const draining = createMessageQueue({ maxMessages: 1, maxBytes: 40 });
+  const drainingClient = await createBrowserClient({
+    url,
+    clientId: 'stream-source-drain',
+    onMessage: draining.push,
+    onSessionEnd: bindQueueEnd(draining),
+  }).connect();
+  await drainingClient.publish('a', 'drain');
+  await drainingClient.ping();
+  await drainingClient.disconnect();
+  const reader = draining.stream().getReader();
+  const item = await reader.read();
+  const drained = !item.done && new TextDecoder().decode(item.value.payload) === 'drain' && (await reader.read()).done;
+  await reader.closed;
+  reader.releaseLock();
 
   const failed = createMessageQueue({ maxMessages: 1, maxBytes: 3 });
+  const controller = new AbortController();
+  const failedClient = await createBrowserClient({
+    url,
+    clientId: 'stream-source-abort',
+    signal: controller.signal,
+    onSessionEnd: bindQueueEnd(failed),
+  }).connect();
   const failedReader = failed.stream().getReader();
-  const reason = new Error('source failed while idle');
-  let idleFailure = false;
-  void failedReader.closed.catch((error: unknown) => {
-    idleFailure = error === reason;
-  });
-  failed.fail(reason);
-  await Promise.resolve();
+  const readResult = failedReader.read().catch((error: unknown) => error);
+  const closedResult = failedReader.closed.catch((error: unknown) => error);
+  const reason = new Error('source aborted while waiting');
+  controller.abort(reason);
+  const pingResult = await failedClient.ping().catch((error: unknown) => error);
+  const abortObserved = pingResult === reason && (await readResult) === reason && (await closedResult) === reason;
   failedReader.releaseLock();
 
   const handoff = createMessageQueue({ maxMessages: 1, maxBytes: 3 });
@@ -74,5 +90,12 @@ export async function compareStreams(url: string) {
   const handed = !received.done && received.value.payload[0] === 9;
   await handoffReader.closed;
   handoffReader.releaseLock();
-  return { results, ownership, terminal: { idleClosed, idleFailure, handed } };
+  return { results, ownership, terminal: { drained, abortObserved, handed } };
+}
+
+function bindQueueEnd(queue: Readonly<Pick<ReturnType<typeof createMessageQueue>, 'close' | 'fail'>>): SessionEndObserver {
+  return (event) => {
+    if (event.kind === 'disconnect') queue.close();
+    else queue.fail(event.error);
+  };
 }

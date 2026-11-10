@@ -7,6 +7,8 @@ import { createTcpClient, createWebSocketClient } from 'mqtt';
 /** @type {((packet: import('mqtt-packet').IPublishPacket | undefined) => void) | undefined} */
 let receive;
 const controller = new AbortController();
+/** @type {import('mqtt').SessionEnd[]} */
+const outcomes = [];
 /** @type {string[]} */
 const inbound = [];
 let releaseInbound = () => {};
@@ -27,10 +29,13 @@ const second = new Promise((resolve) => {
     resolve(undefined);
   };
 });
-/** @type {Pick<Parameters<typeof createTcpClient>[0], 'clientId' | 'onMessage' | 'onQosOneMessage' | 'signal'>} */
+/** @type {Pick<Parameters<typeof createTcpClient>[0], 'clientId' | 'onMessage' | 'onQosOneMessage' | 'onSessionEnd' | 'signal'>} */
 const options = {
   clientId: 'packed-ci',
   signal: controller.signal,
+  onSessionEnd(event) {
+    outcomes.push(event);
+  },
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
   onMessage(packet) {
     receive?.(packet);
@@ -120,6 +125,9 @@ try {
   await assert.rejects(client.publish('ci/echo', 'must not be sent'), (/** @type {unknown} */ error) => error === cancellation);
   await assert.rejects(client.subscribe('ci/echo'), (/** @type {unknown} */ error) => error === cancellation);
   assert.equal(await ping, cancellation);
+  assert.equal(outcomes.length, 1);
+  const outcome = outcomes[0];
+  assert.equal(outcome?.kind === 'error' && outcome.error, cancellation);
   console.log('packed active cancellation passed');
 } finally {
   releaseInbound();

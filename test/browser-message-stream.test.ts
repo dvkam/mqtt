@@ -2,6 +2,8 @@ import { startProtocolPeer } from './experiments/protocol-peer.js';
 import { getEventListeners } from 'node:events';
 import { expect, test } from 'vitest';
 import { createBrowserClient } from '../src/browserClient.js';
+import type { SessionEnd } from '../src/session.js';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createMessageQueue } from './experiments/message-queue.js';
 
 test.each(['iterator-break', 'stream-cancel', 'overflow'] as const)(
@@ -77,6 +79,61 @@ test('a stalled stream does not block control traffic and source close settles i
     await expect(pending).resolves.toMatchObject({ done: true });
   } finally {
     await reader.cancel();
+    await broker.close();
+  }
+});
+
+test('local disconnect drains the browser queue and closes its stream', async () => {
+  const broker = await startProtocolPeer();
+  const queue = createMessageQueue({ maxMessages: 2, maxBytes: 40 });
+  const reader = queue.stream().getReader();
+  try {
+    const client = await createBrowserClient({
+      url: broker.url,
+      clientId: 'browser-queue-drain',
+      onMessage: queue.push,
+      onSessionEnd: (event: SessionEnd) => {
+        if (event.kind === 'disconnect') queue.close();
+        else queue.fail(event.error);
+      },
+    }).connect();
+    await client.publish('a', 'one');
+    await client.ping();
+    await client.disconnect();
+    await expect(reader.read()).resolves.toMatchObject({ value: { topic: 'a' } });
+    await expect(Promise.race([reader.read(), delay(50, 'source still open')])).resolves.toMatchObject({ done: true });
+    await reader.closed;
+  } finally {
+    queue.close();
+    await broker.close();
+  }
+});
+
+test('aborting the browser session fails its pending queue read with the same error', async () => {
+  const broker = await startProtocolPeer();
+  const queue = createMessageQueue({ maxMessages: 2, maxBytes: 40 });
+  const controller = new AbortController();
+  const reader = queue.stream().getReader();
+  try {
+    const client = await createBrowserClient({
+      url: broker.url,
+      clientId: 'browser-queue-abort',
+      signal: controller.signal,
+      onSessionEnd: (event: SessionEnd) => {
+        if (event.kind === 'disconnect') queue.close();
+        else queue.fail(event.error);
+      },
+    }).connect();
+    const pending = reader.read().catch((error: unknown) => error);
+    const closed = reader.closed.catch((error: unknown) => error);
+    const failure = new Error('application aborted the session');
+    controller.abort(failure);
+    await expect(client.ping()).rejects.toBe(failure);
+    await expect(Promise.race([pending, delay(50, 'source still open')])).resolves.toBe(failure);
+    await expect(closed).resolves.toBe(failure);
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
+  } finally {
+    queue.close();
     await broker.close();
   }
 });

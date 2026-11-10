@@ -1,3 +1,7 @@
+export type SessionEnd = Readonly<{ kind: 'disconnect' }> | Readonly<{ kind: 'error'; error: Readonly<Error> }>;
+
+export type SessionEndObserver = (event: SessionEnd) => void | Promise<void>;
+
 export type PublishOptions = { qos?: 0; signal?: never } | { qos: 1; signal?: AbortSignal };
 
 export type SubscribeOptions = { qos?: 0 | 1 };

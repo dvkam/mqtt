@@ -10,7 +10,7 @@ One iterator or one Web Streams facade can claim a queue. A second claim rejects
 
 Normal source close drains admitted messages before ending. The first source close or failure wins. A later failure does not interrupt a drain already started by close. Consumer cancellation can still discard that drain. Cancellation, iterator return or throw, destination failure, source failure and overflow discard queued messages. Cancellation and overflow are permanent for that facade. Later publications are ignored without throwing through the protocol callback. Overflow fails reads with Application message queue capacity exceeded. Source failure retains the initiating rejection value. Failure and empty source completion settle reader.closed without requiring another read. A message already handed to a pending pull survives normal close. No queue timer or listener is created.
 
-The experiment's caller must signal source close or failure. Its connection tests do that explicitly. Automatic coupling to remote close, reconnect attempts and public session termination is not implemented, so this prototype must not be presented as a finished public stream interface.
+The experiment's caller can wire the public onSessionEnd observer to signal source close or failure. The queue itself has no session subscription. Reconnect remains outside this experiment.
 
 ## Capacity accounting
 
@@ -37,3 +37,9 @@ Run pnpm test for the contract gate. The existing packed browser harness builds 
 The [8 November measurement record](baseline/receive-validation-measurements.md) contains the individual delivery timings, queue peaks and bundled fixture sizes. The [measurement index](measurements.md) links the other workloads and their limitations.
 
 Keep callbacks as the default. Retain this bounded queue as a comparison candidate, with an iterator and an optional Streams facade sharing admission and terminal behavior. Do not make Web Streams the transport interface or couple application cancellation to the shared reader. Publish a facade only after source-end coupling, allocation and retained-memory measurements, and the remaining browser contract checks in #54 are complete. Do not add a stream-helper dependency for this prototype.
+
+## Session retirement
+
+The packed browser comparison wires the optional public `onSessionEnd` observer to the experimental queue. A successful local MQTT DISCONNECT lets the queue drain before the stream finishes. Session failure clears queued work and rejects pending reads with the first session error. An earlier consumer cancellation or overflow keeps its original outcome. The queue still owns neither the protocol reader nor the socket.
+
+The packed Chromium fixture covers a queued delivery after local disconnect and an aborted session with a pending read. The Node packed Mosquitto fixture checks that TCP, WS and WSS pass through the same cancellation Error. The facade remains experimental. The permanent API decision and allocation and retained-memory comparisons stay open under #54 and #18.

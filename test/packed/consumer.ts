@@ -5,6 +5,7 @@ import {
   type ClientDiagnostic,
   type DiagnosticObserver,
   type NodeQosOneMessage,
+  type SessionEnd,
 } from 'mqtt';
 export type { ConnectOptions, LegacyAckCompletion, LegacyAckHandler, PacketIdentifier, PacketLookup, PacketStore } from 'mqtt';
 export type { ClientFactory, ClientSession, NodeMessage, PublishOptions, TcpClientOptions, WebSocketClientOptions } from 'mqtt';
@@ -14,6 +15,12 @@ import { connectPortable, type PacketTransport, type ProtocolInputCode, type Pro
 type RequireTrue<Value extends true> = Value;
 type RequireFalse<Value extends false> = Value;
 type IsAny<Value> = 0 extends 1 & Value ? true : false;
+type EndNotice = Parameters<NonNullable<import('mqtt').TcpClientOptions['onSessionEnd']>>[0];
+type WebSocketEndNotice = Parameters<NonNullable<import('mqtt').WebSocketClientOptions['onSessionEnd']>>[0];
+export type TcpEndNoticeIsSpecific = RequireFalse<IsAny<EndNotice>>;
+export type WebSocketEndNoticeIsSpecific = RequireFalse<IsAny<WebSocketEndNotice>>;
+export type TcpEndNoticeUsesNamedType = RequireTrue<EndNotice extends SessionEnd ? true : false>;
+export type WebSocketEndNoticeUsesNamedType = RequireTrue<WebSocketEndNotice extends SessionEnd ? true : false>;
 type Received = Parameters<NonNullable<import('mqtt').TcpClientOptions['onMessage']>>[0];
 export type PackedPayloadIsSpecific = RequireFalse<IsAny<Received['payload']>>;
 export type PackedPayloadIsBuffer = RequireTrue<Received['payload'] extends Buffer ? true : false>;

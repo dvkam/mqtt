@@ -3,7 +3,7 @@ import { ProtocolInputError } from './protocolInputError.js';
 import { openBrowserTransport } from './browserTransport.js';
 import { encodePacket, PacketDecoder, type UserProperty, type WirePacket } from './codec.js';
 import { connectPortable, type PacketTransport } from './portable.js';
-import type { ClientFactory, ClientSession, QosOneMessage } from './session.js';
+import type { ClientFactory, ClientSession, QosOneMessage, SessionEndObserver } from './session.js';
 import { resolveSubscriptionLimits, type SubscriptionLimits } from './subscriptionExchanges.js';
 import { resolvePublicationLimits, type PublicationLimits } from './publicationAdmission.js';
 import { resolveNativeWriteLimits, type NativeWriteLimits } from './nativeWriteBudget.js';
@@ -31,6 +31,7 @@ export interface BrowserClientOptions extends PublicationLimits, SubscriptionLim
   maxPacketBytes?: number;
   maxWebSocketMessageBytes?: number;
   onDiagnostic?: DiagnosticObserver;
+  onSessionEnd?: SessionEndObserver;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
   onMessage?: (message: BrowserMessage) => void;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser message retains its mutable Uint8Array payload.
@@ -51,7 +52,7 @@ export function createBrowserClient(options: BrowserClientOptions): ClientFactor
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
 async function openClient(options: BrowserClientOptions): Promise<BrowserSession> {
-  const { timeoutMs, onQosOneMessage, onDiagnostic } = options;
+  const { timeoutMs, onQosOneMessage, onDiagnostic, onSessionEnd } = options;
   const publicationLimits = resolvePublicationLimits(options);
   const subscriptionLimits = resolveSubscriptionLimits(options);
   const writeLimits = resolveNativeWriteLimits(options);
@@ -258,6 +259,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
     timeoutMs,
     onMessage: options.onMessage,
     onDiagnostic,
+    onSessionEnd,
     onQosOneMessage,
   });
   if (options.signal?.aborted === true) {
