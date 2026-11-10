@@ -28,3 +28,5 @@ The compact runner now uses the private production decoder described in [TCP pac
 Local timing observations do not become CI thresholds automatically. #18 owns repeatable bundle, throughput, latency and memory baselines. #56 owns portable encoder allocation profiling. #75 owns the Node framing comparison and adoption decision. A passing protocol exchange or a small bundle does not establish a general performance advantage.
 
 The [historical dependency removal observations](baseline/dependency-removal.md) preserve PR #59's installed-tree, bundle and broker checks, including the correction that the after tree came from an incremental update.
+
+The [PUBLISH encoding comparison](publish-encoding-measurements.md) records unprofiled Node and Chromium timings, V8 allocation samples, and the isolated codec bundle for the single-frame assembly.
