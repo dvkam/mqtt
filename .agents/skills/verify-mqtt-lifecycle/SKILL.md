@@ -431,3 +431,11 @@ The model checks that retirement queues a notice, delivery occurs at most once, 
 Source sync commit: 1fb23ef. The legacy writer snapshots stream destruction before the encoder and reads it again after a blocked write. The portable exchange snapshots an existing failure before starting and reads live failure in its ping catch. Both preserve the previous branches and ordering. PingFence and OperationTimeout retain their transitions. The legacy Node stream readiness checks remain concrete runtime coverage.
 
 A source fault removing the post-write check adds a drain listener after synchronous teardown. A source fault ignoring the recorded ping failure makes the timed-out operation await an unfinished forced close. The focused regressions detect both faults and pass after restoration.
+
+## Ready application batches
+
+Source sync commit: 894dff4. ReadyBatch starts after the underlying iterator has staged one item for a batch read. Up to two ready items remain in the queue, with weights of one or two units. TakeReady maps to the synchronous FIFO-prefix loop, bounded by two output items and three byte units. The first item's weight counts toward both bounds. ReadySuffix checks that committed entries leave the queue in order.
+
+Stop maps to application cancellation, graceful source close or first source failure before commit. A cancelled or failed batch publishes no staged item. A graceful close preserves the staged item and ready queue. The overlap fault opens a second read during assembly. The item, byte, skip, overlap and terminal faults violate their respective named invariants. The existing MessageQueueOwnership and StreamTerminal models keep their single-item delivery meanings. The extra batch seam shares claim and admission.
+
+This bounded model excludes the producer schedule, garbage collection, MQTT control and payload mutation. Runtime regressions cover the actual async handoff, exact failure identity, zero intentional wait for a partial batch and independent payload transfer. Removing the byte guard, the batch read latch or the cancellation fence fails the corresponding concrete test. Each mutation was restored.

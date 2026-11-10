@@ -13,6 +13,24 @@ interface DeliveryClock {
   readonly waitUntil: (deadline: number) => Promise<void>;
 }
 
+const batchLimits = { 'batch-1': 1, 'batch-4': 4, 'batch-16': 16 } as const;
+export type FixedRateMode = DeliveryMode | keyof typeof batchLimits;
+
+export function isFixedRateMode(mode: unknown): mode is FixedRateMode {
+  return (
+    mode === 'callback' ||
+    mode === 'iterator' ||
+    mode === 'web-stream' ||
+    mode === 'batch-1' ||
+    mode === 'batch-4' ||
+    mode === 'batch-16'
+  );
+}
+
+function batchLimit(mode: FixedRateMode) {
+  return mode === 'callback' || mode === 'iterator' || mode === 'web-stream' ? 1 : batchLimits[mode];
+}
+
 const payloadBytes = 256;
 const messageWeight = payloadBytes + 2;
 const realtimeClock: DeliveryClock = {
@@ -29,7 +47,7 @@ export const fixedRatePlans = {
   deep: { burstCount: 32, burstSize: 128, periodMs: 12, queueLimit: 128 },
 } as const;
 
-export async function runFixedRateDelivery(mode: DeliveryMode, plan: FixedRatePlan, clock: DeliveryClock = realtimeClock) {
+export async function runFixedRateDelivery(mode: FixedRateMode, plan: FixedRatePlan, clock: DeliveryClock = realtimeClock) {
   const { burstCount, burstSize, periodMs, queueLimit } = plan;
   const count = burstCount * burstSize;
   const queue =
@@ -46,16 +64,18 @@ export async function runFixedRateDelivery(mode: DeliveryMode, plan: FixedRatePl
     const sequence = new DataView(buffer, byteOffset, byteLength).getUint32(0);
     ordered &&= sequence === received;
     checksum += sequence;
-    queueAges.push(clock.now() - (offeredAt[sequence] ?? 0));
+    const age = clock.now() - (offeredAt[sequence] ?? 0);
+    queueAges.push(age);
     received++;
+    return age;
   };
   const consuming = consumeQueue(mode, queue, consume).then(
-    () => null,
-    (error: unknown) => (error instanceof Error ? error.message : 'Unexpected consumer failure'),
+    (batches) => ({ batches, failure: null }),
+    (error: unknown) => ({ batches: undefined, failure: error instanceof Error ? error.message : 'Unexpected consumer failure' }),
   );
   const start = clock.now();
   let offered = 0;
-  let failure: string | null;
+  let outcome: Awaited<typeof consuming>;
   try {
     for (let burst = 1; burst <= burstCount; burst++) {
       const deadline = start + burst * periodMs;
@@ -73,13 +93,15 @@ export async function runFixedRateDelivery(mode: DeliveryMode, plan: FixedRatePl
     }
   } finally {
     queue?.close();
-    failure = await consuming;
+    outcome = await consuming;
   }
   const elapsedMs = clock.now() - start;
   scheduleDelays.sort((left, right) => left - right);
   queueAges.sort((left, right) => left - right);
   const snapshot = queue?.snapshot();
+  const { batches, failure } = outcome;
   return {
+    mode,
     offered,
     received,
     ordered,
@@ -87,6 +109,9 @@ export async function runFixedRateDelivery(mode: DeliveryMode, plan: FixedRatePl
     elapsedMs,
     p99ScheduleDelayMs: p99OfSorted(scheduleDelays),
     p99QueueAgeMs: p99OfSorted(queueAges),
+    dispatches: batches?.dispatches ?? received,
+    peakBatchMessages: batches?.peakBatchMessages ?? (received > 0 ? 1 : 0),
+    p99BatchOldestAgeMs: batches?.p99OldestAgeMs ?? p99OfSorted(queueAges),
     pending: snapshot?.messages ?? 0,
     pendingBytes: snapshot?.bytes ?? 0,
     peakMessages: snapshot?.peakMessages ?? 0,
@@ -108,27 +133,50 @@ export function assertFixedRateDelivery(result: Readonly<FixedRateResult>, plan:
     result.pending !== 0 ||
     result.pendingBytes !== 0 ||
     result.peakMessages > plan.queueLimit ||
-    result.peakBytes > plan.queueLimit * messageWeight
+    result.peakBytes > plan.queueLimit * messageWeight ||
+    result.peakBatchMessages > batchLimit(result.mode) ||
+    result.peakBatchMessages * messageWeight > plan.queueLimit * messageWeight ||
+    result.dispatches * batchLimit(result.mode) < result.received ||
+    result.dispatches > result.received
   ) {
     throw new Error('Fixed-rate delivery gate rejected the observation ' + JSON.stringify(result));
   }
 }
 
+type BatchStats = Readonly<{ dispatches: number; peakBatchMessages: number; p99OldestAgeMs: number }>;
+
 async function consumeQueue(
-  mode: DeliveryMode,
-  queue: Readonly<Pick<ReturnType<typeof createMessageQueue>, 'iterate' | 'stream'>> | undefined,
-  consume: (message: Readonly<{ payload: unknown }>) => void,
-) {
-  if (queue === undefined) return;
+  mode: FixedRateMode,
+  queue: Readonly<Pick<ReturnType<typeof createMessageQueue>, 'iterate' | 'stream' | 'iterateBatches'>> | undefined,
+  consume: (message: Readonly<{ payload: unknown }>) => number,
+): Promise<BatchStats | undefined> {
+  if (queue === undefined) return undefined;
   if (mode === 'iterator') {
     for await (const message of queue.iterate()) consume(message);
-    return;
+    return undefined;
+  }
+  if (mode !== 'web-stream') {
+    let dispatches = 0;
+    let peakBatchMessages = 0;
+    const oldestAges: number[] = [];
+    for await (const batch of queue.iterateBatches(batchLimit(mode))) {
+      dispatches++;
+      peakBatchMessages = Math.max(peakBatchMessages, batch.length);
+      let oldest: number | undefined;
+      for (const message of batch) {
+        const age = consume(message);
+        oldest ??= age;
+      }
+      if (oldest !== undefined) oldestAges.push(oldest);
+    }
+    oldestAges.sort((left, right) => left - right);
+    return { dispatches, peakBatchMessages, p99OldestAgeMs: p99OfSorted(oldestAges) };
   }
   const reader = queue.stream().getReader();
   try {
     for (;;) {
       const item = await reader.read();
-      if (item.done) return;
+      if (item.done) return undefined;
       consume(item.value);
     }
   } finally {
