@@ -10,7 +10,7 @@ One iterator or one Web Streams facade can claim a queue. A second claim rejects
 
 Normal source close drains admitted messages before ending. The first source close or failure wins. A later failure does not interrupt a drain already started by close. Consumer cancellation can still discard that drain. Cancellation, iterator return or throw, destination failure, source failure and overflow discard queued messages. Cancellation and overflow are permanent for that facade. Later publications are ignored without throwing through the protocol callback. Overflow fails reads with Application message queue capacity exceeded. Source failure retains the initiating rejection value. Failure and empty source completion settle reader.closed without requiring another read. A message already handed to a pending pull survives normal close. No queue timer or listener is created.
 
-The experiment's caller must signal source close or failure. Its connection tests do that explicitly. Automatic coupling to remote close, reconnect attempts and public session termination is not implemented, so this prototype must not be presented as a finished public stream interface.
+The experiment's caller can wire the public onSessionEnd observer to signal source close or failure. The queue itself has no session subscription. Reconnect remains outside this experiment.
 
 ## Capacity accounting
 
