@@ -160,16 +160,42 @@ test('fourth length continuation fails immediately and permanently', () => {
   expect(received).not.toHaveBeenCalled();
 });
 
-test('preserves nonminimal Remaining Length with total wire accounting', () => {
+test.each([
+  [0xd0, 0x80],
+  [0x30, 0x84, 0x80],
+])('rejects a non-canonical length before allocation for %j', (...header: readonly number[]) => {
   const received = vi.fn<(packet: unknown) => void>();
-  const decoder = createCandidateDecoder({ maxPacketBytes: 3, onPacket: received });
-  decoder.push(Uint8Array.of(0xd0, 0x80));
-  decoder.push(Uint8Array.of(0));
+  const allocations = vi.spyOn(Buffer, 'allocUnsafeSlow');
+  try {
+    const decoder = new NodePacketDecoder({ onPacket: received });
+    decoder.push(Uint8Array.from(header));
+    const failure = captureFailure(() => {
+      decoder.push(Uint8Array.of(0));
+    });
+    expect(failure).toMatchObject({ message: 'Non-canonical MQTT Remaining Length' });
+    expect(allocations).not.toHaveBeenCalled();
+    expect(received).not.toHaveBeenCalled();
+    expect(
+      captureFailure(() => {
+        decoder.finish();
+      }),
+    ).toBe(failure);
+  } finally {
+    allocations.mockRestore();
+  }
+});
+
+test('counts every byte of a canonical multibyte declaration against the wire cap', () => {
+  const wire = Uint8Array.of(0x30, 0x80, 1, 0, 1, 97, 0, ...new Uint8Array(124));
+  const received = vi.fn<(packet: unknown) => void>();
+  const decoder = createCandidateDecoder({ maxPacketBytes: 131, onPacket: received });
+  decoder.push(wire.subarray(0, 2));
+  decoder.push(wire.subarray(2));
   decoder.finish();
-  expect(received).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ cmd: 'pingresp' }));
-  const smaller = createCandidateDecoder({ maxPacketBytes: 2, onPacket() {} });
+  expect(received).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ cmd: 'publish', payload: Buffer.alloc(124) }));
+  const smaller = createCandidateDecoder({ maxPacketBytes: 130, onPacket() {} });
   expect(() => {
-    smaller.push(Uint8Array.of(0xd0, 0x80, 0));
+    smaller.push(wire.subarray(0, 3));
   }).toThrow('MQTT packet allocation limit exceeded');
 });
 

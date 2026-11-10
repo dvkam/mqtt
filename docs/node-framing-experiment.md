@@ -4,11 +4,11 @@ The compact candidate is now the private decoder behind [supported TCP packet ad
 
 ## What the experiment preserves
 
-The pinned mqtt-packet 9.0.2 parser reports invalid CONNACK flags from byte 0x21 alone and invalid QoS from byte 0x36 alone. A fourth Remaining Length continuation fails without a body. It accepts a nonminimal zero encoded as 0x80, 0x00. Some reserved-command errors wait for the body. Tests retain these distinctions rather than importing the portable codec's narrower allowlist.
+The pinned mqtt-packet 9.0.2 parser reports invalid CONNACK flags from byte 0x21 alone and invalid QoS from byte 0x36 alone. A fourth Remaining Length continuation fails without a body. It accepts a nonminimal zero encoded as 0x80, 0x00. Some reserved-command errors wait for the body. The compact production framer now rejects the nonminimal length before allocation. This deliberate difference leaves the retained parser and streaming experiment available as comparison controls.
 
 Source inspection found no supported pre-allocation packet cap in the installed 9.0.2 parser. Its parse method appends incoming bytes to BufferList before advancing header, length and payload states. A configured protocolVersion selects interpretation; it does not impose the wrapper's admission budget. The inspected [upstream parser](https://github.com/mqttjs/mqtt-packet/blob/dd17095bbe52ac28bc96c831e69b0db4371da5a5/parser.js) has the same append-before-parse structure.
 
-That upstream commit still declares version 9.0.2 but is not byte-identical to the installed published package. Its parser also changes omitted AUTH reason handling and repeated user-property handling when an earlier value is empty. Those differences need fixed-wire characterization under #9 before any upgrade or broader profile claim. The measurements and compatibility corpus use the installed package, not an unrecorded replacement with upstream master.
+That upstream commit still declares version 9.0.2 but is not byte-identical to the installed published package. Its parser also changes omitted AUTH reason handling and repeated user-property handling when an earlier value is empty. The [fixed-wire comparison](codec-comparison.md) now records both cases. The measurements and compatibility corpus use the installed package, not an unrecorded replacement with upstream master.
 
 The wrapper forwards a compact copy of the first byte to the retained parser. It collects at most four length bytes and validates total wire size, including the actual encoded header, before admitting the body. A malformed fourth continuation is passed to the retained parser for its native error. Native error events and thrown callbacks become permanent wrapper failures.
 

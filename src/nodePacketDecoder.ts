@@ -64,6 +64,7 @@ export class NodePacketDecoder {
           }
           continue;
         }
+        if (digit === 0 && this.lengthBytes.length > 1) throw new Error('Non-canonical MQTT Remaining Length');
         let remainingLength = 0;
         let multiplier = 1;
         for (const byte of this.lengthBytes) {

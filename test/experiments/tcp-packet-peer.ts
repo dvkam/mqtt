@@ -51,7 +51,8 @@ export async function startTcpPacketPeer(mode: string) {
       }
       if (packet.cmd === 'publish') socket.write(publication);
       if (packet.cmd === 'pingreq') {
-        if (mode === 'limit-ping') socket.write(excess);
+        if (mode === 'noncanonical-ping') socket.write(Uint8Array.of(0xd0, 0x80, 0));
+        else if (mode === 'limit-ping') socket.write(excess);
         else if (mode === 'prefix-ping') socket.write(Uint8Array.from([0xd0, 0, ...excess]));
         else if (mode === 'fragmented-limit') {
           socket.write(Uint8Array.of(0x30, 0x80));

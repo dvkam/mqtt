@@ -250,3 +250,15 @@ test('TCP payload transfer cannot detach the coalesced protocol input', async ()
     await peer.close();
   }
 });
+
+test('TCP rejects a PINGRESP with a non-canonical Remaining Length', async () => {
+  const peer = await startTcpPacketPeer('noncanonical-ping');
+  try {
+    const client = await createTcpClient({ ...peer, clientId: 'noncanonical-ping', timeoutMs: 1000 }).connect();
+    const failure = await client.ping().catch((reason: unknown) => reason);
+    expect(failure).toMatchObject({ message: 'Non-canonical MQTT Remaining Length' });
+    await expect(client.ping()).rejects.toBe(failure);
+  } finally {
+    await peer.close();
+  }
+});
