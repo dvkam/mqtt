@@ -57,6 +57,8 @@ console.log(JSON.stringify({ browserBytes: Buffer.byteLength(code), gzipBytes: g
 cpSync(new URL('../experiments', import.meta.url), resolve(root, 'experiments'), { recursive: true });
 mkdirSync(resolve(root, 'packed'), { recursive: true });
 cpSync(new URL('./stream-comparison.ts', import.meta.url), resolve(root, 'packed/stream-comparison.ts'));
+cpSync(new URL('./sustained-client.ts', import.meta.url), resolve(root, 'packed/sustained-client.ts'));
+cpSync(new URL('./sustained-resources.ts', import.meta.url), resolve(root, 'packed/sustained-resources.ts'));
 cpSync(new URL('./receive-client.ts', import.meta.url), resolve(root, 'packed/receive-client.ts'));
 const comparisonCode = await bundleBrowser('packed/stream-comparison.ts');
 const receiveCode = await bundleBrowser('packed/receive-client.ts');
@@ -189,6 +191,44 @@ if (engines.length > 0) {
           })),
         );
         console.log(engine + ' packed receive limits passed');
+        const sustainedPage = await browser.newPage();
+        try {
+          await sustainedPage.goto('http://127.0.0.1:' + address.port);
+          const sustained = await sustainedPage.evaluate(async (url) => {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            try {
+              const deadline = new Promise<never>((_, reject) => {
+                timer = setTimeout(() => {
+                  reject(new Error('Packed sustained sessions did not settle'));
+                }, 16000);
+              });
+              return await Promise.race([(await import('/streams.js')).probeSustained(url), deadline]);
+            } finally {
+              clearTimeout(timer);
+            }
+          }, peer.url);
+          assert.deepEqual(
+            sustained,
+            [0, 1].flatMap((cycle) =>
+              ['local', 'abort', 'remote', 'timeout'].map((mode) => ({
+                cycle,
+                mode,
+                received: 128,
+                ordered: true,
+                checksum: 8128,
+                controls: true,
+                outcome: true,
+                active: { sockets: 1, socketListeners: 3, signalListeners: 1, timers: 0, expired: 0 },
+                settled: { sockets: 1, socketListeners: 0, signalListeners: 0, timers: 0, expired: mode === 'timeout' ? 1 : 0 },
+                armed: true,
+                idle: true,
+              })),
+            ),
+          );
+          console.log(JSON.stringify({ engine, sustained }));
+        } finally {
+          await sustainedPage.close();
+        }
         console.log(engine + ' ' + browser.version() + ' passed');
       } finally {
         await browser.close();
