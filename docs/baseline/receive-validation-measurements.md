@@ -40,7 +40,7 @@ A zero timing sample reflects timer resolution and synchronous work; it does not
 
 The portable tracer imports mqtt/portable. Its size is not the full browser client, codec or npm package size. The stream-comparison figure includes its test workload. The queue is experimental and is not a published export. These are Vite build outputs with the harness's current library settings, not production application savings or a minification comparison.
 
-Run `node test/packed/browser-build.mjs <consumer-directory> chromium` after installing the tarball and the pinned Playwright browser. Omitting the engine runs declaration, bundle and installed Node receive checks without executing the browser comparison. The harness reports gzip through Node's gzipSync. Local transcripts are node-receive-packed.log and node-receive-ws-session.log outside the checkout; the tables preserve their quantitative observations with readable rounding.
+Run `node test/packed/browser-build.mjs <consumer-directory> chromium` after [preparing the installed consumer and its Node type fixture](../public-types.md#packed-verification) and installing the pinned Playwright browser. Omitting the engine runs declaration, bundle and installed Node receive checks without executing the browser comparison. The harness reports gzip through Node's gzipSync. Local transcripts are node-receive-packed.log and node-receive-ws-session.log outside the checkout; the tables preserve their quantitative observations with readable rounding.
 
 ## TCP packet-admission follow-up
 
