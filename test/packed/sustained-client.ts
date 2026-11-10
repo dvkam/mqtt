@@ -79,12 +79,19 @@ async function runSession(
 
     let delivery: Promise<boolean> | undefined;
     if (mode === 'local') delivery = drain(queue);
-    if (mode === 'abort') await queue.iterate().return?.();
+    const cancelledIterator = mode === 'abort' ? queue.iterate() : undefined;
+    const cancelled = await cancelledIterator?.return?.();
+    const afterCancellation = queue.snapshot();
     await client.publish('load/resume', '');
     await ended.promise;
     await Promise.all([client.publish('load/control', '', { qos: 1 }), client.ping()]);
 
     let applicationOutcome = true;
+    if (cancelledIterator !== undefined) {
+      const afterBurst = await cancelledIterator.next().catch(() => undefined);
+      applicationOutcome =
+        cancelled?.done === true && afterCancellation.messages === 0 && afterCancellation.bytes === 0 && afterBurst?.done === true;
+    }
     if (mode === 'remote' || mode === 'timeout') {
       const failure = await queue
         .iterate()
