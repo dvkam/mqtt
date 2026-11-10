@@ -36,3 +36,17 @@ export function allowsNativeWrite(
       return false;
   }
 }
+
+// The proof must outlive neither the failed attempt nor its error.
+const nativeBudgetFailures = new WeakMap<Readonly<Error>, WeakSet<object>>();
+
+export function recordNativeBudgetFailure<Failure extends Readonly<Error>>(attempt: object, failure: Failure): Failure {
+  nativeBudgetFailures.set(failure, new WeakSet([attempt]));
+  return failure;
+}
+
+export function takeNativeBudgetFailure(attempt: object, reason: unknown): Readonly<Error> | undefined {
+  if (!(reason instanceof Error) || nativeBudgetFailures.get(reason)?.has(attempt) !== true) return undefined;
+  nativeBudgetFailures.delete(reason);
+  return reason;
+}

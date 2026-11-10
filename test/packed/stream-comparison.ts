@@ -328,4 +328,4 @@ function completion() {
   return { promise, finish };
 }
 
-export { probeSustained } from './sustained-client.js';
+export { probeNativeAdmission, probeSustained } from './sustained-client.js';

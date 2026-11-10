@@ -10,7 +10,12 @@ import { resolveWebSocketMessageLimit } from './websocketLimits.js';
 import { resolveTimeout } from './timeout.js';
 import { resolveSubscriptionLimits } from './subscriptionExchanges.js';
 import { resolvePublicationLimits } from './publicationAdmission.js';
-import { allowsNativeWrite, resolveNativeWriteLimits, type NativeWriteLimits } from './nativeWriteBudget.js';
+import {
+  allowsNativeWrite,
+  recordNativeBudgetFailure,
+  resolveNativeWriteLimits,
+  type NativeWriteLimits,
+} from './nativeWriteBudget.js';
 
 export interface WebSocketClientOptions
   extends PortableOptions<NodeMessage>, NativeWriteLimits, Pick<SecureContextOptions, 'ca' | 'cert' | 'key'> {
@@ -106,7 +111,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
       if (
         !allowsNativeWrite(writeLimits, socket.bufferedAmount, frameBytes, packet.cmd === 'publish' ? 'publication' : 'control')
       ) {
-        throw new Error('WebSocket write budget exceeded');
+        throw recordNativeBudgetFailure(packet, new Error('WebSocket write budget exceeded'));
       }
       await new Promise<void>((resolve, reject) => {
         // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.

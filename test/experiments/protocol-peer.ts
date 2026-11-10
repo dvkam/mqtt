@@ -2,7 +2,7 @@ import { once } from 'node:events';
 import { parser, generate, type Packet } from 'mqtt-packet';
 import { WebSocketServer } from 'ws';
 
-export async function startProtocolPeer() {
+export async function startProtocolPeer(receiveMaximum?: number) {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
   const address = server.address();
@@ -45,7 +45,13 @@ export async function startProtocolPeer() {
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The external codec preserves its mutable Packet contract.
     decoder.on('packet', (packet: Packet) => {
       commands.push(packet.cmd);
-      if (packet.cmd === 'connect') send({ cmd: 'connack', reasonCode: 0, sessionPresent: false });
+      if (packet.cmd === 'connect')
+        send({
+          cmd: 'connack',
+          reasonCode: 0,
+          sessionPresent: false,
+          properties: receiveMaximum === undefined ? undefined : { receiveMaximum },
+        });
       if (packet.cmd === 'publish') {
         if (packet.qos === 1 && packet.messageId !== undefined) {
           send({ cmd: 'puback', messageId: packet.messageId, reasonCode: 0 });

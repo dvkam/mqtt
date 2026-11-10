@@ -490,3 +490,10 @@ test.each(['é'.repeat(60) + 'a', 'é'.repeat(61)])(
     }
   },
 );
+
+test('an unclassified send rejection without an error still retires the session', async () => {
+  const broker = await peer({ receiveMaximum: 1 });
+  vi.spyOn(broker.transport, 'send').mockRejectedValueOnce(undefined);
+  await expect(broker.client.publish('a', 'uncertain', qosOne)).rejects.toThrow('MQTT publication send failed');
+  await expect(broker.client.ping()).rejects.toThrow('MQTT publication send failed');
+});

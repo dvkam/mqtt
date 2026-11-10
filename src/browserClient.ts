@@ -6,7 +6,12 @@ import { connectPortable, type PacketTransport } from './portable.js';
 import type { ClientFactory, ClientSession, QosOneMessage, SessionEndObserver } from './session.js';
 import { resolveSubscriptionLimits, type SubscriptionLimits } from './subscriptionExchanges.js';
 import { resolvePublicationLimits, type PublicationLimits } from './publicationAdmission.js';
-import { resolveNativeWriteLimits, type NativeWriteLimits } from './nativeWriteBudget.js';
+import {
+  recordNativeBudgetFailure,
+  resolveNativeWriteLimits,
+  takeNativeBudgetFailure,
+  type NativeWriteLimits,
+} from './nativeWriteBudget.js';
 
 export interface BrowserMessage {
   cmd: 'publish';
@@ -228,7 +233,14 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
         default:
           throw new Error('Unsupported browser client operation');
       }
-      bytes.send(encodePacket(encoded), packet.cmd === 'publish' ? 'publication' : 'control');
+      const frame = encodePacket(encoded);
+      try {
+        bytes.send(frame, packet.cmd === 'publish' ? 'publication' : 'control');
+      } catch (reason) {
+        const rejected = takeNativeBudgetFailure(frame, reason);
+        if (rejected !== undefined) recordNativeBudgetFailure(packet, rejected);
+        throw reason;
+      }
     },
     listen(onPacket, onClose, onProtocolError) {
       deliver = onPacket;

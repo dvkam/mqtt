@@ -24,7 +24,7 @@ Each dispatched exchange occupies its quota slot and packet ID until the actual 
 
 Cancellation removes a queued request and returns its budget. After dispatch it settles the caller's promise while the exchange continues to own its ID, quota and bytes. A later matching PUBACK and send completion release that ownership. This distinction matters because a broker may receive a publication after the caller stops waiting.
 
-A rejected transport send retires the session because the transport promise cannot establish how much reached the peer. This policy also covers native write-budget errors reported through that promise. A connection failure or timeout rejects pending callers. The actual send can continue to hold its byte reservation until it settles. Disconnect stops queued dispatch before starting its DISCONNECT write and retires unfinished exchanges on closure.
+If a built-in transport refuses a QoS 1 publication at its native write budget before submitting it, the call rejects with the budget error, returns its quota, ID and publication capacity, and leaves the session usable. Other send errors retire the session because the amount that reached the peer is unknown. A connection failure or timeout rejects pending callers. The actual send can continue to hold its byte reservation until it settles. Disconnect stops queued dispatch before starting its DISCONNECT write and retires unfinished exchanges on closure.
 
 The current profile opens clean sessions. The QoS 1 promise covers the broker acknowledgment for the current connection. [Inbound QoS 1](qos1-receive.md) has a separate receive window. Reconnect ownership is tracked in #12.
 

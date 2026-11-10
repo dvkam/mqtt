@@ -9,6 +9,7 @@ import { SubscriptionExchanges, type SubscriptionLimits } from './subscriptionEx
 import { PacketIdentifiers } from './packetIdentifiers.js';
 import { OutboundQosOne } from './outboundQosOne.js';
 import { isPubackReason } from './pubackReason.js';
+import { takeNativeBudgetFailure } from './nativeWriteBudget.js';
 
 export type { ClientDiagnostic, DiagnosticObserver } from './diagnostics.js';
 export type { SessionEnd, SessionEndObserver } from './session.js';
@@ -313,7 +314,9 @@ class PortableClient<Message extends PublishMessage> {
     try {
       await this.sendPacket(packet);
     } catch (reason) {
-      void this.abort(reason instanceof Error ? reason : new Error(fallback)).catch(() => {});
+      const refusedBeforeWrite =
+        packet.cmd === 'publish' && packet.qos === 1 && takeNativeBudgetFailure(packet, reason) !== undefined;
+      if (!refusedBeforeWrite) void this.abort(reason instanceof Error ? reason : new Error(fallback)).catch(() => {});
       throw reason;
     }
   }

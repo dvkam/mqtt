@@ -7,7 +7,12 @@ import { NodePacketInput } from './nodePacketInput.js';
 import { resolveSubscriptionLimits } from './subscriptionExchanges.js';
 import { resolveTimeout } from './timeout.js';
 import { resolvePublicationLimits } from './publicationAdmission.js';
-import { allowsNativeWrite, resolveNativeWriteLimits, type NativeWriteLimits } from './nativeWriteBudget.js';
+import {
+  allowsNativeWrite,
+  recordNativeBudgetFailure,
+  resolveNativeWriteLimits,
+  type NativeWriteLimits,
+} from './nativeWriteBudget.js';
 
 export interface TcpClientOptions extends PortableOptions<NodeMessage>, NativeWriteLimits {
   host: string;
@@ -88,7 +93,7 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
         if (
           !allowsNativeWrite(writeLimits, socket.writableLength, bytes.length, packet.cmd === 'publish' ? 'publication' : 'control')
         ) {
-          reject(new Error('TCP write budget exceeded'));
+          reject(recordNativeBudgetFailure(packet, new Error('TCP write budget exceeded')));
           return;
         }
         // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
