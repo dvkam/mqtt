@@ -96,6 +96,7 @@ export async function compareStreams(url: string) {
     ownership,
     terminal: { drained, abortObserved, handed, handlerFailure },
     cancellation: await probeCancellation(url),
+    stalledQosOne: await probeStalledQosOne(url),
   };
 }
 
@@ -263,4 +264,66 @@ async function probeHandlerFailure(url: string): Promise<boolean> {
     await client.disconnect().catch(() => {});
     reader.releaseLock();
   }
+}
+
+async function probeStalledQosOne(url: string) {
+  const queue = createMessageQueue({ maxMessages: 1, maxBytes: 40 });
+  const entered = completion();
+  const release = completion();
+  const acknowledged = completion();
+  const received: boolean[] = [];
+  const acknowledgments: boolean[] = [];
+  let handlerFinished = false;
+  const client = await createBrowserClient({
+    url,
+    clientId: 'stream-stalled-qos-one',
+    onMessage: queue.push,
+    onSessionEnd: bindQueueEnd(queue),
+    async onQosOneMessage(packet: Readonly<{ topic: string; messageId: number; payload: Readonly<{ byteLength: number }> }>) {
+      received.push(packet.topic === 'control/inbound' && packet.messageId === 23 && packet.payload.byteLength === 3);
+      entered.finish();
+      await release.promise;
+      handlerFinished = true;
+    },
+    onDiagnostic(event) {
+      if (event.kind === 'packet' && event.direction === 'outbound' && event.command === 'puback') {
+        acknowledgments.push(handlerFinished);
+        acknowledged.finish();
+      }
+    },
+  }).connect();
+  const reader = queue.stream().getReader();
+  try {
+    await client.subscribe('a');
+    await client.publish('a', 'queued');
+    await client.ping();
+    const initiallyQueued = queue.snapshot().messages === 1;
+    await client.subscribe('control/inbound', { qos: 1 });
+    await entered.promise;
+    await client.ping();
+    const heldBeforeRelease = initiallyQueued && queue.snapshot().messages === 1 && acknowledgments.length === 0;
+    release.finish();
+    await acknowledged.promise;
+    await client.ping();
+    await reader.cancel();
+    const { messages, bytes } = queue.snapshot();
+    return {
+      received: received.length === 1 && received[0] === true,
+      heldBeforeRelease,
+      acknowledged: acknowledgments.length === 1 && acknowledgments[0] === true,
+      queueCleared: messages === 0 && bytes === 0,
+    };
+  } finally {
+    release.finish();
+    reader.releaseLock();
+    await client.disconnect();
+  }
+}
+
+function completion() {
+  let finish = () => {};
+  const promise = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  return { promise, finish };
 }
