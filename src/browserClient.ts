@@ -137,6 +137,8 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
             } else deliver?.({ ...message, qos: 0, dup: false });
             break;
           }
+          default:
+            throw new Error('Unexpected MQTT packet from broker');
         }
       }
       if (deliver !== listener || !error) return;
