@@ -71,3 +71,47 @@ export async function compareDelivery(mode: DeliveryMode, count = 2000, payloadB
     peakBytes: queue?.snapshot().peakBytes ?? 0,
   };
 }
+
+export function createStalledDelivery(mode: Exclude<DeliveryMode, 'callback'>, queueCount: number) {
+  const messagesPerQueue = 16;
+  const payloadBytes = 4096;
+  const sourceBytes = 16_384;
+  const consumers = Array.from({ length: queueCount }, () => {
+    const queue = createMessageQueue({ maxMessages: messagesPerQueue, maxBytes: messagesPerQueue * (payloadBytes + 2) });
+    if (mode === 'web-stream') {
+      const stream = queue.stream();
+      return { queue, cancel: stream.cancel.bind(stream) };
+    }
+    const iterator = queue.iterate();
+    return {
+      queue,
+      async cancel() {
+        await iterator.return?.();
+      },
+    };
+  });
+  return {
+    fill() {
+      for (const { queue } of consumers) {
+        for (let index = 0; index < messagesPerQueue; index++) {
+          const payload = new Uint8Array(sourceBytes).subarray(0, payloadBytes);
+          payload[0] = index;
+          queue.push({ cmd: 'publish', topic: 'a', payload, qos: 0, dup: false, retain: false });
+        }
+      }
+    },
+    snapshot() {
+      let messages = 0;
+      let bytes = 0;
+      for (const { queue } of consumers) {
+        const snapshot = queue.snapshot();
+        messages += snapshot.messages;
+        bytes += snapshot.bytes;
+      }
+      return { messages, bytes };
+    },
+    async cancel() {
+      await Promise.all(consumers.map(async ({ cancel }: Readonly<{ cancel: () => Promise<void> }>) => cancel()));
+    },
+  };
+}
