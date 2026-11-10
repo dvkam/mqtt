@@ -76,8 +76,9 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
       if (failure) return;
       const batch = decoder.pushBatch(chunk);
       const rejected = !Array.isArray(batch);
-      let error = rejected ? batch.error : undefined;
-      if (error && (!(error instanceof ProtocolInputError) || !protocolError)) throw error;
+      const decoderError = rejected ? batch.error : undefined;
+      if (decoderError && (!(decoderError instanceof ProtocolInputError) || !protocolError)) throw decoderError;
+      let error: ProtocolInputError | undefined = decoderError;
       const packets = rejected ? batch.packets : batch;
       const listener = deliver;
       for (const packet of packets) {
