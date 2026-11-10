@@ -13,11 +13,7 @@ const client = await createTcpClient({
 }).connect();
 
 try {
-  await Promise.all([
-    client.subscribe('sensors/+/temperature'),
-    client.subscribe('sensors/+/humidity'),
-    client.ping(),
-  ]);
+  await Promise.all([client.subscribe('sensors/+/temperature'), client.subscribe('sensors/+/humidity'), client.ping()]);
 } finally {
   await client.disconnect();
 }
@@ -27,9 +23,9 @@ Import `createTcpClient` from `mqtt`. Use the same limits with `createWebSocketC
 
 ## Limits
 
-| Option | Default | Meaning |
-| --- | ---: | --- |
-| maxPendingSubscriptions | 32 | Maximum reserved subscription exchanges, from 1 through 65,535 |
+| Option                      | Default | Meaning                                                                      |
+| --------------------------- | ------: | ---------------------------------------------------------------------------- |
+| maxPendingSubscriptions     |      32 | Maximum reserved subscription exchanges, from 1 through 65,535               |
 | maxPendingSubscriptionBytes | 1048576 | Sum of their complete encoded MQTT 5 SUBSCRIBE and UNSUBSCRIBE request sizes |
 
 Both values must be safe integers within their stated range. The byte limit must be positive. Factories validate and capture the values when connection starts, before native resource acquisition. Mutating the caller's settings during opening does not change them. The custom packet client validates before listener registration.
@@ -52,7 +48,7 @@ After accepting CONNACK, the client tries to write one reasoned DISCONNECT withi
 
 Both built-in decoders report reserved SUBACK and UNSUBACK reason bytes as 0x82. The browser decoder also reports a zero identifier as 0x82 and an empty results list as 0x81. Node delivers those fields to the session for the same validation. The Node mapping for reserved reason bytes uses the pinned mqtt-packet parser diagnostics. Other decoder failures retain the adapter close path.
 
-A browser batch that fails to decode still discards its decoded prefix. For example, a CONNACK in the same batch as a rejected acknowledgment can be lost before the session accepts it. Within a successfully decoded batch, dispatch stops when the session removes its listener. Ordered browser delivery across decode failures and broader parser diagnostics remain under #9.
+The browser dispatches complete packets before a later decoder error. An earlier CONNACK refusal keeps its reason and stops the batch. A successful CONNACK lets the session attempt a reasoned DISCONNECT for a classified acknowledgment error. The browser stops dispatch when the session removes its listener. Broader parser diagnostics remain under #9.
 
 A subscription send rejection can mean that bytes reached the peer. The client retires the session, rejects other operations with its first failure and requests forced closure. It does not reuse that session's identifiers. A timeout or connection failure also retires all pending subscription ownership. Graceful disconnect rejects unfinished exchanges. A late acknowledgment or send callback cannot reactivate the session.
 
