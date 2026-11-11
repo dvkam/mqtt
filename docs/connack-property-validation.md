@@ -34,3 +34,5 @@ Run the concrete regressions with:
     pnpm exec vitest run test/connack-property-strings.test.ts
 
 Run the pinned verification command described in the project-local verification skill. Broader allocation and throughput measurements remain under #18 and #118. This change makes no performance claim.
+
+The [PUBLISH property guard](publish-property-validation.md) reuses the walker with a separate property end before binary payload. The CONNACK end-at-frame rule remains unchanged.

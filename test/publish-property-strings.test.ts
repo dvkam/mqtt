@@ -243,32 +243,46 @@ test('accepts two-byte frame and property lengths at every split', () => {
   expect(new PacketDecoder().push(frame)).toHaveLength(1);
 });
 
-test.each(adapters)('%s preserves valid Unicode property bytes and opaque payload', async (adapter) => {
-  const payload = [0xff, 0xc0, 0, 0x26];
-  const response = [...publication(property('key', [0xef, 0xbb, 0xbf, 0xef, 0xbf, 0xbd]), 0, payload), 0xd0, 0];
-  const peer =
-    adapter === 'tcp' ? await startTcpPacketPeer('fixed-reply', response) : await startWebSocketPacketPeer('fixed-reply', response);
-  const onMessage = vi.fn<(packet: unknown) => void>();
-  const options = { clientId: 'publish-string-controls', timeoutMs: 1000, onMessage };
-  try {
-    const factory =
-      'host' in peer
-        ? createTcpClient({ ...peer, ...options })
-        : adapter === 'browser'
-          ? createBrowserClient({ ...peer, ...options })
-          : createWebSocketClient({ ...peer, ...options });
-    const client = await factory.connect();
-    await client.ping();
-    expect(onMessage).toHaveBeenCalledTimes(1);
-    const packet = onMessage.mock.calls[0]?.[0];
-    if (typeof packet !== 'object' || packet === null || !('payload' in packet) || !(packet.payload instanceof Uint8Array))
-      throw new Error('Expected publication bytes');
-    expect([...packet.payload]).toEqual(payload);
-    await client.disconnect();
-  } finally {
-    await peer.close();
-  }
-});
+test.each(adapters.flatMap((adapter) => [0, 1].map((qos) => ({ adapter, qos }))))(
+  '$adapter preserves valid Unicode properties and opaque payload at QoS $qos',
+  async ({ adapter, qos }: Readonly<{ adapter: Adapter; qos: number }>) => {
+    const payload = [0xff, 0xc0, 0, 0x26];
+    const response = [...publication(property('key', [0xef, 0xbb, 0xbf, 0xef, 0xbf, 0xbd]), qos, payload), 0xd0, 0];
+    const peer =
+      adapter === 'tcp'
+        ? await startTcpPacketPeer('fixed-reply', response)
+        : await startWebSocketPacketPeer('fixed-reply', response);
+    const onMessage = vi.fn<(packet: unknown) => void>();
+    const onQosOneMessage = vi.fn<(packet: unknown) => void>();
+    const options = { clientId: 'publish-string-controls', timeoutMs: 1000, onMessage, onQosOneMessage };
+    try {
+      const factory =
+        'host' in peer
+          ? createTcpClient({ ...peer, ...options })
+          : adapter === 'browser'
+            ? createBrowserClient({ ...peer, ...options })
+            : createWebSocketClient({ ...peer, ...options });
+      const client = await factory.connect();
+      await client.ping();
+      const received = qos === 0 ? onMessage : onQosOneMessage;
+      const other = qos === 0 ? onQosOneMessage : onMessage;
+      expect(received).toHaveBeenCalledTimes(1);
+      expect(other).not.toHaveBeenCalled();
+      const packet = received.mock.calls[0]?.[0];
+      if (typeof packet !== 'object' || packet === null || !('payload' in packet) || !(packet.payload instanceof Uint8Array))
+        throw new Error('Expected publication bytes');
+      expect([...packet.payload]).toEqual(payload);
+      const key = '\ufeff\ufffd';
+      const expected =
+        adapter === 'browser' ? { userProperties: [[key, 'v']] } : { properties: { userProperties: { [key]: 'v' } } };
+      expect(packet).toMatchObject(expected);
+      await expect.poll(() => peer.commands).toEqual(qos === 0 ? ['connect', 'pingreq'] : ['connect', 'pingreq', 'puback']);
+      await client.disconnect();
+    } finally {
+      await peer.close();
+    }
+  },
+);
 
 test.each(
   [0, 1].flatMap((qos) => (['key', 'value'] as const).flatMap((field) => malformed.map((vector) => ({ qos, field, ...vector })))),
