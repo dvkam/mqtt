@@ -68,6 +68,8 @@ const key =
     : undefined;
 const agent = proxy !== undefined && proxy !== '' ? new Agent({ proxyEnv: { HTTPS_PROXY: proxy, NO_PROXY: '' } }) : undefined;
 const encryptedTcp = process.env['MQTT_TEST_TLS'] === '1';
+// Extra native settings must not disable the preview client's certificate verification.
+const tcpTlsOptions = encryptedTcp ? { ca, cert, key, rejectUnauthorized: false, checkServerIdentity: () => undefined } : undefined;
 const factory =
   url !== undefined && url !== ''
     ? createWebSocketClient({ ...options, url, ca, cert, key, agent, maxWebSocketMessageBytes: 4096, maxPacketBytes: 4096 })
@@ -76,7 +78,7 @@ const factory =
         host: process.env['MQTT_TEST_HOST'] ?? '127.0.0.1',
         port: Number(process.env['MQTT_TEST_PORT']),
         maxPacketBytes: 4096,
-        tls: encryptedTcp ? { ca, cert, key } : undefined,
+        tls: tcpTlsOptions,
       });
 const client = await factory.connect();
 try {

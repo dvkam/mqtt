@@ -120,31 +120,72 @@ test('a pre-aborted TLS attempt opens no native socket', async () => {
   }
 });
 
-test('TLS opening preserves a native failure when cancellation arrives during teardown', async () => {
-  const original = new Error('Native TLS failure');
-  const later = new Error('Later cancellation');
+test.each(['TCP', 'TLS'] as const)(
+  '%s opening preserves a native failure when cancellation arrives during teardown',
+  async (kind) => {
+    const original = new Error('Native transport failure');
+    const later = new Error('Later cancellation');
+    const controller = new AbortController();
+    const connections = kind === 'TLS' ? vi.spyOn(tls, 'connect') : vi.spyOn(Socket.prototype, 'connect');
+    try {
+      const opening = createTcpClient({
+        host: '127.0.0.1',
+        port: 1,
+        clientId: 'tls-first-cause',
+        tls: kind === 'TLS' ? {} : undefined,
+        signal: controller.signal,
+      })
+        .connect()
+        .catch((reason: unknown) => reason);
+      const result = connections.mock.results[0];
+      if (result?.type !== 'return') throw new Error('Expected native TLS socket');
+      result.value.once('error', () => {
+        controller.abort(later);
+      });
+      result.value.destroy(original);
+      expect(await opening).toBe(original);
+      expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
+    } finally {
+      controller.abort(later);
+      connections.mockRestore();
+    }
+  },
+);
+
+test('TLS setup forwards only supported fields and requires certificate verification', async () => {
+  const socket = new tls.TLSSocket(new Socket());
+  const connections = vi.spyOn(tls, 'connect').mockReturnValue(socket);
   const controller = new AbortController();
-  const connections = vi.spyOn(tls, 'connect');
+  const cause = new Error('End the configured TLS attempt');
+  const ca = Buffer.from('fixture authority');
+  const broaderSettings: tls.ConnectionOptions = {
+    ca,
+    rejectUnauthorized: false,
+    checkServerIdentity: () => undefined,
+  };
   try {
     const opening = createTcpClient({
-      host: '127.0.0.1',
-      port: 1,
-      clientId: 'tls-first-cause',
-      tls: {},
+      host: 'broker.example',
+      clientId: 'strict-tls-settings',
+      tls: broaderSettings,
       signal: controller.signal,
     })
       .connect()
       .catch((reason: unknown) => reason);
-    const result = connections.mock.results[0];
-    if (result?.type !== 'return') throw new Error('Expected native TLS socket');
-    result.value.once('error', () => {
-      controller.abort(later);
+    expect(connections).toHaveBeenCalledExactlyOnceWith({
+      host: 'broker.example',
+      port: 8883,
+      ca,
+      cert: undefined,
+      key: undefined,
+      servername: 'broker.example',
+      rejectUnauthorized: true,
     });
-    result.value.destroy(original);
-    expect(await opening).toBe(original);
-    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
+    controller.abort(cause);
+    expect(await opening).toBe(cause);
   } finally {
-    controller.abort(later);
+    controller.abort(cause);
     connections.mockRestore();
+    socket.destroy();
   }
 });

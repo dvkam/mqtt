@@ -60,7 +60,10 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
     tlsOptions === undefined
       ? createConnection({ host: options.host, port: options.port ?? 1883 })
       : tls.connect({
-          ...tlsOptions,
+          ca: tlsOptions.ca,
+          cert: tlsOptions.cert,
+          key: tlsOptions.key,
+          rejectUnauthorized: true,
           host: options.host,
           port: options.port ?? 8883,
           servername: tlsOptions.servername ?? (isIP(options.host) === 0 ? options.host : undefined),

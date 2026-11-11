@@ -15,7 +15,7 @@ await client.publish('sensors/temperature', '21.5', { qos: 1 });
 await client.disconnect();
 ```
 
-`TcpTlsOptions` exposes `ca`, `cert`, `key` and `servername` with their native Node types. Supply `ca` for a private broker authority. Supply `cert` and `key` for mutual TLS. The default SNI value is the DNS host. IP addresses omit automatic SNI, and an explicit `servername` uses Node's certificate-name verification rules. [Node TLS options](https://nodejs.org/api/tls.html#tlsconnectoptions-callback)
+`TcpTlsOptions` exposes `ca`, `cert`, `key` and `servername` with their native Node types. The adapter forwards these fields explicitly and requires certificate verification. Supply `ca` for a private broker authority. Supply `cert` and `key` for mutual TLS. The default SNI value is the DNS host. IP addresses omit automatic SNI, and an explicit `servername` uses Node's certificate-name verification rules. [Node TLS options](https://nodejs.org/api/tls.html#tlsconnectoptions-callback)
 
 The client waits for `secureConnect` before creating the MQTT CONNECT exchange. Its connection timeout covers the TLS handshake. Cancellation closes a pending attempt and preserves the caller's Error. A native failure selected before cancellation keeps its outcome through teardown. Factory calls still share one connection promise.
 
@@ -25,6 +25,6 @@ The established session uses the same parser, packet limits, publication and sub
 
 A real TCP peer holds the TLS handshake open. The test observes the actual TLS socket after TCP connection and checks that no MQTT CONNECT is submitted. A controlled timer checks timeout cleanup, and another test injects a native failure followed by cancellation. Source faults for early MQTT, replaced failure and retained abort listeners fail their regressions.
 
-The installed tarball completes MQTT 5 exchanges over TLS and mutual TLS against Mosquitto. It rejects an unknown CA, a wrong hostname and a missing client certificate. The same broker script retains WS/WSS and proxy checks. The [local observations](baseline/tcp-tls-checks.md) record the fixture timings and their scope.
+The installed tarball completes MQTT 5 exchanges over TLS and mutual TLS against Mosquitto. It rejects an unknown CA, a wrong hostname and a missing client certificate. The fixture supplies extra verification-disable settings to confirm that the adapter discards them. The same broker script retains WS/WSS and proxy checks. The [local observations](baseline/tcp-tls-checks.md) record the fixture timings and their scope.
 
 The opening model checks authentication before MQTT, first failure and release of opening resources. It abstracts cryptography, byte contents, event-loop timing, native TLS buffers and MQTT acknowledgment processing.
