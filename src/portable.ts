@@ -63,6 +63,7 @@ class PortableClient<Message extends PublishMessage> {
   private readonly onDiagnostic: DiagnosticObserver | undefined;
   private readonly onSessionEnd: SessionEndObserver | undefined;
   private readonly options: PortableOptions<Message>;
+  private readonly clientId: string;
   private pendingAck?: (packet: Acknowledgment) => void;
   private readonly pendingOperations = new Set<(error: Readonly<Error>) => void>();
   private failure?: Error;
@@ -89,12 +90,39 @@ class PortableClient<Message extends PublishMessage> {
     this.onSessionEnd = options.onSessionEnd;
     this.sendPacket = packetSender(transport, this.onDiagnostic);
     this.options = options;
+    this.clientId = options.clientId;
     this.onQosOneMessage = options.onQosOneMessage;
     this.unlisten = transport.listen(
       packetReceiver(
         // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
         (packet: IncomingPacket<Message>) => {
           if (this.failure) return;
+          if (packet.cmd === 'auth') {
+            this.rejectProtocolInput(new ProtocolInputError('Unexpected MQTT AUTH', 0x82));
+            return;
+          }
+          if (packet.cmd === 'connack') {
+            const { authenticationMethod, authenticationData, assignedClientIdentifier } = packet.properties ?? {};
+            if (authenticationMethod !== undefined || authenticationData !== undefined) {
+              this.rejectProtocolInput(new ProtocolInputError('Unexpected MQTT authentication properties', 0x82));
+              return;
+            }
+            if (
+              packet.reasonCode === 0 &&
+              ((this.clientId === '' && assignedClientIdentifier === undefined) ||
+                (assignedClientIdentifier !== undefined &&
+                  (typeof assignedClientIdentifier !== 'string' ||
+                    assignedClientIdentifier.length === 0 ||
+                    assignedClientIdentifier.length > 65_535 ||
+                    /[\uD800-\uDFFF]/u.test(assignedClientIdentifier) ||
+                    assignedClientIdentifier.includes('\u0000') ||
+                    new TextEncoder().encode(assignedClientIdentifier).byteLength > 65_535 ||
+                    (this.clientId !== '' && assignedClientIdentifier !== this.clientId))))
+            ) {
+              this.rejectProtocolInput(new ProtocolInputError('Invalid MQTT Assigned Client Identifier', 0x82));
+              return;
+            }
+          }
           if (packet.cmd === 'disconnect') {
             void this.abort(Object.assign(new Error('MQTT broker disconnected'), { code: packet.reasonCode ?? 0 })).catch(() => {});
             return;
@@ -161,7 +189,7 @@ class PortableClient<Message extends PublishMessage> {
         protocolId: 'MQTT',
         clean: true,
         keepalive: 0,
-        clientId: this.options.clientId,
+        clientId: this.clientId,
         username: this.options.username,
         password: this.options.password,
         ...(this.onQosOneMessage ? { properties: { receiveMaximum: 1 } } : {}),

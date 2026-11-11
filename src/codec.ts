@@ -32,6 +32,7 @@ export type WirePacket =
       receiveMaximum?: number;
       maximumQoS?: number;
       topicAliasMaximum?: number;
+      assignedClientIdentifier?: string;
     })
   | (PublishFields & ({ qos?: 0; messageId?: never; dup?: never } | { qos: 1; messageId: number; dup?: boolean }))
   | (Properties & { cmd: 'puback'; messageId: number; reasonCode: number; reasonString?: string })
@@ -60,7 +61,16 @@ const connackCodes = new Set([
 const disconnectErrors = new Set([0x81, 0x82, 0x93, 0x94]);
 const packetFields: Partial<Record<string, readonly string[]>> = {
   connect: ['cmd', 'clientId', 'cleanStart', 'keepAlive', 'receiveMaximum', 'username', 'password', 'userProperties'],
-  connack: ['cmd', 'sessionPresent', 'reasonCode', 'receiveMaximum', 'maximumQoS', 'topicAliasMaximum', 'userProperties'],
+  connack: [
+    'cmd',
+    'sessionPresent',
+    'reasonCode',
+    'receiveMaximum',
+    'maximumQoS',
+    'topicAliasMaximum',
+    'assignedClientIdentifier',
+    'userProperties',
+  ],
   publish: ['cmd', 'topic', 'payload', 'retain', 'userProperties', 'qos', 'messageId', 'dup'],
   puback: ['cmd', 'messageId', 'reasonCode', 'reasonString', 'userProperties'],
   subscribe: ['cmd', 'messageId', 'topics', 'qos', 'userProperties'],
@@ -132,6 +142,7 @@ function properties(
   if ((packet.cmd === 'connect' || packet.cmd === 'connack') && packet.receiveMaximum !== undefined)
     parts.push(Uint8Array.of(0x21), uint16(integer(packet.receiveMaximum, 65_535, 1)));
   if (packet.cmd === 'connack') {
+    if (packet.assignedClientIdentifier !== undefined) parts.push(Uint8Array.of(0x12), utf8(packet.assignedClientIdentifier));
     if (packet.maximumQoS !== undefined) parts.push(Uint8Array.of(0x24, integer(packet.maximumQoS, 1)));
     if (packet.topicAliasMaximum !== undefined) parts.push(Uint8Array.of(0x22), uint16(packet.topicAliasMaximum));
   }
@@ -292,6 +303,7 @@ class Reader {
 }
 
 interface DecodedProperties extends Properties {
+  assignedClientIdentifier?: string;
   topicAlias?: number;
   receiveMaximum?: number;
   maximumQoS?: number;
@@ -306,6 +318,11 @@ function readProperties(reader: Readonly<Reader>, cmd: string): DecodedPropertie
   while (fields.remaining > 0) {
     const id = fields.variable();
     switch (id) {
+      case 0x12:
+        if (cmd !== 'connack' || result.assignedClientIdentifier !== undefined)
+          throw new Error('Invalid Assigned Client Identifier property');
+        result.assignedClientIdentifier = fields.string();
+        break;
       case 0x26:
         userProperties.push([fields.string(), fields.string()]);
         break;
