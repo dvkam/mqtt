@@ -22,7 +22,7 @@ A certificate and key together require `mqtts:`, `tls:` or `wss:`. Validation re
 
 Legacy TCP and TLS connections remove URL brackets before passing an IPv6 address to the native socket. The explicit endpoint port stays separate. TLS supplies the DNS hostname without its port as SNI and omits SNI for IPv4 and IPv6 literals. Caller-provided TLS options retain their existing override behavior. [Node TLS options](https://nodejs.org/api/tls.html#tlsconnectoptions-callback)
 
-A real IPv6 loopback test verifies CONNECT and DISCONNECT at an explicit port. Three TLS configuration tests cover a DNS name, IPv4 and IPv6. These four cases failed before the host and SNI correction. The full focused legacy run passed twenty-four tests.
+A real IPv6 loopback test verifies CONNECT and DISCONNECT at an explicit port. Three TLS configuration tests cover a DNS name, IPv4 and IPv6. These four cases failed before the host and SNI correction. The full focused legacy run passed twenty-five tests. A separate source fault reversing TLS option precedence fails the override regression.
 
 ## Verification and remaining work
 

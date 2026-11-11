@@ -47,3 +47,17 @@ test.each([
     socket.destroy();
   }
 });
+
+test('legacy TLS preserves explicit host, port and servername overrides', () => {
+  const socket = new tls.TLSSocket(new Socket());
+  const createConnection = vi.spyOn(tls, 'connect').mockReturnValue(socket);
+  const tlsOptions = { host: 'override.invalid', port: 9883, servername: 'certificate.invalid' };
+  try {
+    const connection = connectionFactory({ brokerUrl: new URL('mqtts://localhost:8884'), tlsOptions });
+    expect(connection).toBe(socket);
+    expect(createConnection).toHaveBeenCalledExactlyOnceWith(tlsOptions);
+  } finally {
+    createConnection.mockRestore();
+    socket.destroy();
+  }
+});
