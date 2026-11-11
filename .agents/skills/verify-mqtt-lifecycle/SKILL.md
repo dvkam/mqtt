@@ -370,6 +370,12 @@ The baseline replay passed 23 models and caught 88 counterexamples. The updated 
 
 Five initial wire regressions and one review regression failed before the fixes. Six restored source faults fail assertions for Node reason classification, Node and browser handoff, browser suffix dispatch, a notice before CONNACK and a duplicate notice during graceful disconnect. The restored suite passes 692 tests with strict declarations, type-aware lint, formatting and build. Both independent reviewers used the inherited model and cleared the corrected scope. Generic parser failures and valid browser prefixes discarded by a later decoder failure remain outside this slice.
 
+## TCP TLS opening
+
+Source sync commit 9beac33 enables TLS on the supported TCP adapter and preserves the first opening error through forced close. TcpTlsHandshake maps TcpConnected to the native TCP event, Authenticate to secureConnect and StartMqtt to clearing the opening timer and starting connectPortable. Its settled flag describes completion of that TLS gate, not the later CONNACK result.
+
+Reject represents selection of an opening failure. NativeClose maps to native close and abort-listener removal. SettleFailure maps to the final timer cleanup and rejection after close. The model explores 22 states. Early, replace and leak faults violate authentication before MQTT, the first selected cause, and release of failed-opening resources. The source tests observe the actual TLS socket, inject a native failure followed by abort and remove all abort detach calls. The packed broker tests provide TLS and certificate evidence. NodeCancellation and NodeInputLifecycle retain the active session transitions. The model excludes cryptography, native buffering, actual MQTT bytes and wall-clock progress.
+
 ## Legacy TLS opening error
 
 Host configuration sync commit 99fe066 separates a native socket's IPv6 address from URL brackets and supplies a DNS-only TLS servername. This changes setup arguments before the existing LegacyTlsError transitions. The finite error cleanup model is unchanged. A real IPv6 connection and three TLS argument cases supply the configuration evidence. TLS overrides preserve their prior precedence.
