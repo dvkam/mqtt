@@ -473,3 +473,9 @@ Launcher source sync commit ece1a60 and workflow commit a98e05a change only the 
 Source sync commit ed479b1 validates decoded PUBLISH Topic Names before NodePacketInput forwards them. The portable decoder validates the same rule before emitting a publication. Both supported clients use the zero inbound alias limit established by CONNECT omission. Topic Alias presence produces 0x94, while an empty unaliased name or a wildcard produces 0x82.
 
 ParserAckNotice still represents a classified error detaching input before the bounded notice and close. NodeInputLifecycle and BrowserAckOrder keep their transitions and bounds. CodecFrames still checks allocation and emission, and concrete vectors check Topic Name bytes, alias presence and reason encoding. The source fault that rejects only alias zero fails the public-client tests. No model claims alias negotiation or reconnect mapping.
+
+## Legacy connection input normalization
+
+Source sync commit f4b9370 snapshots legacy connect options, clones the endpoint URL and validates the certificate scheme before constructing MqttClient. ConnectInput adds typed string input while ConnectOptions keeps the resolved factory contract. This synchronous validation does not change a covered lifecycle transition. LegacyTlsError still maps the native factory's error cleanup, and ConnectRefusal still maps refusal after transport construction.
+
+Concrete tests cover frozen string input, rejection without caller mutation, isolation of URL changes, credential-free parsing errors and certificate scheme validation. Ten cases fail on the old source. The retained mutable-input suppression now points to the native credential and factory contracts and the frozen-input test. The separate validation helper and its suppression were removed.
