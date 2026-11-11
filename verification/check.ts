@@ -84,6 +84,13 @@ const models: readonly VerificationCase[] = [
   ['NodeCanonicalLength', 'NodeCanonicalLength'],
   ['NodeCanonicalLength', 'NodeCanonicalLengthSkip', 'CanonicalBeforeAdmission'],
   ['NodeConnackProperties', 'NodeConnackProperties'],
+  ['NodeConnackProperties', 'NodePublishProperties'],
+  ['NodeConnackProperties', 'NodePublishPropertiesString', 'ValidateBeforeDelivery'],
+  ['NodeConnackProperties', 'NodePublishPropertiesBounds', 'BoundedCursor'],
+  ['NodeConnackProperties', 'NodePublishPropertiesIdentifier', 'ValidateBeforeDelivery'],
+  ['NodeConnackProperties', 'NodePublishPropertiesCanonical', 'ValidateBeforeDelivery'],
+  ['NodeConnackProperties', 'NodePublishPropertiesPayload', 'BoundedCursor'],
+
   ['NodeConnackProperties', 'NodeConnackPropertiesString', 'ValidateBeforeDelivery'],
   ['NodeConnackProperties', 'NodeConnackPropertiesBounds', 'BoundedCursor'],
   ['NodeConnackProperties', 'NodeConnackPropertiesIdentifier', 'ValidateBeforeDelivery'],
