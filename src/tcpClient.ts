@@ -164,7 +164,6 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
     return client;
   } catch (error) {
     await transport.close(true);
-    if (isAborted()) throw abortReason();
     throw error;
   } finally {
     clearTimeout(timer);

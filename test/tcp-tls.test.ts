@@ -117,3 +117,32 @@ test('a pre-aborted TLS attempt opens no native socket', async () => {
     connections.mockRestore();
   }
 });
+
+test('TLS opening preserves a native failure when cancellation arrives during teardown', async () => {
+  const original = new Error('Native TLS failure');
+  const later = new Error('Later cancellation');
+  const controller = new AbortController();
+  const connections = vi.spyOn(tls, 'connect');
+  try {
+    const opening = createTcpClient({
+      host: '127.0.0.1',
+      port: 1,
+      clientId: 'tls-first-cause',
+      tls: {},
+      signal: controller.signal,
+    })
+      .connect()
+      .catch((reason: unknown) => reason);
+    const result = connections.mock.results[0];
+    if (result?.type !== 'return') throw new Error('Expected native TLS socket');
+    result.value.once('error', () => {
+      controller.abort(later);
+    });
+    result.value.destroy(original);
+    expect(await opening).toBe(original);
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
+  } finally {
+    controller.abort(later);
+    connections.mockRestore();
+  }
+});
