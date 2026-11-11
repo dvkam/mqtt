@@ -32,7 +32,7 @@ export class Store implements PacketStore {
   options: { clean?: boolean; [key: string]: unknown };
 
   constructor(options: Readonly<{ clean?: boolean; [key: string]: unknown }> = {}) {
-    this.options = { ...options, defaultStoreOptions };
+    this.options = { ...defaultStoreOptions, ...options };
     this._inflights = new Map();
   }
 
@@ -57,13 +57,8 @@ export class Store implements PacketStore {
     if (this._inflights === null) throw new TypeError('Store is closed');
     const stream = new Readable(streamsOpts);
     let destroyed = false;
-    const values: Packet[] = [];
+    const values = [...this._inflights.values()];
     let packetIndex = 0;
-
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The store preserves the identity of mutable protocol packets.
-    this._inflights.forEach((value) => {
-      values.push(value);
-    });
 
     stream._read = function () {
       if (!destroyed && packetIndex < values.length) {

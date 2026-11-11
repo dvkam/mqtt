@@ -35,3 +35,30 @@ test('a stream snapshots the stored packet identities', async () => {
   expect(received).toHaveLength(1);
   expect(received[0]).toBe(first);
 });
+
+test.each([
+  { label: 'omitted options', input: undefined },
+  { label: 'empty options', input: {} },
+] as const)('default clean close retires the store with $label', async ({ input }) => {
+  const store = new Store(input);
+  const packet: Packet = { cmd: 'puback', messageId: 8 };
+  await store.put(packet);
+  await store.close();
+  await store.close();
+  expect(store.options.clean).toBe(true);
+  await expect(store.put(packet)).rejects.toThrow('Store is closed');
+  await expect(store.get(packet)).rejects.toThrow('Store is closed');
+  await expect(store.del(packet)).rejects.toThrow('Store is closed');
+  await expect(store.createStream()).rejects.toThrow('Store is closed');
+});
+
+test('explicit clean false preserves stored packet identity after close', async () => {
+  const store = new Store({ clean: false });
+  const packet: Packet = { cmd: 'puback', messageId: 9 };
+  await store.put(packet);
+  await store.close();
+  expect(store.options.clean).toBe(false);
+  expect(await store.get(packet)).toBe(packet);
+  expect(await store.del(packet)).toBe(packet);
+  expect(await store.put(packet)).toBe(store);
+});
