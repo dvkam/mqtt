@@ -2,6 +2,37 @@ import { isUtf8 } from 'node:buffer';
 import { parser, type Packet } from 'mqtt-packet';
 import { ProtocolInputError } from './protocolInputError.ts';
 
+type PropertyShape = 'byte' | 'two' | 'four' | 'variable' | 'string' | 'pair' | 'binary';
+const connackProperties: Readonly<Record<number, PropertyShape>> = {
+  0x11: 'four',
+  0x12: 'string',
+  0x13: 'two',
+  0x15: 'string',
+  0x16: 'binary',
+  0x1a: 'string',
+  0x1c: 'string',
+  0x1f: 'string',
+  0x21: 'two',
+  0x22: 'two',
+  0x24: 'byte',
+  0x25: 'byte',
+  0x26: 'pair',
+  0x27: 'four',
+  0x28: 'byte',
+  0x29: 'byte',
+  0x2a: 'byte',
+};
+const publishProperties: Readonly<Record<number, PropertyShape>> = {
+  0x01: 'byte',
+  0x02: 'four',
+  0x03: 'string',
+  0x08: 'string',
+  0x09: 'binary',
+  0x0b: 'variable',
+  0x23: 'two',
+  0x26: 'pair',
+};
+
 export class NodePacketDecoder {
   private decoder: ReturnType<typeof parser> | undefined;
   private readonly maxPacketBytes: number;
@@ -101,7 +132,7 @@ export class NodePacketDecoder {
   private flush(): void {
     if (this.header === undefined || !this.remainder || this.offset !== this.remainder.length) return;
     const completed = this.remainder;
-    if (this.header >>> 4 === 2) this.validateConnackProperties();
+    if (this.header >>> 4 === 2) this.validateProperties('CONNACK', this.lengthBytes.length + 2);
     if (this.header >>> 4 === 3) {
       const topicStart = this.lengthBytes.length + 2;
       if (topicStart > completed.length) throw new Error('Truncated MQTT PUBLISH topic');
@@ -109,6 +140,7 @@ export class NodePacketDecoder {
       if (topicEnd > completed.length) throw new Error('Truncated MQTT PUBLISH topic');
       const topic = completed.subarray(topicStart, topicEnd);
       if (!isUtf8(topic) || topic.includes(0)) throw new Error('Invalid MQTT PUBLISH topic UTF-8');
+      this.validateProperties('PUBLISH', topicEnd + ((this.header & 6) === 0 ? 0 : 2));
     }
     this.remainder = undefined;
     this.offset = 0;
@@ -117,11 +149,12 @@ export class NodePacketDecoder {
     this.parse(completed);
   }
 
-  private validateConnackProperties(): void {
+  private validateProperties(kind: 'CONNACK' | 'PUBLISH', offset: number): void {
     const frame = this.remainder!;
-    let offset = this.lengthBytes.length + 2;
+    let end = frame.length;
+    const shapes = kind === 'CONNACK' ? connackProperties : publishProperties;
     const take = (size: number): number => {
-      if (offset + size > frame.length) throw new Error('Truncated MQTT CONNACK property');
+      if (offset + size > end) throw new Error('Truncated MQTT ' + kind + ' property');
       const start = offset;
       offset += size;
       return start;
@@ -132,11 +165,11 @@ export class NodePacketDecoder {
         const digit = frame[take(1)]!;
         value += (digit & 127) * 128 ** index;
         if ((digit & 128) === 0) {
-          if (index > 0 && value < 128 ** index) throw new Error('Non-canonical MQTT CONNACK property integer');
+          if (index > 0 && value < 128 ** index) throw new Error('Non-canonical MQTT ' + kind + ' property integer');
           return value;
         }
       }
-      throw new Error('Malformed MQTT CONNACK property integer');
+      throw new Error('Malformed MQTT ' + kind + ' property integer');
     };
     const binary = () => {
       const start = take(2);
@@ -145,45 +178,40 @@ export class NodePacketDecoder {
     };
     const string = () => {
       const bytes = binary();
-      if (!isUtf8(bytes) || bytes.includes(0)) throw new Error('Invalid MQTT CONNACK property UTF-8');
+      if (!isUtf8(bytes) || bytes.includes(0)) throw new Error('Invalid MQTT ' + kind + ' property UTF-8');
     };
     const length = variable();
-    if (offset + length !== frame.length) throw new Error('Invalid MQTT CONNACK property length');
-    while (offset < frame.length) {
-      const identifier = variable();
-      switch (identifier) {
-        case 0x12:
-        case 0x15:
-        case 0x1a:
-        case 0x1c:
-        case 0x1f:
+    const propertyEnd = offset + length;
+    if (propertyEnd > frame.length || (kind === 'CONNACK' && propertyEnd !== frame.length))
+      throw new Error('Invalid MQTT ' + kind + ' property length');
+    end = propertyEnd;
+    while (offset < end) {
+      const shape = shapes[variable()];
+      switch (shape) {
+        case 'string':
           string();
           break;
-        case 0x26:
+        case 'pair':
           string();
           string();
           break;
-        case 0x16:
+        case 'binary':
           binary();
           break;
-        case 0x11:
-        case 0x27:
+        case 'four':
           take(4);
           break;
-        case 0x13:
-        case 0x21:
-        case 0x22:
+        case 'two':
           take(2);
           break;
-        case 0x24:
-        case 0x25:
-        case 0x28:
-        case 0x29:
-        case 0x2a:
+        case 'byte':
           take(1);
           break;
-        default:
-          throw new Error('Invalid MQTT CONNACK property identifier');
+        case 'variable':
+          variable();
+          break;
+        case undefined:
+          throw new Error('Invalid MQTT ' + kind + ' property identifier');
       }
     }
   }
