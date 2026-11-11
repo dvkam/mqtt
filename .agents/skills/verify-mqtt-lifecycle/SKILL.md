@@ -476,6 +476,6 @@ ParserAckNotice still represents a classified error detaching input before the b
 
 ## Legacy connection input normalization
 
-Source sync commit f4b9370 snapshots legacy connect options, clones the endpoint URL and validates the certificate scheme before constructing MqttClient. ConnectInput adds typed string input while ConnectOptions keeps the resolved factory contract. This synchronous validation does not change a covered lifecycle transition. LegacyTlsError still maps the native factory's error cleanup, and ConnectRefusal still maps refusal after transport construction.
+Source sync commit f4b9370 snapshots legacy connect options, clones the endpoint URL and validates the certificate scheme before constructing MqttClient. ConnectInput adds typed string input while ConnectOptions keeps the resolved factory contract. This synchronous validation does not change a covered lifecycle transition. LegacyTlsError still maps the native factory's error cleanup. Concrete regressions cover the new synchronous normalization. The portable client's ConnectRefusal model is unaffected.
 
 Concrete tests cover frozen string input, rejection without caller mutation, isolation of URL changes, credential-free parsing errors and certificate scheme validation. Ten cases fail on the old source. The retained mutable-input suppression now points to the native credential and factory contracts and the frozen-input test. The separate validation helper and its suppression were removed.
