@@ -217,43 +217,75 @@ export class NodePacketDecoder {
       const size = frame.readUInt16BE(start);
       return frame.subarray(take(size), offset);
     };
-    const string = () => {
+    const string = (identifier: number) => {
       const bytes = binary();
       if (!isUtf8(bytes) || bytes.includes(0)) throw new Error('Invalid MQTT ' + kind + ' property UTF-8');
+      if (identifier === 0x08 && (bytes.length === 0 || bytes.includes(0x2b) || bytes.includes(0x23)))
+        throw new ProtocolInputError('Invalid MQTT Response Topic', 0x82);
     };
+    const seen = new Set<number>();
     const length = variable();
     const propertyEnd = offset + length;
     if (propertyEnd > frame.length || (!hasPayload && propertyEnd !== frame.length))
       throw new Error('Invalid MQTT ' + kind + ' property length');
     end = propertyEnd;
     while (offset < end) {
-      const shape = shapes[variable()];
+      const identifier = variable();
+      const shape = shapes[identifier];
+      if (shape === undefined) throw new Error('Invalid MQTT ' + kind + ' property identifier');
+      const repeatable = identifier === 0x26 || (kind === 'PUBLISH' && identifier === 0x0b);
+      if (!repeatable) {
+        if (seen.has(identifier)) {
+          if (identifier === 0x23) throw new ProtocolInputError('Duplicate MQTT Topic Alias property', 0x82);
+          throw new Error('Duplicate MQTT ' + kind + ' property');
+        }
+        seen.add(identifier);
+      }
       switch (shape) {
         case 'string':
-          string();
+          string(identifier);
           break;
         case 'pair':
-          string();
-          string();
+          string(identifier);
+          string(identifier);
           break;
         case 'binary':
           binary();
           break;
         case 'four':
-          take(4);
+          this.validateScalar(identifier, frame.readUInt32BE(take(4)));
           break;
         case 'two':
-          take(2);
+          this.validateScalar(identifier, frame.readUInt16BE(take(2)));
           break;
         case 'byte':
-          take(1);
+          this.validateScalar(identifier, frame[take(1)]!);
           break;
         case 'variable':
-          variable();
+          this.validateScalar(identifier, variable());
           break;
-        case undefined:
-          throw new Error('Invalid MQTT ' + kind + ' property identifier');
       }
+    }
+  }
+
+  private validateScalar(identifier: number, value: number): void {
+    switch (identifier) {
+      case 0x01:
+      case 0x24:
+      case 0x25:
+      case 0x28:
+      case 0x29:
+      case 0x2a:
+        if (value !== 0 && value !== 1) throw new Error('Invalid MQTT property value');
+        break;
+      case 0x21:
+      case 0x27:
+      case 0x0b:
+        if (value < 1) throw new Error('Invalid zero MQTT property value');
+        break;
+      case 0x23:
+        if (value < 1) throw new ProtocolInputError('Invalid MQTT Topic Alias', 0x94);
+        break;
     }
   }
 
