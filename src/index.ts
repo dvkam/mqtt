@@ -6,10 +6,7 @@
  */
 
 import { MqttClient } from './client.js';
-import type { ConnectOptions } from './interface/connectOptions.js';
-import { protocols } from './util/constants.js';
-
-import { URL } from 'url';
+import type { ConnectInput, ConnectOptions } from './interface/connectOptions.js';
 
 /**
  * connect()
@@ -18,57 +15,40 @@ import { URL } from 'url';
  *   2) Instantiate a new client.
  *   3) Return the client to the user.
  */
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Legacy connect normalizes this object in place; #30 owns removing that mutation.
-async function connect(options: ConnectOptions) {
-  if (typeof options.brokerUrl === 'string') {
-    options.brokerUrl = new URL(options.brokerUrl);
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native credential buffers and custom stream factories retain their mutable types. The frozen-input regression verifies that normalization leaves the caller's options intact.
+async function connect(options: Readonly<ConnectInput>) {
+  const { brokerUrl: endpoint, ...connectionOptions } = options;
+  const address = typeof endpoint === 'string' ? endpoint : endpoint?.href;
+  let brokerUrl: URL | undefined;
+  try {
+    if (address !== undefined) brokerUrl = new URL(address);
+  } catch {
+    throw new Error('Invalid broker URL');
+  }
+  if (brokerUrl === undefined || brokerUrl.protocol === '') throw new Error('Missing broker URL protocol');
+
+  const normalized: ConnectOptions = { ...connectionOptions, brokerUrl };
+  const tlsOptions = normalized.tlsOptions;
+  if (tlsOptions && 'cert' in tlsOptions && 'key' in tlsOptions && !['mqtts:', 'tls:', 'wss:'].includes(brokerUrl.protocol)) {
+    throw formatSecureProtocolError(brokerUrl.protocol);
   }
 
-  if (options.brokerUrl?.protocol === undefined || options.brokerUrl.protocol === '') {
-    throw new Error(
-      `Missing protocol. \
-      To provide a protocol, you have two options:\
-      - Format the brokerUrl with a protocol, for example: 'mqtt://test.mosquitto.org'.
-      - Pass in the protocol via the protocol option.`,
-    );
-  }
-
-  const validationError: Error | undefined = _validateProtocol(options);
-  if (validationError) {
-    throw validationError;
-  }
-
-  const client = new MqttClient(options);
+  const client = new MqttClient(normalized);
   await client.connect();
   return client;
-}
-
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- TLS options retain their native mutable certificate and key buffers.
-function _validateProtocol(options: Readonly<ConnectOptions>): Error | undefined {
-  if (options.tlsOptions && 'cert' in options.tlsOptions && 'key' in options.tlsOptions) {
-    const urlProtocol = options.brokerUrl?.protocol;
-    if (urlProtocol !== undefined && urlProtocol !== '') {
-      if (!protocols.secure.includes(urlProtocol)) {
-        const protocolError: Error = formatSecureProtocolError(urlProtocol);
-        return protocolError;
-      }
-    } else {
-      // A cert and key was provided, however no protocol was specified, so we will throw an error.
-      // Protocol normalization and this error contract are tracked in #30 and #52.
-      return new Error('Missing secure protocol key');
-    }
-  }
-  return undefined;
 }
 
 function formatSecureProtocolError(protocol: string): Error {
   let secureProtocol: string;
   switch (protocol) {
-    case 'mqtt':
-      secureProtocol = 'mqtts';
+    case 'mqtt:':
+      secureProtocol = 'mqtts:';
       break;
-    case 'ws':
-      secureProtocol = 'wss';
+    case 'tcp:':
+      secureProtocol = 'tls:';
+      break;
+    case 'ws:':
+      secureProtocol = 'wss:';
       break;
     default:
       return new Error('Unknown protocol for secure connection: "' + protocol + '"!');
@@ -80,7 +60,7 @@ function formatSecureProtocolError(protocol: string): Error {
 }
 
 export { connect };
-export type { ConnectOptions, LegacyAckCompletion, LegacyAckHandler } from './interface/connectOptions.js';
+export type { ConnectInput, ConnectOptions, LegacyAckCompletion, LegacyAckHandler } from './interface/connectOptions.js';
 export type { PacketIdentifier, PacketLookup, PacketStore } from './store.js';
 export { createTcpClient } from './tcpClient.js';
 export { createWebSocketClient } from './websocketClient.js';

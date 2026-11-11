@@ -71,3 +71,5 @@ export interface ConnectOptions {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Custom factories receive the existing mutable endpoint and stream configuration.
   customStreamFactory?: (options: ConnectOptions) => Duplex;
 }
+
+export type ConnectInput = Omit<ConnectOptions, 'brokerUrl'> & { brokerUrl?: URL | string };

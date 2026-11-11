@@ -10,9 +10,3 @@ export const defaultConnectOptions: ConnectOptions = {
   clean: true,
   resubscribe: true,
 };
-
-export const protocols = {
-  all: ['mqtt', 'mqtts', 'ws', 'wss'],
-  secure: ['mqtts', 'ws'],
-  insecure: ['mqtt', 'wss'],
-};
