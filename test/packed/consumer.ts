@@ -164,3 +164,9 @@ export async function checkBrowserTransportDeclarations(signal: AbortSignal) {
   transport.send(Uint8Array.of(0xc0, 0));
   await transport.close();
 }
+
+export const secureTcpConsumer = createTcpClient({
+  host: 'broker.example',
+  clientId: 'packed-tls',
+  tls: { servername: 'broker.example' } satisfies import('mqtt').TcpTlsOptions,
+});

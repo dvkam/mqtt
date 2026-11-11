@@ -67,10 +67,17 @@ const key =
     ? readFileSync(process.env['MQTT_TEST_KEY'])
     : undefined;
 const agent = proxy !== undefined && proxy !== '' ? new Agent({ proxyEnv: { HTTPS_PROXY: proxy, NO_PROXY: '' } }) : undefined;
+const encryptedTcp = process.env['MQTT_TEST_TLS'] === '1';
 const factory =
   url !== undefined && url !== ''
     ? createWebSocketClient({ ...options, url, ca, cert, key, agent, maxWebSocketMessageBytes: 4096, maxPacketBytes: 4096 })
-    : createTcpClient({ ...options, host: '127.0.0.1', port: Number(process.env['MQTT_TEST_PORT']), maxPacketBytes: 4096 });
+    : createTcpClient({
+        ...options,
+        host: process.env['MQTT_TEST_HOST'] ?? '127.0.0.1',
+        port: Number(process.env['MQTT_TEST_PORT']),
+        maxPacketBytes: 4096,
+        tls: encryptedTcp ? { ca, cert, key } : undefined,
+      });
 const client = await factory.connect();
 try {
   await assert.rejects(client.subscribe('ci/\u0000invalid'), /Invalid MQTT topic filter/);

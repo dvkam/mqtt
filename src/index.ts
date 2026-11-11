@@ -64,7 +64,7 @@ export type { ConnectInput, ConnectOptions, LegacyAckCompletion, LegacyAckHandle
 export type { PacketIdentifier, PacketLookup, PacketStore } from './store.js';
 export { createTcpClient } from './tcpClient.js';
 export { createWebSocketClient } from './websocketClient.js';
-export type { TcpClientOptions } from './tcpClient.js';
+export type { TcpClientOptions, TcpTlsOptions } from './tcpClient.js';
 export type { WebSocketClientOptions } from './websocketClient.js';
 export type {
   ClientFactory,
