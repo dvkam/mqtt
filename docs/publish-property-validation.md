@@ -34,3 +34,5 @@ Run the regressions with:
     pnpm exec vitest run test/publish-property-strings.test.ts test/connack-property-strings.test.ts
 
 The [packed smoke observations](baseline/publish-property-checks.md) preserve each timing value and its limits. No allocation or performance advantage is claimed.
+
+[ACK property validation](ack-property-validation.md) covers Reason String and User Properties before acknowledgment dispatch.

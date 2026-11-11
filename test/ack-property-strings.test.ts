@@ -144,6 +144,7 @@ test.each(acknowledgments.slice(4))('$command cannot borrow reason bytes for a t
   const failed = vi.fn<(reason: unknown) => void>();
   input.listen(received, failed);
   const frame = acknowledgment(packet, [0x1f, 0, 2, 0x61]);
+  frame[frame.length - 1] = packet.command === 'suback' ? 1 : 0x11;
   const failure = input.push(Uint8Array.of(...frame, 0xd0, 0));
   expect(failure).toMatchObject({ message: 'Truncated MQTT ' + packet.command.toUpperCase() + ' property' });
   expect(received).not.toHaveBeenCalled();
@@ -275,4 +276,33 @@ test.each(acknowledgments.slice(0, 4))('$command accepts an omitted property len
   const decoder = new NodePacketDecoder({ onPacket: received });
   decoder.push(Uint8Array.of(packet.header, 3, 0, 1, reasonCode));
   expect(received).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ cmd: packet.command, messageId: 1, reasonCode }));
+});
+
+test.each([acknowledgments[0], acknowledgments[4]])('$command preserves long properties at every split', (packet) => {
+  const text = 'a'.repeat(128);
+  const frame = acknowledgment(packet, property('reasonString', [...new TextEncoder().encode(text)]));
+  const prefix = packet.subscription ? [0x90, 0x88, 1, 0, 1, 0x83, 1, 0x1f] : [0x40, 0x88, 1, 0, 1, 0, 0x83, 1];
+  expect([...frame.subarray(0, 8)]).toEqual(prefix);
+  for (let split = 0; split <= frame.length; split++) {
+    const received = vi.fn<(packet: unknown) => void>();
+    const decoder = new NodePacketDecoder({ onPacket: received });
+    decoder.push(frame.subarray(0, split));
+    decoder.push(frame.subarray(split));
+    expect(received).toHaveBeenCalledTimes(1);
+    expect(received.mock.calls[0]?.[0]).toMatchObject({
+      cmd: packet.command,
+      messageId: 1,
+      properties: { reasonString: text },
+    });
+  }
+  expect(new PacketDecoder().push(frame)).toHaveLength(1);
+});
+
+test.each(acknowledgments.slice(4))('$command requires its property length even without properties', (packet) => {
+  const received = vi.fn<(packet: unknown) => void>();
+  const decoder = new NodePacketDecoder({ onPacket: received });
+  expect(() => {
+    decoder.push(Uint8Array.of(packet.header, 2, 0, 1));
+  }).toThrow('Truncated MQTT ' + packet.command.toUpperCase() + ' property');
+  expect(received).not.toHaveBeenCalled();
 });
