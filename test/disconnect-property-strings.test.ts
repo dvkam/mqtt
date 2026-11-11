@@ -157,6 +157,9 @@ test.each(['tcp', 'node-websocket'] as const)(
       await expect(client.ping()).rejects.toBe(failure);
       await expect.poll(peer.connections).toBe(0);
       expect(onSessionEnd).toHaveBeenCalledExactlyOnceWith({ kind: 'error', error: failure });
+      const event = onSessionEnd.mock.calls[0]?.[0];
+      if (typeof event !== 'object' || event === null || !('error' in event)) throw new Error('Expected error end notice');
+      expect(event.error).toBe(failure);
       expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
     } finally {
       controller.abort();
@@ -186,4 +189,17 @@ test.each(['tcp', 'node-websocket', 'browser'] as const)('%s preserves a compact
   } finally {
     await peer.close();
   }
+});
+
+test.each([
+  [0x1f, 0, 2, 0x61],
+  [0x1c, 0],
+  [0x26, 0, 1, 0x6b, 0, 2, 0x76],
+])('reports a truncated property as a DISCONNECT framing error for %j', (...properties: readonly number[]) => {
+  const input = new NodePacketInput();
+  input.listen(
+    () => {},
+    () => {},
+  );
+  expect(input.push(disconnect(properties))).toMatchObject({ message: 'Truncated MQTT DISCONNECT property' });
 });

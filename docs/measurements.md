@@ -11,6 +11,7 @@ Keep workload, environment, tool versions, individual observations, summary and 
 | Ready message batches                  | [Batch comparison](ready-message-batches.md)                                                              | Iterator dispatch counts, allocation samples and oldest delivered age                                |
 | Packed ready batches                   | [Browser network probe](packed-batch-network.md)                                                          | Oldest live backlog, control latency, dispatch and cleanup across three engines                      |
 | Native TCP socket delay | [Six paired TLS observations](baseline/native-socket-delay.md) | Installed-artifact comparison of native buffering defaults; five echoes per session |
+| DISCONNECT property validation | [Packed observations](baseline/disconnect-property-checks.md) | Installed TLS/WS smoke exchanges; no measured performance change |
 | ACK property validation | [Packed observations](baseline/ack-property-checks.md) | Installed TLS/WS exchanges after the ACK guard; no performance comparison |
 | PUBLISH property validation | [Packed observations](baseline/publish-property-checks.md) | Installed TLS/WS sessions after the byte guard; no controlled performance comparison |
 | TCP TLS                                | [Packed fixture observations](baseline/tcp-tls-checks.md)                                                 | Authenticated MQTT exchanges and five-echo smoke timings                                             |
