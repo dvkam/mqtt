@@ -31,7 +31,8 @@ export async function startTcpPacketPeer(mode: string, pingReply?: readonly numb
     decoder.on('packet', (packet) => {
       commands.push(packet.cmd);
       if (packet.cmd === 'connect') {
-        if (mode === 'limit-connect') socket.write(Uint8Array.of(0x20, 7));
+        if (mode === 'fixed-connect' && pingReply) socket.write(Uint8Array.from(pingReply));
+        else if (mode === 'limit-connect') socket.write(Uint8Array.of(0x20, 7));
         else if (mode === 'prefix-connect') socket.write(Uint8Array.from([...connack, ...excess]));
         else if (mode === 'eof-connect') socket.end(Uint8Array.of(0x20));
         else if (mode === 'refusal-partial') socket.end(Uint8Array.of(0x20, 3, 0, 135, 0, 0x30));
@@ -85,6 +86,7 @@ export async function startTcpPacketPeer(mode: string, pingReply?: readonly numb
     host,
     port: address.port,
     commands,
+    connections: () => sockets.size,
     disconnectReasons,
     endPartial() {
       for (const socket of sockets) socket.end(Uint8Array.of(0x30, 6, 0));
