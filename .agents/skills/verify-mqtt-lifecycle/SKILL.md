@@ -372,6 +372,8 @@ Five initial wire regressions and one review regression failed before the fixes.
 
 ## Legacy TLS opening error
 
+Host configuration sync commit 99fe066 separates a native socket's IPv6 address from URL brackets and supplies a DNS-only TLS servername. This changes setup arguments before the existing LegacyTlsError transitions. The finite error cleanup model is unchanged. A real IPv6 connection and three TLS argument cases supply the configuration evidence. TLS overrides preserve their prior precedence.
+
 Source commit a1f37b97b09ce9aa004ca0650033fd6780d345f8 changes the legacy TLS opening listener. LegacyTlsError covers the factory registering first, the native or synthetic error emission reaching the handler, the handler initiating destruction, and the caller observing the original event. The bounded model checks four states. It abstracts one opening error and the first recursive re-emission. Certificate verification, socket scheduling and active-session teardown are outside the model.
 
 The regression failed with a stack overflow before the fix. On restored source the caller receives one Error by identity, sees destruction already initiated and observes close. Two source faults restore re-emission or omit destruction. Both fail their assertions. The restored suite passes 693 tests, strict declarations, lint, build and formatting.
