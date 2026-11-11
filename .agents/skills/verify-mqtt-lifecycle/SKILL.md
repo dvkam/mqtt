@@ -466,4 +466,4 @@ BrowserAckOrder now includes a generic suffix alongside the malformed acknowledg
 
 ## Pinned packed broker
 
-Launcher source sync commit ece1a60 and workflow commit a98e05a change only the external broker setup. Existing MQTT lifecycle transitions and model bounds are unchanged. The launcher tests check pinned-image arguments and failure propagation. Hosted packed TCP and WS/WSS runs establish actual broker startup, exchange and cleanup. The model does not cover Docker, image retrieval, TLS library behavior or runner networking.
+Launcher source sync commit ece1a60 and workflow commit a98e05a change only the external broker setup. Existing MQTT lifecycle transitions and model bounds are unchanged. The launcher tests check pinned-image arguments and failure propagation. Hosted packed TCP and WS/WSS runs establish actual broker startup and exchange. The existing traps request termination, while container removal is not independently measured by these checks. The model does not cover Docker, image retrieval, TLS library behavior or runner networking.
