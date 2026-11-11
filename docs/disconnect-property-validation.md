@@ -29,7 +29,7 @@ The first local-bounds mutation survived because the retained parser still rejec
 
 DisconnectPropertyLayout checks validation before reason interpretation and preservation of compact forms for body sizes 0, 1 and 2. The shared reader model covers bounded nonpayload properties. These finite checks assume byte classification and do not prove UTF-8, the property table, concrete arithmetic, full reason-code legality or physical cleanup. Concrete vectors and public tests cover the stated byte, identity and cleanup behavior.
 
-Duplicate singleton and scalar-property validation are the next #9 slice. Wider portable DISCONNECT reason support remains a profile question under #16/#19. No public QoS 2 capability, redirects or authentication behavior is added here.
+The [cardinality and scalar checks](property-cardinality-values.md) reject duplicate singleton properties and invalid values. Wider portable DISCONNECT reason support remains a profile question under #16/#19. No public QoS 2 capability, redirects or authentication behavior is added here.
 
 Run:
 

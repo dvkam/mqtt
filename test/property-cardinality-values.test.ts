@@ -323,3 +323,9 @@ test.each(['tcp', 'node-websocket'] as const)(
     }
   },
 );
+
+test('validates every occurrence of a repeatable Subscription Identifier', () => {
+  const result = decode(frame('publish', [0x0b, 1, 0x0b, 0]));
+  expect(result.failure).toBeInstanceOf(Error);
+  expect(result.packets).toEqual([]);
+});
