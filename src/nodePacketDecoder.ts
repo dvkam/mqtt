@@ -101,6 +101,7 @@ export class NodePacketDecoder {
   private flush(): void {
     if (this.header === undefined || !this.remainder || this.offset !== this.remainder.length) return;
     const completed = this.remainder;
+    if (this.header >>> 4 === 2) this.validateConnackProperties();
     if (this.header >>> 4 === 3) {
       const topicStart = this.lengthBytes.length + 2;
       if (topicStart > completed.length) throw new Error('Truncated MQTT PUBLISH topic');
@@ -114,6 +115,77 @@ export class NodePacketDecoder {
     this.header = undefined;
     this.lengthBytes = [];
     this.parse(completed);
+  }
+
+  private validateConnackProperties(): void {
+    const frame = this.remainder!;
+    let offset = this.lengthBytes.length + 2;
+    const take = (size: number): number => {
+      if (offset + size > frame.length) throw new Error('Truncated MQTT CONNACK property');
+      const start = offset;
+      offset += size;
+      return start;
+    };
+    const variable = (): number => {
+      let value = 0;
+      for (let index = 0; index < 4; index++) {
+        const digit = frame[take(1)]!;
+        value += (digit & 127) * 128 ** index;
+        if ((digit & 128) === 0) {
+          if (index > 0 && value < 128 ** index) throw new Error('Non-canonical MQTT CONNACK property integer');
+          return value;
+        }
+      }
+      throw new Error('Malformed MQTT CONNACK property integer');
+    };
+    const binary = () => {
+      const start = take(2);
+      const size = frame.readUInt16BE(start);
+      return frame.subarray(take(size), offset);
+    };
+    const string = () => {
+      const bytes = binary();
+      if (!isUtf8(bytes) || bytes.includes(0)) throw new Error('Invalid MQTT CONNACK property UTF-8');
+    };
+    const length = variable();
+    if (offset + length !== frame.length) throw new Error('Invalid MQTT CONNACK property length');
+    while (offset < frame.length) {
+      const identifier = variable();
+      switch (identifier) {
+        case 0x12:
+        case 0x15:
+        case 0x1a:
+        case 0x1c:
+        case 0x1f:
+          string();
+          break;
+        case 0x26:
+          string();
+          string();
+          break;
+        case 0x16:
+          binary();
+          break;
+        case 0x11:
+        case 0x27:
+          take(4);
+          break;
+        case 0x13:
+        case 0x21:
+        case 0x22:
+          take(2);
+          break;
+        case 0x24:
+        case 0x25:
+        case 0x28:
+        case 0x29:
+        case 0x2a:
+          take(1);
+          break;
+        default:
+          throw new Error('Invalid MQTT CONNACK property identifier');
+      }
+    }
   }
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The retained parser consumes native Buffer objects.

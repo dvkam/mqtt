@@ -28,7 +28,8 @@ export async function startWebSocketPacketPeer(mode: string, pingReply?: readonl
     decoder.on('packet', (packet) => {
       commands.push(packet.cmd);
       if (packet.cmd === 'connect') {
-        if (mode === 'limit-connect') socket.send(Uint8Array.of(0x20, 7));
+        if (mode === 'fixed-connect' && pingReply) socket.send(Uint8Array.from(pingReply));
+        else if (mode === 'limit-connect') socket.send(Uint8Array.of(0x20, 7));
         else if (mode === 'prefix-connect') socket.send(Uint8Array.from([...connack, ...excess]));
         else if (mode === 'eof-connect') {
           socket.send(Uint8Array.of(0x20));
@@ -93,6 +94,7 @@ export async function startWebSocketPacketPeer(mode: string, pingReply?: readonl
   return {
     url: 'ws://127.0.0.1:' + address.port,
     commands,
+    connections: () => server.clients.size,
     disconnectReasons,
     async close() {
       for (const socket of server.clients) socket.terminate();
