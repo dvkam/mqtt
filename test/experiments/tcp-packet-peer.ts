@@ -6,7 +6,7 @@ const publication = Uint8Array.of(0x30, 6, 0, 1, 97, 0, 104, 105);
 const connack = Uint8Array.of(0x20, 3, 0, 0, 0);
 const excess = Uint8Array.of(0x30, 7);
 
-export async function startTcpPacketPeer(mode: string, pingReply?: readonly number[]) {
+export async function startTcpPacketPeer(mode: string, pingReply?: readonly number[], host = '127.0.0.1') {
   const sockets = new Set<Socket>();
   const commands: string[] = [];
   const disconnectReasons: number[] = [];
@@ -77,12 +77,12 @@ export async function startTcpPacketPeer(mode: string, pingReply?: readonly numb
       }
     });
   });
-  server.listen(0, '127.0.0.1');
+  server.listen(0, host);
   await once(server, 'listening');
   const address = server.address();
   if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
   return {
-    host: '127.0.0.1',
+    host,
     port: address.port,
     commands,
     disconnectReasons,

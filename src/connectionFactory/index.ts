@@ -14,15 +14,15 @@ export function connectionFactory(options: Readonly<ConnectOptions>): Duplex {
     case 'tcp:': /* fall through */
     case 'mqtt:': {
       const port: number = parseInt(brokerUrl.port) || 1883;
-      const host: string = brokerUrl.hostname || brokerUrl.host || 'localhost';
+      const host = socketHost(brokerUrl);
 
       return net.createConnection(port, host);
     }
     case 'tls:': /* fall through */
     case 'mqtts:': {
       const port: number = parseInt(brokerUrl.port) || 8883;
-      const host: string = brokerUrl.hostname || brokerUrl.host || 'localhost';
-      const servername: string = brokerUrl.host;
+      const host = socketHost(brokerUrl);
+      const servername = net.isIP(host) === 0 ? host : undefined;
 
       const connection: tls.TLSSocket = tls.connect({
         port: port,
@@ -65,4 +65,9 @@ export function connectionFactory(options: Readonly<ConnectOptions>): Duplex {
     default:
       throw new Error('Unrecognized protocol');
   }
+}
+
+function socketHost(endpoint: Readonly<Pick<URL, 'hostname' | 'host'>>): string {
+  const hostname = endpoint.hostname || endpoint.host || 'localhost';
+  return hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
 }
