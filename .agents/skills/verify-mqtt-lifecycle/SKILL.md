@@ -467,3 +467,9 @@ BrowserAckOrder now includes a generic suffix alongside the malformed acknowledg
 ## Pinned packed broker
 
 Launcher source sync commit ece1a60 and workflow commit a98e05a change only the external broker setup. Existing MQTT lifecycle transitions and model bounds are unchanged. The launcher tests check pinned-image arguments and failure propagation. Hosted packed TCP and WS/WSS runs establish actual broker startup and exchange. The existing traps request termination, while container removal is not independently measured by these checks. The model does not cover Docker, image retrieval, TLS library behavior or runner networking.
+
+## Inbound publication names and aliases
+
+Source sync commit ed479b1 validates decoded PUBLISH Topic Names before NodePacketInput forwards them. The portable decoder validates the same rule before emitting a publication. Both supported clients use the zero inbound alias limit established by CONNECT omission. Topic Alias presence produces 0x94, while an empty unaliased name or a wildcard produces 0x82.
+
+ParserAckNotice still represents a classified error detaching input before the bounded notice and close. NodeInputLifecycle and BrowserAckOrder keep their transitions and bounds. CodecFrames still checks allocation and emission, and concrete vectors check Topic Name bytes, alias presence and reason encoding. The source fault that rejects only alias zero fails the public-client tests. No model claims alias negotiation or reconnect mapping.

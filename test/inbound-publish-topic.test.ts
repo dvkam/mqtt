@@ -14,6 +14,7 @@ async function openPeer(adapter: Adapter, reply: readonly number[], onMessage: (
   const options = { clientId: 'topic-test', onMessage, timeoutMs: 1000 };
   return {
     close: peer.close,
+    disconnectReasons: peer.disconnectReasons,
     open: async () => {
       if ('host' in peer) return createTcpClient({ ...peer, ...options }).connect();
       if (adapter === 'browser') return createBrowserClient({ ...peer, ...options }).connect();
@@ -62,6 +63,78 @@ test.each(adapters)('%s preserves well-formed Unicode and leaves binary payload 
     const payload = typeof packet === 'object' && packet !== null && 'payload' in packet ? packet.payload : undefined;
     expect(payload instanceof Uint8Array && Array.from(payload)).toEqual([0xc0, 0x80]);
     await client.disconnect();
+  } finally {
+    await peer.close();
+  }
+});
+
+test.each(
+  adapters.flatMap((adapter) =>
+    [
+      { topic: 'empty', bytes: [0x30, 3, 0, 0, 0] },
+      { topic: 'single-level wildcard', bytes: [0x30, 4, 0, 1, 0x2b, 0] },
+      { topic: 'multi-level wildcard', bytes: [0x30, 6, 0, 3, 0x61, 0x2f, 0x23, 0] },
+    ].map((vector: Readonly<{ topic: string; bytes: readonly number[] }>) => ({ adapter, ...vector })),
+  ),
+)(
+  '$adapter rejects a broker PUBLISH with an $topic Topic Name',
+  async ({ adapter, bytes }: Readonly<{ adapter: Adapter; bytes: readonly number[] }>) => {
+    const onMessage = vi.fn<(packet: unknown) => void>();
+    const prefix = [0x30, 4, 0, 1, 0x61, 0];
+    const suffix = [0x30, 4, 0, 1, 0x62, 0, 0xd0, 0];
+    const peer = await openPeer(adapter, [...prefix, ...bytes, ...suffix], onMessage);
+    try {
+      const client = await peer.open();
+      const failure = await client.ping().catch((reason: unknown) => reason);
+      expect(failure).toMatchObject({ code: 0x82 });
+      expect(onMessage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ topic: 'a' }));
+      await expect(client.ping()).rejects.toBe(failure);
+      await expect.poll(() => peer.disconnectReasons).toEqual([0x82]);
+    } finally {
+      await peer.close();
+    }
+  },
+);
+
+test.each(
+  adapters.flatMap((adapter) =>
+    [
+      { alias: 'zero', bytes: [0x30, 7, 0, 1, 0x61, 3, 0x23, 0, 0] },
+      { alias: 'one', bytes: [0x30, 7, 0, 1, 0x61, 3, 0x23, 0, 1] },
+      { alias: 'maximum', bytes: [0x30, 7, 0, 1, 0x61, 3, 0x23, 0xff, 0xff] },
+      { alias: 'one with an empty name', bytes: [0x30, 6, 0, 0, 3, 0x23, 0, 1] },
+    ].map((vector: Readonly<{ alias: string; bytes: readonly number[] }>) => ({ adapter, ...vector })),
+  ),
+)(
+  '$adapter rejects unnegotiated alias $alias before delivery',
+  async ({ adapter, bytes }: Readonly<{ adapter: Adapter; bytes: readonly number[] }>) => {
+    const onMessage = vi.fn<(packet: unknown) => void>();
+    const peer = await openPeer(adapter, [...bytes, 0x30, 4, 0, 1, 0x62, 0, 0xd0, 0], onMessage);
+    try {
+      const client = await peer.open();
+      const failure = await client.ping().catch((reason: unknown) => reason);
+      expect(failure).toMatchObject({ code: 0x94 });
+      expect(onMessage).not.toHaveBeenCalled();
+      await expect(client.ping()).rejects.toBe(failure);
+      await expect.poll(() => peer.disconnectReasons).toEqual([0x94]);
+    } finally {
+      await peer.close();
+    }
+  },
+);
+
+test.each(adapters)('%s rejects duplicate Topic Alias properties before delivery', async (adapter) => {
+  const onMessage = vi.fn<(packet: unknown) => void>();
+  const reply = [0x30, 10, 0, 1, 0x61, 6, 0x23, 0, 1, 0x23, 0, 1, 0xd0, 0];
+  const peer = await openPeer(adapter, reply, onMessage);
+  try {
+    const client = await peer.open();
+    const failure = await client.ping().catch((reason: unknown) => reason);
+    if (!(failure instanceof Error) || !('code' in failure)) throw new Error('Expected coded duplicate-alias rejection');
+    expect([0x82, 0x94]).toContain(failure.code);
+    expect(onMessage).not.toHaveBeenCalled();
+    await expect(client.ping()).rejects.toBe(failure);
+    await expect.poll(() => peer.disconnectReasons).toEqual([failure.code]);
   } finally {
     await peer.close();
   }
