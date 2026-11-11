@@ -36,7 +36,8 @@ test('TLS opening sends no MQTT CONNECT before authentication and preserves abor
         resolve();
       });
     });
-    const [acceptedSocket]: readonly unknown[] = await accepted;
+    const acceptedArguments: readonly unknown[] = await accepted;
+    const acceptedSocket = acceptedArguments[0];
     if (!(acceptedSocket instanceof Socket)) throw new Error('Expected accepted TCP socket');
     peer = acceptedSocket;
     peer.on('error', () => {});
@@ -81,7 +82,8 @@ test('TLS handshake timeout closes the socket and removes cancellation ownership
     })
       .connect()
       .catch((reason: unknown) => reason);
-    const [acceptedSocket]: readonly unknown[] = await accepted;
+    const acceptedArguments: readonly unknown[] = await accepted;
+    const acceptedSocket = acceptedArguments[0];
     if (!(acceptedSocket instanceof Socket)) throw new Error('Expected accepted TCP socket');
     peer = acceptedSocket;
     peer.on('error', () => {});
