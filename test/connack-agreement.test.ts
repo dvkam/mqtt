@@ -317,6 +317,9 @@ test.each(adapters)('%s retires active AUTH before ping and publication suffixes
     expect(onMessage).not.toHaveBeenCalled();
     expect(ended).toHaveBeenCalledTimes(1);
     expect(ended.mock.calls[0]?.[0]).toMatchObject({ kind: 'error', error: failure });
+    const notice = ended.mock.calls[0]?.[0];
+    if (typeof notice !== 'object' || notice === null || !('error' in notice)) throw new Error('Expected session error notice');
+    expect(notice.error).toBe(failure);
   } finally {
     controller.abort();
     await peer.close();

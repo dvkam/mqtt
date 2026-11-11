@@ -24,6 +24,6 @@ Eight deliberate source faults fail regressions. They remove duplicate detection
 
 PropertyCardinalityValues explores 113 states with zero to three reads and three abstract value classes. It checks singleton and scalar rejection before dispatch, permitted repetition and bounded tracking. The full replay passes 39 configurations and detects 137 expected faults. The model assumes field classification and does not prove UTF-8, property-table completeness, concrete integer widths, precise error codes or socket cleanup. Concrete tests cover those stated behaviors.
 
-Authentication relationships, Assigned Client Identifier agreement, negotiated capabilities, redirect behavior and wider portable profiles remain under #9, #12, #16 and #17. This change does not establish full MQTT conformance.
+The [connection agreement checks](connack-agreement.md) reject unsolicited authentication and inconsistent assigned identities. Negotiated capabilities, redirect behavior and wider portable profiles remain under #9, #12, #16 and #17. This change does not establish full MQTT conformance.
 
 Run `pnpm exec vitest run test/property-cardinality-values.test.ts`. The [packed observations](baseline/property-value-checks.md) record installed-package checks and timing limits.

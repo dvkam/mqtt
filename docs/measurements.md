@@ -4,6 +4,7 @@ Keep workload, environment, tool versions, individual observations, summary and 
 
 | Work                                   | Record                                                                                                    | Scope                                                                                                |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Connection agreement | [Packed observations](baseline/connack-agreement-checks.md) | Installed TLS/WS sessions after authentication and identity checks; no performance comparison |
 | Property cardinality and values | [Packed observations](baseline/property-value-checks.md) | Installed TLS/WS sessions after scalar checks; no controlled performance comparison |
 | Pinned upstream comparison             | [Baseline data](baseline/results.jsonl) and [runner](baseline/measure.mjs)                                | Initial Node and browser reference workloads                                                         |
 | Portable codec                         | [Codec measurements](codec.md#initial-measurements)                                                       | Encoding and decoding a 256-byte payload; three-run medians                                          |
