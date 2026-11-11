@@ -1,3 +1,4 @@
+import { validateInboundTopic } from './inboundTopic.js';
 import { ProtocolInputError } from './protocolInputError.js';
 import { isSubscriptionReason } from './subscriptionReason.js';
 import { isPubackReason } from './pubackReason.js';
@@ -56,7 +57,7 @@ const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const connackCodes = new Set([
   0, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 140, 144, 149, 151, 153, 154, 155, 156, 157, 159,
 ]);
-const disconnectErrors = new Set([0x81, 0x82, 0x93]);
+const disconnectErrors = new Set([0x81, 0x82, 0x93, 0x94]);
 const packetFields: Partial<Record<string, readonly string[]>> = {
   connect: ['cmd', 'clientId', 'cleanStart', 'keepAlive', 'receiveMaximum', 'username', 'password', 'userProperties'],
   connack: ['cmd', 'sessionPresent', 'reasonCode', 'receiveMaximum', 'maximumQoS', 'topicAliasMaximum', 'userProperties'],
@@ -291,6 +292,7 @@ class Reader {
 }
 
 interface DecodedProperties extends Properties {
+  topicAlias?: number;
   receiveMaximum?: number;
   maximumQoS?: number;
   topicAliasMaximum?: number;
@@ -315,6 +317,11 @@ function readProperties(reader: Readonly<Reader>, cmd: string): DecodedPropertie
       case 0x22:
         if (cmd !== 'connack' || result.topicAliasMaximum !== undefined) throw new Error('Invalid Topic Alias Maximum property');
         result.topicAliasMaximum = fields.uint16();
+        break;
+      case 0x23:
+        if (cmd !== 'publish' || result.topicAlias !== undefined)
+          throw new ProtocolInputError('Invalid MQTT Topic Alias property', 0x82);
+        result.topicAlias = fields.uint16();
         break;
       case 0x24:
         if (cmd !== 'connack' || result.maximumQoS !== undefined) throw new Error('Invalid Maximum QoS property');
@@ -382,9 +389,9 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
     case 0x3a:
     case 0x3b: {
       const name = reader.string();
-      topic(name, false);
       const messageId = (header & 2) === 0 ? undefined : integer(reader.uint16(), 65_535, 1);
-      const props = readProperties(reader, 'publish');
+      const { topicAlias, ...props } = readProperties(reader, 'publish');
+      validateInboundTopic(name, topicAlias);
       const fields = {
         cmd: 'publish' as const,
         topic: name,

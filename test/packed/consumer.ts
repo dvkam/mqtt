@@ -39,8 +39,8 @@ type TransportProtocolError = Parameters<NonNullable<Parameters<PacketTransport[
 export type TransportProtocolErrorIsNamed = RequireTrue<TransportProtocolError extends Readonly<ProtocolInputError> ? true : false>;
 export type ProtocolInputCodeIsSpecific = RequireFalse<IsAny<ProtocolInputCode>>;
 export type TransportProtocolCodeIsSpecific = RequireFalse<IsAny<TransportProtocolError['code']>>;
-export type ProtocolInputCodeIsBounded = RequireTrue<ProtocolInputCode extends 0x81 | 0x82 ? true : false>;
-export type ProtocolInputCodeIsComplete = RequireTrue<0x81 | 0x82 extends ProtocolInputCode ? true : false>;
+export type ProtocolInputCodeIsBounded = RequireTrue<ProtocolInputCode extends 0x81 | 0x82 | 0x94 ? true : false>;
+export type ProtocolInputCodeIsComplete = RequireTrue<0x81 | 0x82 | 0x94 extends ProtocolInputCode ? true : false>;
 export type TransportProtocolCodeUsesNamedType = RequireTrue<
   TransportProtocolError['code'] extends ProtocolInputCode ? true : false
 >;

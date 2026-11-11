@@ -1,6 +1,7 @@
 import { brokerPacketDirectionError, isClientOnlyCommand, ProtocolInputError } from './protocolInputError.js';
 import type { PacketTransport } from './portable.js';
 import type { NodeMessage } from './nodeMessage.js';
+import { validateInboundTopic } from './inboundTopic.js';
 import { NodePacketDecoder } from './nodePacketDecoder.js';
 import { nodePacketListener } from './nodePacketListener.js';
 
@@ -26,6 +27,7 @@ export class NodePacketInput {
       // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Forward the retained parser's mutable packets without changing Buffer payloads.
       onPacket: (packet) => {
         if (isClientOnlyCommand(packet.cmd)) throw brokerPacketDirectionError(packet.cmd);
+        if (packet.cmd === 'publish') validateInboundTopic(packet.topic, packet.properties?.topicAlias);
         this.registration?.received(packet);
       },
     });

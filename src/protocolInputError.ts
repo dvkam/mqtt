@@ -1,4 +1,4 @@
-export type ProtocolInputCode = 0x81 | 0x82;
+export type ProtocolInputCode = 0x81 | 0x82 | 0x94;
 
 export class ProtocolInputError extends Error {
   readonly code: ProtocolInputCode;
