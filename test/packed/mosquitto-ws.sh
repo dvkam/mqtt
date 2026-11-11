@@ -16,6 +16,16 @@ openssl x509 -req -in "$broker_dir/client.csr" -CA "$broker_dir/ca.pem" -CAkey "
   -CAcreateserial -days 1 -extfile "$broker_dir/client.ext" -out "$broker_dir/client.pem" 2>/dev/null
 cat > "$broker_dir/broker.conf" <<CONF
 allow_anonymous true
+listener 18888 127.0.0.1
+protocol mqtt
+certfile $broker_dir/server.pem
+keyfile $broker_dir/server.key
+listener 18889 127.0.0.1
+protocol mqtt
+certfile $broker_dir/server.pem
+keyfile $broker_dir/server.key
+cafile $broker_dir/ca.pem
+require_certificate true
 listener 18884 127.0.0.1
 protocol websockets
 listener 18885 127.0.0.1
@@ -41,6 +51,27 @@ timeout 10 bash -c 'until ( : > /dev/tcp/127.0.0.1/18885 ) 2>/dev/null; do sleep
 run_session() {
   MQTT_TEST_WS_URL="$1" MQTT_TEST_CA="${2:-}" MQTT_TEST_ITERATIONS=5 timeout 15 node "$consumer/broker.mjs"
 }
+run_tls_session() {
+  MQTT_TEST_TLS=1 MQTT_TEST_HOST="${3:-localhost}" MQTT_TEST_PORT="$1" MQTT_TEST_CA="${2:-}" MQTT_TEST_ITERATIONS=5 timeout 15 node "$consumer/broker.mjs"
+}
+run_tls_session 18888 "$broker_dir/ca.pem"
+if run_tls_session 18888 > "$broker_dir/tcp-unknown-ca.log" 2>&1; then
+  echo 'Expected TCP TLS to reject the unknown CA' >&2
+  exit 1
+fi
+grep -Eq 'UNABLE_TO_VERIFY_LEAF_SIGNATURE|SELF_SIGNED_CERT_IN_CHAIN' "$broker_dir/tcp-unknown-ca.log"
+if run_tls_session 18888 "$broker_dir/ca.pem" 127.0.0.1 > "$broker_dir/tcp-hostname.log" 2>&1; then
+  echo 'Expected TCP TLS to reject the wrong hostname' >&2
+  exit 1
+fi
+grep -q 'ERR_TLS_CERT_ALTNAME_INVALID' "$broker_dir/tcp-hostname.log"
+MQTT_TEST_CERT="$broker_dir/client.pem" MQTT_TEST_KEY="$broker_dir/client.key"   run_tls_session 18889 "$broker_dir/ca.pem"
+if run_tls_session 18889 "$broker_dir/ca.pem" > "$broker_dir/tcp-no-client-cert.log" 2>&1; then
+  echo 'Expected TCP mTLS to reject the missing client certificate' >&2
+  exit 1
+fi
+grep -Ei 'certificate.required|handshake.failure|socket hang up|alert' "$broker_dir/tcp-no-client-cert.log"
+echo 'packed TCP TLS and mTLS checks passed'
 run_session ws://127.0.0.1:18884/mqtt
 run_session wss://localhost:18885/mqtt "$broker_dir/ca.pem"
 if run_session wss://localhost:18885/mqtt > "$broker_dir/unknown-ca.log" 2>&1; then

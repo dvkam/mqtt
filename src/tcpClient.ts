@@ -1,4 +1,5 @@
-import { createConnection } from 'node:net';
+import { createConnection, isIP } from 'node:net';
+import tls, { type ConnectionOptions } from 'node:tls';
 import { generate } from 'mqtt-packet';
 import { connectPortable, type PacketTransport, type PortableOptions } from './portable.js';
 import type { ClientFactory } from './session.js';
@@ -14,9 +15,12 @@ import {
   type NativeWriteLimits,
 } from './nativeWriteBudget.js';
 
+export type TcpTlsOptions = Pick<ConnectionOptions, 'ca' | 'cert' | 'key' | 'servername'>;
+
 export interface TcpClientOptions extends PortableOptions<NodeMessage>, NativeWriteLimits {
   host: string;
   port?: number;
+  tls?: TcpTlsOptions;
   signal?: AbortSignal;
   maxPacketBytes?: number;
 }
@@ -49,7 +53,21 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
   const writeLimits = resolveNativeWriteLimits(options);
 
   const input = new NodePacketInput(options.maxPacketBytes);
-  const socket = createConnection({ host: options.host, port: options.port ?? 1883 });
+  const tlsOptions = options.tls;
+  const connectionLabel = tlsOptions === undefined ? 'TCP' : 'TLS';
+  const connectionEvent = tlsOptions === undefined ? 'connect' : 'secureConnect';
+  const socket =
+    tlsOptions === undefined
+      ? createConnection({ host: options.host, port: options.port ?? 1883 })
+      : tls.connect({
+          ca: tlsOptions.ca,
+          cert: tlsOptions.cert,
+          key: tlsOptions.key,
+          rejectUnauthorized: true,
+          host: options.host,
+          port: options.port ?? 8883,
+          servername: tlsOptions.servername ?? (isIP(options.host) === 0 ? options.host : undefined),
+        });
   const codec = { protocolVersion: 5 };
   socket.on('error', (error: Readonly<Error>) => {
     input.retire('error', error);
@@ -58,7 +76,7 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
   const closed = new Promise<void>((resolve) => {
     socket.once('close', () => {
       try {
-        input.remoteEnd(new Error('TCP socket closed'));
+        input.remoteEnd(new Error(connectionLabel + ' socket closed'));
       } finally {
         signal?.removeEventListener('abort', abort);
         resolve();
@@ -67,7 +85,7 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
   });
   socket.once('end', () => {
     signal?.removeEventListener('abort', abort);
-    const reason = input.remoteEnd(new Error('TCP socket closed'));
+    const reason = input.remoteEnd(new Error(connectionLabel + ' socket closed'));
     socket.destroy(reason);
   });
   const abort = () => {
@@ -117,7 +135,7 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
   };
 
   const timer = setTimeout(() => {
-    socket.destroy(new Error('TCP connection timed out'));
+    socket.destroy(new Error(connectionLabel + ' connection timed out'));
   }, timeoutMs);
   try {
     await new Promise<void>((resolve, reject) => {
@@ -126,10 +144,10 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
         resolve();
       };
       const failed = () => {
-        socket.off('connect', connected);
-        reject(input.reason ?? new Error('TCP socket closed before connecting'));
+        socket.off(connectionEvent, connected);
+        reject(input.reason ?? new Error(connectionLabel + ' socket closed before connecting'));
       };
-      socket.once('connect', connected);
+      socket.once(connectionEvent, connected);
       socket.once('close', failed);
     });
     clearTimeout(timer);
@@ -149,7 +167,6 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
     return client;
   } catch (error) {
     await transport.close(true);
-    if (isAborted()) throw abortReason();
     throw error;
   } finally {
     clearTimeout(timer);
