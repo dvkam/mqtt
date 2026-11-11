@@ -3,6 +3,7 @@ import { once } from 'node:events';
 import { generate, parser, type Packet } from 'mqtt-packet';
 import { expect, test, vi } from 'vitest';
 import { connect } from '../src/index.js';
+import { startTcpPacketPeer } from './experiments/tcp-packet-peer.js';
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
 function peer(version: 4 | 5, reply?: Packet) {
@@ -247,4 +248,20 @@ test('connect returns a credential-free URL parsing error before opening a trans
   expect(failure).not.toHaveProperty('input');
   expect(String(failure)).not.toContain('secret');
   expect(createStream).not.toHaveBeenCalled();
+});
+
+test('legacy TCP connects to a bracketed IPv6 endpoint at its explicit port', async () => {
+  const broker = await startTcpPacketPeer('fixed-reply', undefined, '::1');
+  try {
+    const client = await connect({
+      brokerUrl: 'mqtt://[::1]:' + broker.port,
+      protocolVersion: 5,
+      connectTimeout: 1000,
+    });
+    expect(broker.commands).toEqual(['connect']);
+    await client.disconnect();
+    await expect.poll(() => broker.commands).toEqual(['connect', 'disconnect']);
+  } finally {
+    await broker.close();
+  }
 });
