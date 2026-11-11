@@ -41,6 +41,8 @@ try {
 
 The runnable [TypeScript sample](sample/sample.ts) also receives an echoed message and bounds its wait. See its [broker instructions](docs/legacy-fixture-migration.md#run-the-example).
 
+For authenticated TCP, pass a `tls` object with optional CA and client identity settings. The [TCP TLS guide](docs/tcp-tls.md) covers handshake ownership, certificate checks and mutual TLS.
+
 TCP now defaults to a 1 MiB incoming packet limit. The [packet-input guide](docs/tcp-packet-input.md) defines configuration, compact Buffer ownership, EOF and failure behavior. Larger incoming packets need an explicit limit.
 
 For Node WS/WSS, use `createWebSocketClient` from `mqtt` with a broker URL. This adapter uses `ws` and accepts CA, client certificate and caller-supplied agent options. See the [transport comparison](docs/websocket-comparison.md) for TLS, proxy, backpressure and close behavior, including limitations of the experimental native Node WebSocket probe.
@@ -102,13 +104,13 @@ The [native write reserve](docs/native-write-reserve.md) checks observed queued 
 
 ## Entry points
 
-| Import | Purpose |
-| --- | --- |
-| `mqtt` | Node TCP and WS/WSS client factories; retained legacy `connect()` |
-| `mqtt/browser` | Browser MQTT client and native browser byte transport |
-| `mqtt/codec` | Portable `Uint8Array` encoder and incremental decoder |
-| `mqtt/portable` | Packet-transport session tracer for adapter work |
-| `mqtt/websocket` | Experimental native WebSocket transport probe |
+| Import           | Purpose                                                           |
+| ---------------- | ----------------------------------------------------------------- |
+| `mqtt`           | Node TCP and WS/WSS client factories; retained legacy `connect()` |
+| `mqtt/browser`   | Browser MQTT client and native browser byte transport             |
+| `mqtt/codec`     | Portable `Uint8Array` encoder and incremental decoder             |
+| `mqtt/portable`  | Packet-transport session tracer for adapter work                  |
+| `mqtt/websocket` | Experimental native WebSocket transport probe                     |
 
 The browser path uses the in-repository portable codec. The Node adapters still use `mqtt-packet`. Their convergence and the remaining protocol profile are tracked in [#8](https://github.com/dvkam/mqtt/issues/8) and [#37](https://github.com/dvkam/mqtt/issues/37).
 
