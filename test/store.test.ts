@@ -62,3 +62,16 @@ test('explicit clean false preserves stored packet identity after close', async 
   expect(await store.del(packet)).toBe(packet);
   expect(await store.put(packet)).toBe(store);
 });
+
+test('an existing snapshot keeps the original packets after clean store close', async () => {
+  const store = new Store();
+  const packet: Packet = { cmd: 'puback', messageId: 10 };
+  await store.put(packet);
+  const snapshot = await store.createStream();
+  await store.close();
+  const received: unknown[] = [];
+  for await (const entry of snapshot) received.push(entry);
+  expect(received).toHaveLength(1);
+  expect(received[0]).toBe(packet);
+  await expect(store.get(packet)).rejects.toThrow('Store is closed');
+});

@@ -22,8 +22,8 @@ const defaultStoreOptions = {
 };
 
 /**
- * In-memory implementation of the message store
- * This can actually be saved into files.
+ * In-memory legacy packet store.
+ * Snapshot streams retain the original packet objects.
  *
  * @param {Object} [options] - store options
  */
