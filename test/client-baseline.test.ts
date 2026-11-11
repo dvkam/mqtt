@@ -167,3 +167,84 @@ test('legacy publish does not wait for drain after synchronous write teardown', 
     stream.destroy();
   }
 });
+
+test('connect accepts frozen options containing a string endpoint', async () => {
+  const { options, stream } = peer(5, { cmd: 'connack', sessionPresent: false, reasonCode: 0 });
+  const input = Object.freeze({ ...options, brokerUrl: 'mqtt://localhost:1884/mqtt?client=one' });
+  try {
+    const client = await connect(input);
+    expect(input.brokerUrl).toBe('mqtt://localhost:1884/mqtt?client=one');
+    expect(client._options.brokerUrl?.href).toBe(input.brokerUrl);
+    await client.disconnect();
+  } finally {
+    stream.destroy();
+  }
+});
+
+test('connect leaves a string endpoint unchanged when validation rejects it', async () => {
+  const input = { brokerUrl: 'http://user:secret@localhost', tlsOptions: { cert: 'cert', key: 'key' } };
+  await expect(connect(input)).rejects.toThrow(/Unknown protocol/);
+  expect(input.brokerUrl).toBe('http://user:secret@localhost');
+});
+
+test.each(['mqtts:', 'tls:', 'wss:'])('accepts the secure %s scheme with a certificate identity', async (scheme) => {
+  const { options, stream } = peer(5, { cmd: 'connack', sessionPresent: false, reasonCode: 0 });
+  try {
+    const client = await connect({
+      ...options,
+      brokerUrl: new URL(scheme + '//localhost'),
+      tlsOptions: { cert: 'cert', key: 'key' },
+    });
+    expect(client._options.brokerUrl?.protocol).toBe(scheme);
+    expect(client._options.tlsOptions).toEqual({ cert: 'cert', key: 'key' });
+    await client.disconnect();
+  } finally {
+    stream.destroy();
+  }
+});
+
+test.each(['mqtt:', 'tcp:', 'ws:'])(
+  'rejects a certificate identity on insecure %s before transport construction',
+  async (scheme) => {
+    const createStream = vi.fn<() => never>(() => {
+      throw new Error('The stream must not open');
+    });
+    await expect(
+      connect({
+        brokerUrl: new URL(scheme + '//user:secret@localhost'),
+        tlsOptions: { cert: 'cert', key: 'key' },
+        customStreamFactory: createStream,
+      }),
+    ).rejects.toThrow(/insecure/i);
+    expect(createStream).not.toHaveBeenCalled();
+  },
+);
+
+test('connect isolates its parsed URL from the caller-owned URL object', async () => {
+  const { options, stream } = peer(5, { cmd: 'connack', sessionPresent: false, reasonCode: 0 });
+  const endpoint = new URL('mqtt://localhost:1884/path?client=one');
+  const input = Object.freeze({ ...options, brokerUrl: endpoint });
+  try {
+    const client = await connect(input);
+    expect(client._options.brokerUrl).not.toBe(endpoint);
+    client._options.brokerUrl?.searchParams.set('client', 'two');
+    expect(endpoint.href).toBe('mqtt://localhost:1884/path?client=one');
+    await client.disconnect();
+  } finally {
+    stream.destroy();
+  }
+});
+
+test('connect returns a credential-free URL parsing error before opening a transport', async () => {
+  const createStream = vi.fn<() => never>(() => {
+    throw new Error('The stream must not open');
+  });
+  const failure = await connect({
+    brokerUrl: 'mqtt://user:secret@bad host',
+    customStreamFactory: createStream,
+  }).catch((reason: unknown) => reason);
+  expect(failure).toMatchObject({ message: 'Invalid broker URL' });
+  expect(failure).not.toHaveProperty('input');
+  expect(String(failure)).not.toContain('secret');
+  expect(createStream).not.toHaveBeenCalled();
+});
