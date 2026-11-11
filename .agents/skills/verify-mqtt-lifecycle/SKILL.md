@@ -491,3 +491,10 @@ Concrete tests cover frozen string input, rejection without caller mutation, iso
 ## Legacy store defaults
 
 Source sync commit 09517aa applies the clean default before caller options. It snapshots Map values directly while preserving packet identity. Store operations and snapshot streams are outside the existing protocol lifecycle models. Concrete tests verify both clean policies, promise rejection after close and completion of a snapshot created before close. No durability property or model bound changed.
+
+
+## TCP TLS verification policy sync
+
+Commit 14f626ba7eb08df5c000ab5844083ef6589ac9fd restricts native TLS configuration to ca, cert, key and servername and explicitly requires certificate verification. It closes the structurally wider-options bypass identified after the original TLS model pin. TcpTlsHandshake assumes native authentication is enforced; concrete packed unknown-CA and hostname rejection tests verify that boundary.
+
+Issue #136 configures setNoDelay(true) for both native TCP modes. This changes native packet buffering, outside the finite handshake model. It changes no modeled opening, write-admission, cancellation or cleanup transition, invariant or bound. Re-run all positive and deliberately broken configurations and the concrete native configuration regressions.

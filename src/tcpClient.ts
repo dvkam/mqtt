@@ -68,6 +68,7 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
           port: options.port ?? 8883,
           servername: tlsOptions.servername ?? (isIP(options.host) === 0 ? options.host : undefined),
         });
+  socket.setNoDelay(true);
   const codec = { protocolVersion: 5 };
   socket.on('error', (error: Readonly<Error>) => {
     input.retire('error', error);
