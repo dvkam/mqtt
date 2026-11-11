@@ -33,6 +33,20 @@ const publishProperties: Readonly<Record<number, PropertyShape>> = {
   0x26: 'pair',
 };
 
+type AcknowledgmentKind = 'PUBACK' | 'PUBREC' | 'PUBREL' | 'PUBCOMP' | 'SUBACK' | 'UNSUBACK';
+const acknowledgmentKinds: Readonly<Record<number, AcknowledgmentKind>> = {
+  4: 'PUBACK',
+  5: 'PUBREC',
+  6: 'PUBREL',
+  7: 'PUBCOMP',
+  9: 'SUBACK',
+  11: 'UNSUBACK',
+};
+const acknowledgmentProperties: Readonly<Record<number, PropertyShape>> = {
+  0x1f: 'string',
+  0x26: 'pair',
+};
+
 export class NodePacketDecoder {
   private decoder: ReturnType<typeof parser> | undefined;
   private readonly maxPacketBytes: number;
@@ -142,6 +156,12 @@ export class NodePacketDecoder {
       if (!isUtf8(topic) || topic.includes(0)) throw new Error('Invalid MQTT PUBLISH topic UTF-8');
       this.validateProperties('PUBLISH', topicEnd + ((this.header & 6) === 0 ? 0 : 2));
     }
+    const acknowledgment = acknowledgmentKinds[this.header >>> 4];
+    if (acknowledgment !== undefined) {
+      const subscription = acknowledgment === 'SUBACK' || acknowledgment === 'UNSUBACK';
+      const propertyStart = this.lengthBytes.length + (subscription ? 2 : 3);
+      if (subscription || completed.length > propertyStart) this.validateProperties(acknowledgment, propertyStart);
+    }
     this.remainder = undefined;
     this.offset = 0;
     this.header = undefined;
@@ -149,10 +169,11 @@ export class NodePacketDecoder {
     this.parse(completed);
   }
 
-  private validateProperties(kind: 'CONNACK' | 'PUBLISH', offset: number): void {
+  private validateProperties(kind: 'CONNACK' | 'PUBLISH' | AcknowledgmentKind, offset: number): void {
     const frame = this.remainder!;
     let end = frame.length;
-    const shapes = kind === 'CONNACK' ? connackProperties : publishProperties;
+    const shapes = kind === 'CONNACK' ? connackProperties : kind === 'PUBLISH' ? publishProperties : acknowledgmentProperties;
+    const hasPayload = kind === 'PUBLISH' || kind === 'SUBACK' || kind === 'UNSUBACK';
     const take = (size: number): number => {
       if (offset + size > end) throw new Error('Truncated MQTT ' + kind + ' property');
       const start = offset;
@@ -182,7 +203,7 @@ export class NodePacketDecoder {
     };
     const length = variable();
     const propertyEnd = offset + length;
-    if (propertyEnd > frame.length || (kind === 'CONNACK' && propertyEnd !== frame.length))
+    if (propertyEnd > frame.length || (!hasPayload && propertyEnd !== frame.length))
       throw new Error('Invalid MQTT ' + kind + ' property length');
     end = propertyEnd;
     while (offset < end) {
