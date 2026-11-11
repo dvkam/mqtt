@@ -87,12 +87,12 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
         }
         switch (packet.cmd) {
           case 'connack': {
-            const { receiveMaximum, maximumQoS } = packet;
+            const { receiveMaximum, maximumQoS, assignedClientIdentifier } = packet;
             deliver?.({
               cmd: 'connack',
               sessionPresent: packet.sessionPresent,
               reasonCode: packet.reasonCode,
-              properties: receiveMaximum === undefined && maximumQoS === undefined ? undefined : { receiveMaximum, maximumQoS },
+              properties: { receiveMaximum, maximumQoS, assignedClientIdentifier },
             });
             break;
           }

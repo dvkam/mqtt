@@ -272,22 +272,24 @@ test('opt-in diagnostics include only connection state and packet commands', asy
       events.push(event);
     },
   });
+  Reflect.apply(broker.receive, undefined, [{ cmd: 'private-unrecognized-command' }]);
+  await client.publish('private/topic', 'private-payload');
   broker.receive({
     cmd: 'auth',
     reasonCode: 0x18,
     properties: { authenticationMethod: 'private-method', authenticationData: Buffer.from('private-auth') },
   });
-  Reflect.apply(broker.receive, undefined, [{ cmd: 'private-unrecognized-command' }]);
-  await client.publish('private/topic', 'private-payload');
+  await expect(client.ping()).rejects.toMatchObject({ code: 0x82 });
   broker.close(new Error('private-failure'));
   expect(events).toEqual([
     { kind: 'packet', direction: 'inbound', command: 'connack' },
     { kind: 'packet', direction: 'outbound', command: 'connect' },
     { kind: 'connection', state: 'active' },
-    { kind: 'packet', direction: 'inbound', command: 'auth' },
     { kind: 'packet', direction: 'inbound', command: 'publish' },
     { kind: 'packet', direction: 'outbound', command: 'publish' },
     { kind: 'connection', state: 'retired' },
+    { kind: 'packet', direction: 'inbound', command: 'auth' },
+    { kind: 'packet', direction: 'outbound', command: 'disconnect' },
   ]);
 });
 

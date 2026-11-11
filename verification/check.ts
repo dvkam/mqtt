@@ -16,6 +16,13 @@ assert.equal(
 type VerificationCase = readonly [model: string, configuration: string, expectedInvariant?: string];
 
 const models: readonly VerificationCase[] = [
+  ['ConnackAgreement', 'ConnackAgreement'],
+  ['ConnackAgreement', 'ConnackAgreementMethod', 'ValidateBeforeAcceptance'],
+  ['ConnackAgreement', 'ConnackAgreementData', 'ValidateBeforeAcceptance'],
+  ['ConnackAgreement', 'ConnackAgreementAssignment', 'ValidateBeforeAcceptance'],
+  ['ConnackAgreement', 'ConnackAgreementLate', 'ValidateBeforeAcceptance'],
+  ['ConnackAgreement', 'ConnackAgreementAuth', 'UnsolicitedAuthRetires'],
+  ['ConnackAgreement', 'ConnackAgreementSnapshot', 'CapturedIdentitySent'],
   ['PingFence', 'PingFence'],
   ['PingFence', 'PingFenceBroken', 'NoWrongReply'],
   ['PingFence', 'PingFenceRetry', 'NoSendAfterFailure'],

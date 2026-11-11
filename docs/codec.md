@@ -17,7 +17,7 @@ Send encoded bytes through `openBrowserTransport` and feed its `onBytes` values 
 | Packet               | Supported fields                                                                                                                                |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | CONNECT              | MQTT 5, client identifier, Clean Start, Keep Alive, Receive Maximum, username, binary password, User Properties                                 |
-| CONNACK              | Session Present, reason code, Receive Maximum, Maximum QoS, Topic Alias Maximum, User Properties                                                |
+| CONNACK              | Session Present, reason code, Receive Maximum, Maximum QoS, Topic Alias Maximum, Assigned Client Identifier, User Properties |
 | PUBLISH              | QoS 0 or 1, nonempty topic name, binary payload, retain, User Properties. QoS 1 also carries a nonzero packet identifier and DUP.               |
 | PUBACK               | Nonzero packet identifier, reason code, Reason String and ordered User Properties                                                               |
 | SUBSCRIBE            | Packet identifier, ordinary topic filters with a uniform requested QoS of 0 or 1, User Properties                                               |
