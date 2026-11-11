@@ -64,10 +64,11 @@ jobs:
           (cd "$consumer" && node --input-type=module -e 'import { connect } from "mqtt"; import { connectPortable } from "mqtt/portable"; if (typeof connect !== "function" || typeof connectPortable !== "function") process.exit(1);')
       - name: Run the MQTT 5 echo against Mosquitto
         run: |
-          sudo apt-get update
-          sudo apt-get install -y mosquitto
-          sudo install -m 0644 test/packed/mosquitto.conf /etc/mosquitto/mqtt-ci.conf
-          mosquitto -c /etc/mosquitto/mqtt-ci.conf &
+          timeout 180 bash test/packed/mosquitto-container.sh --pull
+          broker_dir="$RUNNER_TEMP/mqtt-broker"
+          mkdir -p "$broker_dir"
+          cp test/packed/mosquitto.conf "$broker_dir/mqtt-ci.conf"
+          MQTT_BROKER_DIR="$broker_dir" bash test/packed/mosquitto-container.sh -c "$broker_dir/mqtt-ci.conf" &
           broker=$!
           trap 'kill "$broker" 2>/dev/null || true' EXIT
           timeout 10 bash -c 'until ( : > /dev/tcp/127.0.0.1/18883 ) 2>/dev/null; do sleep 0.2; done'
@@ -89,12 +90,12 @@ jobs:
 
       - name: Run packed MQTT 5 sessions over WS and WSS
         run: |
-          sudo install -d -m 0755 -o "$USER" /etc/mosquitto/certs
           if [[ "$GITHUB_EVENT_NAME" == schedule ]]; then
+            sudo apt-get update
             sudo apt-get install -y libnss3-tools
             export MQTT_TEST_CHROMIUM=1
           fi
-          MQTT_BROKER_DIR=/etc/mosquitto/certs MQTT_BROKER_CONF=/etc/mosquitto/mqtt-ws-ci.conf bash test/packed/mosquitto-ws.sh "$RUNNER_TEMP/mqtt-consumer"
+          MOSQUITTO_BIN="$GITHUB_WORKSPACE/test/packed/mosquitto-container.sh" MQTT_BROKER_DIR="$RUNNER_TEMP/mqtt-broker" bash test/packed/mosquitto-ws.sh "$RUNNER_TEMP/mqtt-consumer"
 
   lts-consumers:
     runs-on: ubuntu-26.04
@@ -117,3 +118,4 @@ jobs:
           pnpm pack --pack-destination "$consumer"
           npm install --prefix "$consumer" --engine-strict --ignore-scripts --no-audit --no-fund "$consumer"/*.tgz
           (cd "$consumer" && node --input-type=module -e 'import { createTcpClient, createWebSocketClient } from "mqtt"; import { openMqttWebSocket } from "mqtt/websocket"; if (![createTcpClient, createWebSocketClient, openMqttWebSocket].every(value => typeof value === "function")) process.exit(1);')
+
