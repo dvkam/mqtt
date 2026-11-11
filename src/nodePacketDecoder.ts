@@ -47,6 +47,24 @@ const acknowledgmentProperties: Readonly<Record<number, PropertyShape>> = {
   0x26: 'pair',
 };
 
+type PropertyKind = 'CONNACK' | 'PUBLISH' | 'DISCONNECT' | AcknowledgmentKind;
+const disconnectProperties: Readonly<Record<number, PropertyShape>> = {
+  0x1c: 'string',
+  0x1f: 'string',
+  0x26: 'pair',
+};
+const propertyShapes: Readonly<Record<PropertyKind, Readonly<Record<number, PropertyShape>>>> = {
+  CONNACK: connackProperties,
+  PUBLISH: publishProperties,
+  PUBACK: acknowledgmentProperties,
+  PUBREC: acknowledgmentProperties,
+  PUBREL: acknowledgmentProperties,
+  PUBCOMP: acknowledgmentProperties,
+  SUBACK: acknowledgmentProperties,
+  UNSUBACK: acknowledgmentProperties,
+  DISCONNECT: disconnectProperties,
+};
+
 export class NodePacketDecoder {
   private decoder: ReturnType<typeof parser> | undefined;
   private readonly maxPacketBytes: number;
@@ -156,6 +174,8 @@ export class NodePacketDecoder {
       if (!isUtf8(topic) || topic.includes(0)) throw new Error('Invalid MQTT PUBLISH topic UTF-8');
       this.validateProperties('PUBLISH', topicEnd + ((this.header & 6) === 0 ? 0 : 2));
     }
+    if (this.header >>> 4 === 14 && completed.length > this.lengthBytes.length + 1)
+      this.validateProperties('DISCONNECT', this.lengthBytes.length + 1);
     const acknowledgment = acknowledgmentKinds[this.header >>> 4];
     if (acknowledgment !== undefined) {
       const subscription = acknowledgment === 'SUBACK' || acknowledgment === 'UNSUBACK';
@@ -169,10 +189,10 @@ export class NodePacketDecoder {
     this.parse(completed);
   }
 
-  private validateProperties(kind: 'CONNACK' | 'PUBLISH' | AcknowledgmentKind, offset: number): void {
+  private validateProperties(kind: PropertyKind, offset: number): void {
     const frame = this.remainder!;
     let end = frame.length;
-    const shapes = kind === 'CONNACK' ? connackProperties : kind === 'PUBLISH' ? publishProperties : acknowledgmentProperties;
+    const shapes = propertyShapes[kind];
     const hasPayload = kind === 'PUBLISH' || kind === 'SUBACK' || kind === 'UNSUBACK';
     const take = (size: number): number => {
       if (offset + size > end) throw new Error('Truncated MQTT ' + kind + ' property');

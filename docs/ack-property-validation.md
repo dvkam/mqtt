@@ -38,3 +38,5 @@ Run:
 The guard reuses the private property walker. No second frame is allocated by this validation, but temporary functions and views can still have a cost. Allocation and throughput effects remain unmeasured under #18 and #118.
 
 [Packed observations](baseline/ack-property-checks.md) record all six integration timing rows and their limits.
+
+[DISCONNECT property validation](disconnect-property-validation.md) checks malformed strings before broker-reason interpretation.

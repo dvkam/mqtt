@@ -536,3 +536,15 @@ The existing NodeConnackProperties configuration also maps to full confirmation 
 The baseline replay passed 36 positive configurations and detected 129 expected faults. The final replay passes 37 positive configurations and detects all 132 expected faults. Six actual source mutations remove string checks, span bounds, the ACK gate, compact-form handling, subscription offsets or exact confirmation end. All fail regressions and were restored. A focused replay of the subscription-offset fault forwards identifier-only SUBACK/UNSUBACK without running required property validation, matching the model's subscription-short case.
 
 The final 206-case ACK file verifies every split, both string-pair fields, Reason String, Unicode preservation, long lengths, short forms and pending public operations. Tests verify actual peer closure before cleanup and exact later Error identity. Raw QoS 2 ACK fixtures do not enable supported QoS 2 sessions. Duplicate/value legality and DISCONNECT properties remain under #9; negotiated behavior stays under #16 and #17. No previous invariant or bound changed.
+
+## DISCONNECT property strings before reason interpretation
+
+Product source sync commit 622bc0ec5c2c8e04a6c475b0f0efb1fef89376db adds server DISCONNECT to the shared registry. Its three identifiers are Reason String, Server Reference and User Property. Session Expiry is forbidden in the server-input direction. Remaining Length 0 and 1 retain the existing parser path; longer bodies validate properties after the reason byte and require exact frame end.
+
+DisconnectPropertyLayout has 13 states for body sizes 0, 1 and 2. Inspect maps to the new DISCONNECT gate in flush. Validate maps to the shared walker before native parsing. Interpret maps to native dispatch and the core's reason handling. PropertiesBeforeInterpretation, MalformedNeverInterpreted and CompactPreserved pass. Skipping validation violates PropertiesBeforeInterpretation. Requiring omitted properties violates CompactPreserved.
+
+The no-payload property-reader mapping extends to DISCONNECT. Existing ACK layout, input ownership, first-error and end-notice mappings remain in sync. The models assume byte classification and valid reason handling. They do not prove the UTF-8 algorithm, table completeness, concrete arithmetic, reason-code profile or native closure.
+
+The replay passes 38 positive configurations and detects all 134 expected faults. Six source faults remove string validation, the DISCONNECT gate, compact handling, exact end, local bounds or server direction restrictions. Every fault is restored. The local-bounds mutation initially survived through a retained-parser rejection; framing-error calibrations distinguish the local check.
+
+The corrected old-source replay failed 21 of 38 cases. One initial browser control incorrectly assumed reason 0x8e support; common profile code 0x82 corrects that test while native 0x8e remains covered. The final 41 cases include exact Error identity in the end notice, compact forms and long lengths. No previous bound or invariant changed. Duplicate/scalar checks follow under #9; broader reason/negotiation profiles remain under #16 and #19.
