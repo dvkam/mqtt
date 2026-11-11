@@ -122,3 +122,20 @@ test.each(
     }
   },
 );
+
+test.each(adapters)('%s rejects duplicate Topic Alias properties before delivery', async (adapter) => {
+  const onMessage = vi.fn<(packet: unknown) => void>();
+  const reply = [0x30, 10, 0, 1, 0x61, 6, 0x23, 0, 1, 0x23, 0, 1, 0xd0, 0];
+  const peer = await openPeer(adapter, reply, onMessage);
+  try {
+    const client = await peer.open();
+    const failure = await client.ping().catch((reason: unknown) => reason);
+    if (!(failure instanceof Error) || !('code' in failure)) throw new Error('Expected coded duplicate-alias rejection');
+    expect([0x82, 0x94]).toContain(failure.code);
+    expect(onMessage).not.toHaveBeenCalled();
+    await expect(client.ping()).rejects.toBe(failure);
+    await expect.poll(() => peer.disconnectReasons).toEqual([failure.code]);
+  } finally {
+    await peer.close();
+  }
+});

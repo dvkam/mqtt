@@ -391,7 +391,7 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
       const name = reader.string();
       const messageId = (header & 2) === 0 ? undefined : integer(reader.uint16(), 65_535, 1);
       const { topicAlias, ...props } = readProperties(reader, 'publish');
-      validateInboundTopic(name, topicAlias);
+      validateInboundTopic(name, topicAlias !== undefined);
       const fields = {
         cmd: 'publish' as const,
         topic: name,
