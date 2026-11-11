@@ -63,7 +63,7 @@ test.each([
   { label: 'byte order mark', bytes: [0xef, 0xbb, 0xbf], expected: '\ufeff' },
   { label: 'multibyte text', bytes: [0xc3, 0xa9], expected: 'é' },
 ])(
-  'preserves valid $label keys, repeated properties and opaque binary data',
+  'preserves $label key bytes and retained native property shapes',
   ({ bytes, expected }: Readonly<{ bytes: readonly number[]; expected: string }>) => {
     const properties = [
       0x11,
@@ -249,4 +249,18 @@ test.each(adapters)('%s preserves an earlier refusal before a malformed property
   } finally {
     await peer.close();
   }
+});
+
+test.each([
+  [0x20, 6, 0, 0, 3, 0x26, 0, 2],
+  [0x20, 7, 0, 0, 4, 0x16, 0, 2, 0x61],
+  [0x20, 5, 0, 0, 2, 0x21, 0],
+])('reports a truncated property as a CONNACK framing error for %j', (...bytes: readonly number[]) => {
+  const input = new NodePacketInput();
+  input.listen(
+    () => {},
+    () => {},
+  );
+  const failure = input.push(Uint8Array.from(bytes));
+  expect(failure).toMatchObject({ message: 'Truncated MQTT CONNACK property' });
 });
