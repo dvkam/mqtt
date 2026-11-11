@@ -48,12 +48,15 @@ export async function startTcpPacketPeer(mode: string, pingReply?: readonly numb
       }
       if (packet.cmd === 'subscribe') {
         const reply = generate({ cmd: 'suback', messageId: packet.messageId, granted: [0] }, { protocolVersion: 5 });
-        if (mode === 'limit-subscribe') socket.write(Uint8Array.of(0x90, 7));
+        if (mode === 'fixed-subscribe' && pingReply) socket.write(Uint8Array.from(pingReply));
+        else if (mode === 'limit-subscribe') socket.write(Uint8Array.of(0x90, 7));
         else socket.write(mode === 'prefix-subscribe' ? Buffer.concat([reply, excess]) : reply);
       }
-      if (packet.cmd === 'publish') socket.write(publication);
+      if (packet.cmd === 'publish') socket.write(mode === 'fixed-publish' && pingReply ? Uint8Array.from(pingReply) : publication);
+      if (packet.cmd === 'unsubscribe' && mode === 'fixed-unsubscribe' && pingReply) socket.write(Uint8Array.from(pingReply));
       if (packet.cmd === 'pingreq') {
-        if (pingReply) socket.write(Uint8Array.from(pingReply));
+        if (pingReply && !['fixed-publish', 'fixed-subscribe', 'fixed-unsubscribe'].includes(mode))
+          socket.write(Uint8Array.from(pingReply));
         else if (mode === 'noncanonical-ping') socket.write(Uint8Array.of(0xd0, 0x80, 0));
         else if (mode === 'limit-ping') socket.write(excess);
         else if (mode === 'prefix-ping') socket.write(Uint8Array.from([0xd0, 0, ...excess]));

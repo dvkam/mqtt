@@ -43,18 +43,27 @@ export async function startWebSocketPacketPeer(mode: string, pingReply?: readonl
       }
       if (packet.cmd === 'subscribe') {
         const reply = generate({ cmd: 'suback', messageId: packet.messageId, granted: [0] }, { protocolVersion: 5 });
-        socket.send(mode === 'prefix-subscribe' ? Buffer.concat([reply, excess]) : Uint8Array.of(0x90, 7));
+        socket.send(
+          mode === 'fixed-subscribe' && pingReply
+            ? Uint8Array.from(pingReply)
+            : mode === 'prefix-subscribe'
+              ? Buffer.concat([reply, excess])
+              : Uint8Array.of(0x90, 7),
+        );
       }
       if (packet.cmd === 'publish') {
-        if (mode === 'mqtt-split') {
+        if (mode === 'fixed-publish' && pingReply) socket.send(Uint8Array.from(pingReply));
+        else if (mode === 'mqtt-split') {
           for (const byte of publication) socket.send(Uint8Array.of(byte));
         } else if (mode === 'ws-fragments') {
           socket.send(publication.subarray(0, 4), { fin: false });
           socket.send(publication.subarray(4), { fin: true });
         } else socket.send(publication);
       }
+      if (packet.cmd === 'unsubscribe' && mode === 'fixed-unsubscribe' && pingReply) socket.send(Uint8Array.from(pingReply));
       if (packet.cmd === 'pingreq') {
-        if (pingReply) socket.send(Uint8Array.from(pingReply));
+        if (pingReply && !['fixed-publish', 'fixed-subscribe', 'fixed-unsubscribe'].includes(mode))
+          socket.send(Uint8Array.from(pingReply));
         else if (mode === 'tiny-messages') {
           for (const byte of excess) socket.send(Uint8Array.of(byte));
         } else if (mode === 'fragmented-limit') {
