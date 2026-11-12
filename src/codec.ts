@@ -13,6 +13,12 @@ type PublishFields = Properties & {
   topic: string;
   payload: Uint8Array;
   retain?: boolean;
+  payloadFormatIndicator?: 0 | 1;
+  messageExpiryInterval?: number;
+  contentType?: string;
+  responseTopic?: string;
+  correlationData?: Uint8Array;
+  subscriptionIdentifiers?: readonly number[];
 };
 
 export type WirePacket =
@@ -33,6 +39,18 @@ export type WirePacket =
       maximumQoS?: number;
       topicAliasMaximum?: number;
       assignedClientIdentifier?: string;
+      sessionExpiryInterval?: number;
+      serverKeepAlive?: number;
+      authenticationMethod?: string;
+      authenticationData?: Uint8Array;
+      responseInformation?: string;
+      serverReference?: string;
+      reasonString?: string;
+      retainAvailable?: boolean;
+      maximumPacketSize?: number;
+      wildcardSubscriptionAvailable?: boolean;
+      subscriptionIdentifiersAvailable?: boolean;
+      sharedSubscriptionAvailable?: boolean;
     })
   | (PublishFields & ({ qos?: 0; messageId?: never; dup?: never } | { qos: 1; messageId: number; dup?: boolean }))
   | (Properties & { cmd: 'puback'; messageId: number; reasonCode: number; reasonString?: string })
@@ -50,7 +68,7 @@ export type WirePacket =
       granted: readonly number[];
       reasonString?: string;
     })
-  | { cmd: 'disconnect'; reasonCode?: number }
+  | (Properties & { cmd: 'disconnect'; reasonCode?: number; reasonString?: string; serverReference?: string })
   | { cmd: 'pingreq' | 'pingresp' };
 
 const encoder = new TextEncoder();
@@ -58,7 +76,11 @@ const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const connackCodes = new Set([
   0, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 140, 144, 149, 151, 153, 154, 155, 156, 157, 159,
 ]);
-const disconnectErrors = new Set([0x81, 0x82, 0x93, 0x94]);
+// MQTT 5 section 3.14.2.1. Zero is the normal disconnection and is encoded without a reason byte.
+const disconnectReasons = new Set([
+  0x04, 0x80, 0x81, 0x82, 0x83, 0x87, 0x89, 0x8b, 0x8d, 0x8e, 0x8f, 0x90, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b,
+  0x9c, 0x9d, 0x9e, 0x9f, 0xa0, 0xa1, 0xa2,
+]);
 const packetFields: Partial<Record<string, readonly string[]>> = {
   connect: ['cmd', 'clientId', 'cleanStart', 'keepAlive', 'receiveMaximum', 'username', 'password', 'userProperties'],
   connack: [
@@ -69,9 +91,36 @@ const packetFields: Partial<Record<string, readonly string[]>> = {
     'maximumQoS',
     'topicAliasMaximum',
     'assignedClientIdentifier',
+    'sessionExpiryInterval',
+    'serverKeepAlive',
+    'authenticationMethod',
+    'authenticationData',
+    'responseInformation',
+    'serverReference',
+    'reasonString',
+    'retainAvailable',
+    'maximumPacketSize',
+    'wildcardSubscriptionAvailable',
+    'subscriptionIdentifiersAvailable',
+    'sharedSubscriptionAvailable',
     'userProperties',
   ],
-  publish: ['cmd', 'topic', 'payload', 'retain', 'userProperties', 'qos', 'messageId', 'dup'],
+  publish: [
+    'cmd',
+    'topic',
+    'payload',
+    'retain',
+    'userProperties',
+    'qos',
+    'messageId',
+    'dup',
+    'payloadFormatIndicator',
+    'messageExpiryInterval',
+    'contentType',
+    'responseTopic',
+    'correlationData',
+    'subscriptionIdentifiers',
+  ],
   puback: ['cmd', 'messageId', 'reasonCode', 'reasonString', 'userProperties'],
   subscribe: ['cmd', 'messageId', 'topics', 'qos', 'userProperties'],
   suback: ['cmd', 'messageId', 'granted', 'reasonString', 'userProperties'],
@@ -79,7 +128,7 @@ const packetFields: Partial<Record<string, readonly string[]>> = {
   unsuback: ['cmd', 'messageId', 'granted', 'reasonString', 'userProperties'],
   pingreq: ['cmd'],
   pingresp: ['cmd'],
-  disconnect: ['cmd', 'reasonCode'],
+  disconnect: ['cmd', 'reasonCode', 'reasonString', 'serverReference', 'userProperties'],
 };
 
 function integer(value: number, maximum: number, minimum = 0): number {
@@ -90,6 +139,21 @@ function integer(value: number, maximum: number, minimum = 0): number {
 function uint16(value: number): Uint8Array<ArrayBuffer> {
   integer(value, 65_535);
   return Uint8Array.of(value >> 8, value & 255);
+}
+
+function uint32(value: number, minimum = 0): Uint8Array<ArrayBuffer> {
+  integer(value, 4_294_967_295, minimum);
+  return Uint8Array.of(value >>> 24, (value >>> 16) & 255, (value >>> 8) & 255, value & 255);
+}
+
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
+function binary(value: Readonly<Uint8Array>): Uint8Array<ArrayBuffer> {
+  return join([uint16(value.byteLength), value]);
+}
+
+function responseTopic(value: string): string {
+  if (value.length === 0 || /[+#]/u.test(value)) throw new ProtocolInputError('Invalid MQTT Response Topic', 0x82);
+  return value;
 }
 
 function variable(value: number): Uint8Array<ArrayBuffer> {
@@ -135,7 +199,7 @@ function topic(value: string, filter: boolean): void {
 
 function properties(
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
-  packet: Readonly<Exclude<WirePacket, { cmd: 'pingreq' | 'pingresp' | 'disconnect' }>>,
+  packet: Readonly<Exclude<WirePacket, { cmd: 'pingreq' | 'pingresp' }>>,
 ): Uint8Array<ArrayBuffer> {
   const parts: Uint8Array[] = [];
   for (const [key, value] of packet.userProperties ?? []) parts.push(Uint8Array.of(0x26), utf8(key), utf8(value));
@@ -145,8 +209,39 @@ function properties(
     if (packet.assignedClientIdentifier !== undefined) parts.push(Uint8Array.of(0x12), utf8(packet.assignedClientIdentifier));
     if (packet.maximumQoS !== undefined) parts.push(Uint8Array.of(0x24, integer(packet.maximumQoS, 1)));
     if (packet.topicAliasMaximum !== undefined) parts.push(Uint8Array.of(0x22), uint16(packet.topicAliasMaximum));
+    if (packet.sessionExpiryInterval !== undefined) parts.push(Uint8Array.of(0x11), uint32(packet.sessionExpiryInterval));
+    if (packet.serverKeepAlive !== undefined) parts.push(Uint8Array.of(0x13), uint16(packet.serverKeepAlive));
+    if (packet.authenticationMethod !== undefined) parts.push(Uint8Array.of(0x15), utf8(packet.authenticationMethod));
+    if (packet.authenticationData !== undefined) parts.push(Uint8Array.of(0x16), binary(packet.authenticationData));
+    if (packet.responseInformation !== undefined) parts.push(Uint8Array.of(0x1a), utf8(packet.responseInformation));
+    if (packet.retainAvailable !== undefined) parts.push(Uint8Array.of(0x25, packet.retainAvailable ? 1 : 0));
+    if (packet.maximumPacketSize !== undefined) parts.push(Uint8Array.of(0x27), uint32(packet.maximumPacketSize, 1));
+    if (packet.wildcardSubscriptionAvailable !== undefined)
+      parts.push(Uint8Array.of(0x28, packet.wildcardSubscriptionAvailable ? 1 : 0));
+    if (packet.subscriptionIdentifiersAvailable !== undefined)
+      parts.push(Uint8Array.of(0x29, packet.subscriptionIdentifiersAvailable ? 1 : 0));
+    if (packet.sharedSubscriptionAvailable !== undefined)
+      parts.push(Uint8Array.of(0x2a, packet.sharedSubscriptionAvailable ? 1 : 0));
   }
-  if ((packet.cmd === 'suback' || packet.cmd === 'unsuback' || packet.cmd === 'puback') && packet.reasonString !== undefined)
+  if (packet.cmd === 'publish') {
+    if (packet.payloadFormatIndicator !== undefined) parts.push(Uint8Array.of(0x01, integer(packet.payloadFormatIndicator, 1)));
+    if (packet.messageExpiryInterval !== undefined) parts.push(Uint8Array.of(0x02), uint32(packet.messageExpiryInterval));
+    if (packet.contentType !== undefined) parts.push(Uint8Array.of(0x03), utf8(packet.contentType));
+    if (packet.responseTopic !== undefined) parts.push(Uint8Array.of(0x08), utf8(responseTopic(packet.responseTopic)));
+    if (packet.correlationData !== undefined) parts.push(Uint8Array.of(0x09), binary(packet.correlationData));
+    for (const identifier of packet.subscriptionIdentifiers ?? [])
+      parts.push(Uint8Array.of(0x0b), variable(integer(identifier, 268_435_455, 1)));
+  }
+  if ((packet.cmd === 'connack' || packet.cmd === 'disconnect') && packet.serverReference !== undefined)
+    parts.push(Uint8Array.of(0x1c), utf8(packet.serverReference));
+  if (
+    (packet.cmd === 'suback' ||
+      packet.cmd === 'unsuback' ||
+      packet.cmd === 'puback' ||
+      packet.cmd === 'connack' ||
+      packet.cmd === 'disconnect') &&
+    packet.reasonString !== undefined
+  )
     parts.push(Uint8Array.of(0x1f), utf8(packet.reasonString));
   const body = join(parts);
   return join([variable(body.length), body]);
@@ -250,10 +345,14 @@ export function encodePacket(packet: Readonly<WirePacket>): Uint8Array<ArrayBuff
       return Uint8Array.of(0xc0, 0);
     case 'pingresp':
       return Uint8Array.of(0xd0, 0);
-    case 'disconnect':
-      if (packet.reasonCode === undefined) return Uint8Array.of(0xe0, 0);
-      if (disconnectErrors.has(packet.reasonCode)) return Uint8Array.of(0xe0, 1, packet.reasonCode);
-      throw new Error('Unsupported DISCONNECT reason');
+    case 'disconnect': {
+      const reasonCode = packet.reasonCode ?? 0;
+      if (reasonCode !== 0 && !disconnectReasons.has(reasonCode)) throw new Error('Invalid DISCONNECT reason code');
+      const encodedProperties = properties(packet);
+      if (encodedProperties.length > 1)
+        return join([Uint8Array.of(0xe0), variable(1 + encodedProperties.length), Uint8Array.of(reasonCode), encodedProperties]);
+      return reasonCode === 0 ? Uint8Array.of(0xe0, 0) : Uint8Array.of(0xe0, 1, reasonCode);
+    }
   }
   return join([Uint8Array.of(header), variable(body.length), body]);
 }
@@ -279,6 +378,14 @@ class Reader {
   }
   uint16(): number {
     return this.byte() * 256 + this.byte();
+  }
+  uint32(): number {
+    return this.uint16() * 65_536 + this.uint16();
+  }
+  flag(): boolean {
+    const value = this.byte();
+    if (value > 1) throw new Error('Invalid MQTT property value');
+    return value === 1;
   }
   variable(): number {
     let value = 0;
@@ -309,7 +416,45 @@ interface DecodedProperties extends Properties {
   maximumQoS?: number;
   topicAliasMaximum?: number;
   reasonString?: string;
+  payloadFormatIndicator?: 0 | 1;
+  messageExpiryInterval?: number;
+  contentType?: string;
+  responseTopic?: string;
+  correlationData?: Uint8Array;
+  subscriptionIdentifiers?: number[];
+  sessionExpiryInterval?: number;
+  serverKeepAlive?: number;
+  authenticationMethod?: string;
+  authenticationData?: Uint8Array;
+  responseInformation?: string;
+  serverReference?: string;
+  retainAvailable?: boolean;
+  maximumPacketSize?: number;
+  wildcardSubscriptionAvailable?: boolean;
+  subscriptionIdentifiersAvailable?: boolean;
+  sharedSubscriptionAvailable?: boolean;
 }
+
+const propertyNames: Readonly<Record<number, keyof DecodedProperties>> = {
+  0x01: 'payloadFormatIndicator',
+  0x02: 'messageExpiryInterval',
+  0x03: 'contentType',
+  0x08: 'responseTopic',
+  0x09: 'correlationData',
+  0x11: 'sessionExpiryInterval',
+  0x13: 'serverKeepAlive',
+  0x15: 'authenticationMethod',
+  0x16: 'authenticationData',
+  0x1a: 'responseInformation',
+  0x1c: 'serverReference',
+  0x25: 'retainAvailable',
+  0x27: 'maximumPacketSize',
+  0x28: 'wildcardSubscriptionAvailable',
+  0x29: 'subscriptionIdentifiersAvailable',
+  0x2a: 'sharedSubscriptionAvailable',
+};
+const publishOnly = new Set([0x01, 0x02, 0x03, 0x08, 0x09]);
+const connackOnly = new Set([0x11, 0x13, 0x15, 0x16, 0x1a, 0x25, 0x27, 0x28, 0x29, 0x2a]);
 
 function readProperties(reader: Readonly<Reader>, cmd: string): DecodedProperties {
   const fields = new Reader(reader.take(reader.variable()));
@@ -317,7 +462,72 @@ function readProperties(reader: Readonly<Reader>, cmd: string): DecodedPropertie
   const userProperties: UserProperty[] = [];
   while (fields.remaining > 0) {
     const id = fields.variable();
+    const name = propertyNames[id];
+    if (name !== undefined) {
+      const allowed = publishOnly.has(id)
+        ? cmd === 'publish'
+        : connackOnly.has(id)
+          ? cmd === 'connack'
+          : cmd === 'connack' || cmd === 'disconnect';
+      if (!allowed || result[name] !== undefined) throw new Error('Invalid MQTT ' + cmd.toUpperCase() + ' property ' + id);
+    }
     switch (id) {
+      case 0x01: {
+        const indicator = fields.byte();
+        if (indicator > 1) throw new Error('Invalid MQTT property value');
+        result.payloadFormatIndicator = indicator === 1 ? 1 : 0;
+        break;
+      }
+      case 0x02:
+        result.messageExpiryInterval = fields.uint32();
+        break;
+      case 0x03:
+        result.contentType = fields.string();
+        break;
+      case 0x08:
+        result.responseTopic = responseTopic(fields.string());
+        break;
+      case 0x09:
+        result.correlationData = fields.take(fields.uint16());
+        break;
+      case 0x0b: {
+        if (cmd !== 'publish') throw new Error('Invalid MQTT ' + cmd.toUpperCase() + ' property ' + id);
+        (result.subscriptionIdentifiers ??= []).push(integer(fields.variable(), 268_435_455, 1));
+        break;
+      }
+      case 0x11:
+        result.sessionExpiryInterval = fields.uint32();
+        break;
+      case 0x13:
+        result.serverKeepAlive = fields.uint16();
+        break;
+      case 0x15:
+        result.authenticationMethod = fields.string();
+        break;
+      case 0x16:
+        result.authenticationData = fields.take(fields.uint16());
+        break;
+      case 0x1a:
+        result.responseInformation = fields.string();
+        break;
+      case 0x1c:
+        result.serverReference = fields.string();
+        break;
+      case 0x25:
+        result.retainAvailable = fields.flag();
+        break;
+      case 0x27:
+        result.maximumPacketSize = integer(fields.uint32(), 4_294_967_295, 1);
+        break;
+      case 0x28:
+        result.wildcardSubscriptionAvailable = fields.flag();
+        break;
+      case 0x29:
+        result.subscriptionIdentifiersAvailable = fields.flag();
+        break;
+      case 0x2a:
+        result.sharedSubscriptionAvailable = fields.flag();
+        break;
       case 0x12:
         if (cmd !== 'connack' || result.assignedClientIdentifier !== undefined)
           throw new Error('Invalid Assigned Client Identifier property');
@@ -345,7 +555,10 @@ function readProperties(reader: Readonly<Reader>, cmd: string): DecodedPropertie
         result.maximumQoS = integer(fields.byte(), 1);
         break;
       case 0x1f:
-        if ((cmd !== 'suback' && cmd !== 'unsuback' && cmd !== 'puback') || result.reasonString !== undefined)
+        if (
+          (cmd !== 'suback' && cmd !== 'unsuback' && cmd !== 'puback' && cmd !== 'connack' && cmd !== 'disconnect') ||
+          result.reasonString !== undefined
+        )
           throw new Error('Invalid Reason String property');
         result.reasonString = fields.string();
         break;
@@ -470,9 +683,9 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
       break;
     case 0xe0: {
       const reasonCode = reader.remaining > 0 ? reader.byte() : 0;
-      if (reasonCode !== 0 && !disconnectErrors.has(reasonCode)) throw new Error('Unsupported DISCONNECT reason');
-      if (reader.remaining > 0 && reader.variable() !== 0) throw new Error('Unsupported DISCONNECT properties');
-      packet = reasonCode === 0 ? { cmd: 'disconnect' } : { cmd: 'disconnect', reasonCode };
+      if (reasonCode !== 0 && !disconnectReasons.has(reasonCode)) throw new Error('Invalid DISCONNECT reason code');
+      const props = reader.remaining > 0 ? readProperties(reader, 'disconnect') : {};
+      packet = reasonCode === 0 ? { cmd: 'disconnect', ...props } : { cmd: 'disconnect', reasonCode, ...props };
       break;
     }
     default:

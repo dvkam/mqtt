@@ -139,10 +139,11 @@ test.each([
 test('rejects unsupported encoder fields instead of silently changing protocol semantics', () => {
   const publish = { cmd: 'publish' as const, topic: 'a', payload: new Uint8Array(), topicAlias: 7 };
   const connect = { cmd: 'connect' as const, clientId: 'c', will: { topic: 'offline', payload: 'lost' } };
-  const disconnect = { cmd: 'disconnect' as const, reasonCode: 0x80 };
+  const disconnect = { cmd: 'disconnect' as const, sessionExpiryInterval: 5 };
   expect(() => encodePacket(publish)).toThrow('Unsupported');
   expect(() => encodePacket(connect)).toThrow('Unsupported');
   expect(() => encodePacket(disconnect)).toThrow('Unsupported');
+  expect(() => encodePacket({ cmd: 'disconnect', reasonCode: 0x01 })).toThrow('Invalid DISCONNECT reason code');
 });
 
 test.each(['$share//a', '$share/g', '$share/g/', '$share/+/a', '$share/g/a'])(

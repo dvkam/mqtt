@@ -85,6 +85,10 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
           error = brokerPacketDirectionError(packet.cmd);
           break;
         }
+        if (packet.cmd === 'connack' && (packet.authenticationMethod !== undefined || packet.authenticationData !== undefined)) {
+          error = new ProtocolInputError('Unexpected MQTT authentication properties', 0x82);
+          break;
+        }
         switch (packet.cmd) {
           case 'connack': {
             const { receiveMaximum, maximumQoS, assignedClientIdentifier } = packet;
