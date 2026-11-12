@@ -171,3 +171,35 @@ test.each(adapters)('%s preserves a valid refusal with Session Present false', a
     await peer.close();
   }
 });
+
+test.each(adapters)('%s retires active Session Present before ping and publication suffixes', async (adapter) => {
+  const bytes = [0x20, 3, 1, 0, 0, 0xd0, 0, 0x30, 5, 0, 1, 0x61, 0, 0x78];
+  const peer =
+    adapter === 'tcp' ? await startTcpPacketPeer('fixed-ping', bytes) : await startWebSocketPacketPeer('fixed-ping', bytes);
+  const controller = new AbortController();
+  const onMessage = vi.fn<() => void>();
+  const ended = vi.fn<(notice: unknown) => void>();
+  try {
+    const options = { clientId: 'clean-start', timeoutMs: 1000, signal: controller.signal, onMessage, onSessionEnd: ended };
+    const factory =
+      'host' in peer
+        ? createTcpClient({ ...peer, ...options })
+        : adapter === 'browser'
+          ? createBrowserClient({ ...peer, ...options })
+          : createWebSocketClient({ ...peer, ...options });
+    const client = await factory.connect();
+    const failure = await client.ping().catch((reason: unknown) => reason);
+    expect(failure).toMatchObject({ message: 'Unexpected MQTT Session Present', code: 0x82 });
+    await expect(client.ping()).rejects.toBe(failure);
+    await expect.poll(peer.connections).toBe(0);
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
+    expect(onMessage).not.toHaveBeenCalled();
+    expect(ended).toHaveBeenCalledTimes(1);
+    const notice = ended.mock.calls[0]?.[0];
+    if (typeof notice !== 'object' || notice === null || !('error' in notice)) throw new Error('Expected session error notice');
+    expect(notice.error).toBe(failure);
+  } finally {
+    controller.abort();
+    await peer.close();
+  }
+});

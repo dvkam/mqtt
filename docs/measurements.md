@@ -4,6 +4,7 @@ Keep workload, environment, tool versions, individual observations, summary and 
 
 | Work                                   | Record                                                                                                    | Scope                                                                                                |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Session Present agreement | [Packed observations](baseline/session-present-checks.md) | Installed TLS/WS controls after the Clean Start guard; no performance comparison |
 | Connection agreement | [Packed observations](baseline/connack-agreement-checks.md) | Installed TLS/WS sessions after authentication and identity checks; no performance comparison |
 | Property cardinality and values | [Packed observations](baseline/property-value-checks.md) | Installed TLS/WS sessions after scalar checks; no controlled performance comparison |
 | Pinned upstream comparison             | [Baseline data](baseline/results.jsonl) and [runner](baseline/measure.mjs)                                | Initial Node and browser reference workloads                                                         |
