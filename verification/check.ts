@@ -16,6 +16,10 @@ assert.equal(
 type VerificationCase = readonly [model: string, configuration: string, expectedInvariant?: string];
 
 const models: readonly VerificationCase[] = [
+  ['SessionPresentAgreement', 'SessionPresentAgreement'],
+  ['SessionPresentAgreement', 'SessionPresentAgreementGuard', 'PresentRetires'],
+  ['SessionPresentAgreement', 'SessionPresentAgreementRefusal', 'RefusedPresentIsProtocol'],
+  ['SessionPresentAgreement', 'SessionPresentAgreementOpeningOnly', 'PresentRetires'],
   ['ConnackAgreement', 'ConnackAgreement'],
   ['ConnackAgreement', 'ConnackAgreementMethod', 'ValidateBeforeAcceptance'],
   ['ConnackAgreement', 'ConnackAgreementData', 'ValidateBeforeAcceptance'],

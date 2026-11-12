@@ -102,6 +102,10 @@ class PortableClient<Message extends PublishMessage> {
             return;
           }
           if (packet.cmd === 'connack') {
+            if (packet.sessionPresent) {
+              this.rejectProtocolInput(new ProtocolInputError('Unexpected MQTT Session Present', 0x82));
+              return;
+            }
             const { authenticationMethod, authenticationData, assignedClientIdentifier } = packet.properties ?? {};
             if (authenticationMethod !== undefined || authenticationData !== undefined) {
               this.rejectProtocolInput(new ProtocolInputError('Unexpected MQTT authentication properties', 0x82));

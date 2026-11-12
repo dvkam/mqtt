@@ -29,3 +29,5 @@ The baseline replay passed 39 configurations and detected 137 expected faults. T
 Run `pnpm exec vitest run test/connack-agreement.test.ts test/portable.test.ts`. The project-local verification skill records the source mapping, complete replay and deliberate fault checks. Broader negotiated MQTT behavior remains under #16, enhanced-auth profile decisions under #19, and codec comparison under #9/#111.
 
 The [installed-package observations](baseline/connack-agreement-checks.md) record broker smoke results and their limits. They establish no performance advantage and use named IDs. Scripted public-adapter tests cover assignments; the scheduled browser engine matrix was not run locally.
+
+The [Session Present agreement](session-present-agreement.md) also checks CONNACK against the supported factories' Clean Start request before acceptance.
