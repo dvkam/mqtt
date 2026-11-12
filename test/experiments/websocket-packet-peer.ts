@@ -62,7 +62,9 @@ export async function startWebSocketPacketPeer(mode: string, pingReply?: readonl
       }
       if (packet.cmd === 'unsubscribe' && mode === 'fixed-unsubscribe' && pingReply) socket.send(Uint8Array.from(pingReply));
       if (packet.cmd === 'pingreq') {
-        if (pingReply && !['fixed-publish', 'fixed-subscribe', 'fixed-unsubscribe'].includes(mode))
+        if (mode === 'split-fixed-ping' && pingReply) {
+          for (const byte of pingReply) socket.send(Uint8Array.of(byte));
+        } else if (pingReply && !['fixed-publish', 'fixed-subscribe', 'fixed-unsubscribe'].includes(mode))
           socket.send(Uint8Array.from(pingReply));
         else if (mode === 'tiny-messages') {
           for (const byte of excess) socket.send(Uint8Array.of(byte));

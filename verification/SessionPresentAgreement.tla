@@ -14,8 +14,8 @@ Receive(present, refused) ==
 LaterPresent ==
   /\ phase \in {"accepted", "active"}
   /\ presentObserved' = TRUE
-  /\ phase' = IF Fault = "openingOnly" THEN phase ELSE "failed"
-  /\ cause' = IF Fault = "openingOnly" THEN cause ELSE "protocol"
+  /\ phase' = "failed"
+  /\ cause' = "protocol"
   /\ UNCHANGED <<refusedPresent, delivered>>
 Activate == /\ phase = "accepted" /\ phase' = "active"
             /\ UNCHANGED <<cause, presentObserved, refusedPresent, delivered>>
