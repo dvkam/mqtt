@@ -64,6 +64,25 @@ test('replaying a mutable CONNACK object with changed capabilities is still a du
   expect(await opening).toMatchObject({ message: 'Duplicate MQTT CONNACK', code: 0x82 });
 });
 
+test('records receipt before a custom metadata getter can reenter delivery', async () => {
+  const peer = decodedPeer();
+  const opening = connectPortable(peer.transport, { clientId: 'reentrant-duplicate' }).catch((reason: unknown) => reason);
+  let reentered = false;
+  peer.receive()?.({
+    cmd: 'connack',
+    reasonCode: 0,
+    get sessionPresent() {
+      if (!reentered) {
+        reentered = true;
+        peer.receive()?.({ cmd: 'connack', sessionPresent: false, reasonCode: 0 });
+      }
+      return false;
+    },
+  });
+  expect(await opening).toMatchObject({ message: 'Duplicate MQTT CONNACK', code: 0x82 });
+  expect(reentered).toBe(true);
+});
+
 test.each([1, 2])('counts %i registration-time CONNACK replies before an exchange exists', async (earlyReplies) => {
   const peer = decodedPeer(earlyReplies);
   const opening = connectPortable(peer.transport, { clientId: 'early-duplicate' }).catch((reason: unknown) => reason);
