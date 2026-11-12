@@ -95,7 +95,7 @@ test('a second CONNACK claiming Session Present retires accepted opening before 
   peer.receive()?.({ cmd: 'connack', sessionPresent: false, reasonCode: 0 });
   peer.receive()?.({ cmd: 'publish', qos: 1, topic: 'a', payload: Buffer.alloc(0), messageId: 1, dup: false, retain: false });
   peer.receive()?.({ cmd: 'connack', sessionPresent: true, reasonCode: 0 });
-  expect(await opening).toMatchObject({ message: 'Unexpected MQTT Session Present', code: 0x82 });
+  expect(await opening).toMatchObject({ message: 'Duplicate MQTT CONNACK', code: 0x82 });
   expect(onQosOneMessage).not.toHaveBeenCalled();
   expect(peer.commands).toEqual(['connect', 'disconnect']);
   expect(peer.close).toHaveBeenCalledExactlyOnceWith(true);
@@ -133,7 +133,10 @@ test.each(adapters.flatMap((adapter) => [false, true].map((accepted) => ({ adapt
       const opening = factory.connect();
       expect(factory.connect()).toBe(opening);
       const failure = await opening.catch((reason: unknown) => reason);
-      expect(failure).toMatchObject({ message: 'Unexpected MQTT Session Present', code: 0x82 });
+      expect(failure).toMatchObject({
+        message: accepted ? 'Duplicate MQTT CONNACK' : 'Unexpected MQTT Session Present',
+        code: 0x82,
+      });
       await expect(factory.connect()).rejects.toBe(failure);
       await expect.poll(peer.connections).toBe(0);
       expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
@@ -189,7 +192,7 @@ test.each(adapters)('%s retires active Session Present before ping and publicati
           : createWebSocketClient({ ...peer, ...options });
     const client = await factory.connect();
     const failure = await client.ping().catch((reason: unknown) => reason);
-    expect(failure).toMatchObject({ message: 'Unexpected MQTT Session Present', code: 0x82 });
+    expect(failure).toMatchObject({ message: 'Duplicate MQTT CONNACK', code: 0x82 });
     await expect(client.ping()).rejects.toBe(failure);
     await expect.poll(peer.connections).toBe(0);
     expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);

@@ -74,6 +74,7 @@ class PortableClient<Message extends PublishMessage> {
   private readonly identifiers = new PacketIdentifiers();
   private outbound?: OutboundQosOne;
   private activation: 'opening' | 'accepted' | 'active' = 'opening';
+  private connackReceived = false;
   private inboundPhase?: InboundPhase;
   private nextInbound?: QosOneMessage<Message>;
   private readonly onQosOneMessage: PortableOptions<Message>['onQosOneMessage'];
@@ -102,6 +103,11 @@ class PortableClient<Message extends PublishMessage> {
             return;
           }
           if (packet.cmd === 'connack') {
+            if (this.connackReceived) {
+              this.rejectProtocolInput(new ProtocolInputError('Duplicate MQTT CONNACK', 0x82));
+              return;
+            }
+            this.connackReceived = true;
             if (packet.sessionPresent) {
               this.rejectProtocolInput(new ProtocolInputError('Unexpected MQTT Session Present', 0x82));
               return;
