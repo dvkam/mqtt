@@ -19,6 +19,8 @@ type PublishFields = Properties & {
   responseTopic?: string;
   correlationData?: Uint8Array;
   subscriptionIdentifiers?: readonly number[];
+  /** Present only on a packet from `decodeFramedPacket`, which leaves Topic Alias policy to its caller. */
+  topicAlias?: number;
 };
 
 export type WirePacket =
@@ -52,8 +54,9 @@ export type WirePacket =
       subscriptionIdentifiersAvailable?: boolean;
       sharedSubscriptionAvailable?: boolean;
     })
-  | (PublishFields & ({ qos?: 0; messageId?: never; dup?: never } | { qos: 1; messageId: number; dup?: boolean }))
-  | (Properties & { cmd: 'puback'; messageId: number; reasonCode: number; reasonString?: string })
+  | (PublishFields & ({ qos?: 0; messageId?: never; dup?: never } | { qos: 1 | 2; messageId: number; dup?: boolean }))
+  | (Properties & { cmd: 'puback' | 'pubrec' | 'pubrel' | 'pubcomp'; messageId: number; reasonCode: number; reasonString?: string })
+  | { cmd: 'auth'; reasonCode: number }
   | (Properties & { cmd: 'subscribe'; messageId: number; topics: readonly string[]; qos?: 0 | 1 })
   | (Properties & {
       cmd: 'suback';
@@ -205,7 +208,7 @@ function topic(value: string, filter: boolean, sharedSubscriptions = false): voi
 
 function properties(
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
-  packet: Readonly<Exclude<WirePacket, { cmd: 'pingreq' | 'pingresp' }>>,
+  packet: Readonly<Exclude<WirePacket, { cmd: 'pingreq' | 'pingresp' | 'auth' }>>,
 ): Uint8Array<ArrayBuffer> {
   const parts: Uint8Array[] = [];
   for (const [key, value] of packet.userProperties ?? []) parts.push(Uint8Array.of(0x26), utf8(key), utf8(value));
@@ -350,6 +353,11 @@ export function encodePacket(
       body = join([uint16(packet.messageId), properties(packet), Uint8Array.from(packet.granted)]);
       break;
     }
+    case 'pubrec':
+    case 'pubrel':
+    case 'pubcomp':
+    case 'auth':
+      throw new Error('Unsupported MQTT encoder field or packet');
     case 'pingreq':
       return Uint8Array.of(0xc0, 0);
     case 'pingresp':
@@ -565,7 +573,14 @@ function readProperties(reader: Readonly<Reader>, cmd: string): DecodedPropertie
         break;
       case 0x1f:
         if (
-          (cmd !== 'suback' && cmd !== 'unsuback' && cmd !== 'puback' && cmd !== 'connack' && cmd !== 'disconnect') ||
+          (cmd !== 'suback' &&
+            cmd !== 'unsuback' &&
+            cmd !== 'puback' &&
+            cmd !== 'pubrec' &&
+            cmd !== 'pubrel' &&
+            cmd !== 'pubcomp' &&
+            cmd !== 'connack' &&
+            cmd !== 'disconnect') ||
           result.reasonString !== undefined
         )
           throw new Error('Invalid Reason String property');
@@ -590,6 +605,18 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
   const reader = new Reader(frame);
   const header = reader.byte();
   reader.variable();
+  return decodeBody(header, reader, true);
+}
+
+/** Decode one packet from its fixed-header byte and the bytes that follow it, starting at the Remaining Length. */
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
+export function decodeFramedPacket(header: number, lengthAndBody: Readonly<Uint8Array>): WirePacket {
+  const reader = new Reader(lengthAndBody);
+  reader.variable();
+  return decodeBody(header, reader, false);
+}
+
+function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic: boolean): WirePacket {
   let packet: WirePacket;
   switch (header) {
     case 0x10: {
@@ -626,11 +653,16 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
     case 0x32:
     case 0x33:
     case 0x3a:
-    case 0x3b: {
+    case 0x3b:
+    case 0x34:
+    case 0x35:
+    case 0x3c:
+    case 0x3d: {
       const name = reader.string();
-      const messageId = (header & 2) === 0 ? undefined : integer(reader.uint16(), 65_535, 1);
-      const { topicAlias, ...props } = readProperties(reader, 'publish');
-      validateInboundTopic(name, topicAlias !== undefined);
+      const messageId = (header & 6) === 0 ? undefined : integer(reader.uint16(), 65_535, 1);
+      const { topicAlias, ...publishProperties } = readProperties(reader, 'publish');
+      if (checkInboundTopic) validateInboundTopic(name, topicAlias !== undefined);
+      const props = checkInboundTopic || topicAlias === undefined ? publishProperties : { ...publishProperties, topicAlias };
       const fields = {
         cmd: 'publish' as const,
         topic: name,
@@ -638,7 +670,8 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
         retain: (header & 1) !== 0,
         ...props,
       };
-      packet = messageId === undefined ? fields : { ...fields, qos: 1, messageId, dup: (header & 8) !== 0 };
+      packet =
+        messageId === undefined ? fields : { ...fields, qos: (header & 4) === 0 ? 1 : 2, messageId, dup: (header & 8) !== 0 };
       break;
     }
     case 0x40: {
@@ -690,6 +723,22 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
     case 0xd0:
       packet = { cmd: 'pingresp' };
       break;
+    case 0x50:
+    case 0x62:
+    case 0x70: {
+      const cmd = header === 0x50 ? 'pubrec' : header === 0x62 ? 'pubrel' : 'pubcomp';
+      const messageId = integer(reader.uint16(), 65_535, 1);
+      const reasonCode = reader.remaining === 0 ? 0 : reader.byte();
+      const props = reader.remaining === 0 ? {} : readProperties(reader, cmd);
+      packet = { cmd, messageId, reasonCode, ...props };
+      break;
+    }
+    case 0xf0: {
+      const reasonCode = reader.remaining === 0 ? 0 : reader.byte();
+      reader.take(reader.remaining);
+      packet = { cmd: 'auth', reasonCode };
+      break;
+    }
     case 0xe0: {
       const reasonCode = reader.remaining > 0 ? reader.byte() : 0;
       if (reasonCode !== 0 && !disconnectReasons.has(reasonCode)) throw new Error('Invalid DISCONNECT reason code');

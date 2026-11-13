@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { NodePacketDecoder } from '../src/nodePacketDecoder.js';
+import { MqttPacketCompactDecoder } from './experiments/mqtt-packet-compact-decoder.js';
 import { StreamingNodeDecoder } from './experiments/streaming-node-decoder.js';
 import { observeFramingOccupancy } from './experiments/node-framing-occupancy.js';
 
@@ -40,7 +40,7 @@ test.each([
         packets++;
       },
     };
-    const decoder = strategy === 'compact' ? new NodePacketDecoder(options) : new StreamingNodeDecoder(options);
+    const decoder = strategy === 'compact' ? new MqttPacketCompactDecoder(options) : new StreamingNodeDecoder(options);
     const observation = observeFramingOccupancy(decoder, strategy);
     try {
       for (let offset = 0; offset < wire.length; offset += fragmentBytes)
@@ -62,7 +62,7 @@ test.each([
 );
 
 test('partial admitted compact input exposes assembly capacity before its body arrives', () => {
-  const decoder = new NodePacketDecoder({ maxPacketBytes: 263, onPacket() {} });
+  const decoder = new MqttPacketCompactDecoder({ maxPacketBytes: 263, onPacket() {} });
   const observation = observeFramingOccupancy(decoder, 'compact');
   try {
     decoder.push(wire.subarray(0, 3));
@@ -80,7 +80,7 @@ test('partial admitted compact input exposes assembly capacity before its body a
 
 test('zero-body packet counts assembly capacity before immediate flush', () => {
   let packets = 0;
-  const decoder = new NodePacketDecoder({
+  const decoder = new MqttPacketCompactDecoder({
     maxPacketBytes: 2,
     onPacket() {
       packets++;
@@ -126,7 +126,7 @@ test('unsupported private shapes fail loudly', () => {
 
 test('restoring hooks preserves a partially assembled decoder and method identity', () => {
   let packets = 0;
-  const decoder = new NodePacketDecoder({
+  const decoder = new MqttPacketCompactDecoder({
     onPacket() {
       packets++;
     },
@@ -144,8 +144,8 @@ test('restoring hooks preserves a partially assembled decoder and method identit
 });
 
 test('observations remain isolated between decoder instances', () => {
-  const first = new NodePacketDecoder({ onPacket() {} });
-  const second = new NodePacketDecoder({ onPacket() {} });
+  const first = new MqttPacketCompactDecoder({ onPacket() {} });
+  const second = new MqttPacketCompactDecoder({ onPacket() {} });
   const firstObservation = observeFramingOccupancy(first, 'compact');
   const secondObservation = observeFramingOccupancy(second, 'compact');
   try {
@@ -163,7 +163,7 @@ test('observations remain isolated between decoder instances', () => {
 });
 
 test('nested observation is rejected without removing the original hooks', () => {
-  const decoder = new NodePacketDecoder({ onPacket() {} });
+  const decoder = new MqttPacketCompactDecoder({ onPacket() {} });
   const observation = observeFramingOccupancy(decoder, 'compact');
   try {
     expect(() => observeFramingOccupancy(decoder, 'compact')).toThrow('already observed');
@@ -177,7 +177,7 @@ test('nested observation is rejected without removing the original hooks', () =>
 
 test('caller cleanup restores hooks after an input callback throws', () => {
   const reason = new Error('packet callback failed');
-  const decoder = new NodePacketDecoder({
+  const decoder = new MqttPacketCompactDecoder({
     onPacket() {
       throw reason;
     },
@@ -197,7 +197,7 @@ test('caller cleanup restores hooks after an input callback throws', () => {
 });
 
 test('failed installation restores an earlier native append hook', () => {
-  const decoder = new NodePacketDecoder({ onPacket() {} });
+  const decoder = new MqttPacketCompactDecoder({ onPacket() {} });
   const native: unknown = Reflect.get(decoder, 'decoder');
   if (typeof native !== 'object' || native === null) throw new Error('Expected parser');
   const list: unknown = Reflect.get(native, '_list');
