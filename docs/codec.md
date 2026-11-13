@@ -37,6 +37,8 @@ The browser adapter forwards Receive Maximum, Maximum QoS and PUBACK identifiers
 
 The encoder uses the compact two-byte normal DISCONNECT. mqtt-packet 9.0.2 regenerates the same operation with an explicit reason and empty properties. Both forms are valid under MQTT 5 section 3.14.
 
+The Node TCP and WS/WSS adapters encode with this codec too. They pass `{ sharedSubscriptions: true }` to `encodePacket`, which then accepts a `$share/{name}/{filter}` filter with a nonempty share name that has no wildcard. The browser client does not set the flag.
+
 The [inbound publication checks](inbound-publication-validation.md) describe invalid Topic Names and the zero inbound Topic Alias profile.
 
 ## Framing and memory
