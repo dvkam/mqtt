@@ -1,7 +1,8 @@
 import type { DiagnosticObserver } from './diagnostics.js';
 import { brokerPacketDirectionError, isClientOnlyCommand, ProtocolInputError } from './protocolInputError.js';
 import { openBrowserTransport } from './browserTransport.js';
-import { encodePacket, PacketDecoder, type UserProperty } from './codec.js';
+import { encodePacket, PacketDecoder } from './codec.js';
+import { withMessageProperties, type MessageProperties } from './messageProperties.js';
 import { toWirePacket } from './wirePacket.js';
 import { connectPortable, type PacketTransport } from './portable.js';
 import type { ClientFactory, ClientSession, QosOneMessage, SessionEndObserver } from './session.js';
@@ -14,14 +15,13 @@ import {
   type NativeWriteLimits,
 } from './nativeWriteBudget.js';
 
-export interface BrowserMessage {
+export interface BrowserMessage extends MessageProperties {
   cmd: 'publish';
   topic: string;
   payload: Uint8Array;
   qos: 0;
   dup: false;
   retain: boolean;
-  userProperties?: readonly UserProperty[];
 }
 
 export type BrowserQosOneMessage = QosOneMessage<BrowserMessage>;
@@ -123,13 +123,10 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
             deliver?.({ cmd: 'disconnect', reasonCode: packet.reasonCode ?? 0 });
             break;
           case 'publish': {
-            const message = {
-              cmd: 'publish' as const,
-              topic: packet.topic,
-              payload: packet.payload,
-              retain: packet.retain ?? false,
-              userProperties: packet.userProperties,
-            };
+            const message = withMessageProperties<Omit<BrowserMessage, 'qos' | 'dup'>>(
+              { cmd: 'publish', topic: packet.topic, payload: packet.payload, retain: packet.retain ?? false },
+              packet,
+            );
             if (packet.qos === 1) {
               if (!onQosOneMessage) throw new Error('Unsupported incoming MQTT QoS 1');
               deliver?.({

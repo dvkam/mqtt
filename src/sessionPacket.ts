@@ -1,9 +1,9 @@
-import type { Packet } from 'mqtt-packet';
+import type { IPublishPacket, Packet } from 'mqtt-packet';
 import type { UserProperty, WirePacket } from './codec.ts';
 
 type UserPropertyMap = Record<string, string | string[]>;
 
-function userPropertyMap(tuples: readonly UserProperty[] | undefined): UserPropertyMap | undefined {
+export function userPropertyMap(tuples: readonly UserProperty[] | undefined): UserPropertyMap | undefined {
   if (tuples === undefined || tuples.length === 0) return undefined;
   const grouped = new Map<string, string | string[]>();
   for (const [key, value] of tuples) {
@@ -15,7 +15,7 @@ function userPropertyMap(tuples: readonly UserProperty[] | undefined): UserPrope
   return Object.fromEntries(grouped);
 }
 
-function defined<Fields extends Record<string, unknown>>(fields: Fields): Fields | undefined {
+export function defined<Fields extends Record<string, unknown>>(fields: Fields): Fields | undefined {
   const entries = Object.entries(fields).filter((entry: Readonly<[string, unknown]>) => entry[1] !== undefined);
   if (entries.length === 0) return undefined;
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Removing undefined members keeps every remaining key and value of Fields.
@@ -23,14 +23,13 @@ function defined<Fields extends Record<string, unknown>>(fields: Fields): Fields
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers.
-function nodeBytes(bytes: Uint8Array | undefined): Buffer | undefined {
-  if (bytes === undefined) return undefined;
+export function nodeBytes(bytes: Uint8Array): Buffer {
   return Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 }
 
-/** Give a decoded packet the shape the shared session reads. `length` is the MQTT Remaining Length. */
+/** Give a decoded packet other than PUBLISH the shape the shared session reads. `length` is the MQTT Remaining Length. */
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Decoded packets carry mutable byte views that the session hands to the application.
-export function toSessionPacket(packet: WirePacket, length: number): Packet {
+export function toSessionPacket(packet: Exclude<WirePacket, { cmd: 'publish' }>, length: number): Exclude<Packet, IPublishPacket> {
   switch (packet.cmd) {
     case 'connack': {
       const properties = defined({
@@ -50,7 +49,7 @@ export function toSessionPacket(packet: WirePacket, length: number): Packet {
         responseInformation: packet.responseInformation,
         serverReference: packet.serverReference,
         authenticationMethod: packet.authenticationMethod,
-        authenticationData: nodeBytes(packet.authenticationData),
+        authenticationData: packet.authenticationData === undefined ? undefined : nodeBytes(packet.authenticationData),
       });
       return {
         cmd: 'connack',
@@ -59,32 +58,6 @@ export function toSessionPacket(packet: WirePacket, length: number): Packet {
         reasonCode: packet.reasonCode,
         ...(properties ? { properties } : {}),
       };
-    }
-    case 'publish': {
-      const identifiers = packet.subscriptionIdentifiers;
-      const properties = defined({
-        payloadFormatIndicator: packet.payloadFormatIndicator === undefined ? undefined : packet.payloadFormatIndicator === 1,
-        messageExpiryInterval: packet.messageExpiryInterval,
-        topicAlias: packet.topicAlias,
-        contentType: packet.contentType,
-        responseTopic: packet.responseTopic,
-        correlationData: nodeBytes(packet.correlationData),
-        subscriptionIdentifier:
-          identifiers === undefined ? undefined : identifiers.length === 1 ? identifiers[0] : [...identifiers],
-        userProperties: userPropertyMap(packet.userProperties),
-      });
-      const payload = nodeBytes(packet.payload) ?? Buffer.alloc(0);
-      const fields = {
-        cmd: 'publish' as const,
-        length,
-        topic: packet.topic,
-        payload,
-        retain: packet.retain ?? false,
-        ...(properties ? { properties } : {}),
-      };
-      if (packet.qos === 1 || packet.qos === 2)
-        return { ...fields, qos: packet.qos, dup: packet.dup ?? false, messageId: packet.messageId };
-      return { ...fields, qos: 0, dup: false };
     }
     case 'puback':
     case 'pubrec':

@@ -24,11 +24,11 @@ export class NodePacketInput {
   constructor(maxPacketBytes?: number) {
     this.decoder = new NodePacketDecoder({
       maxPacketBytes,
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Forward the retained parser's mutable packets without changing Buffer payloads.
-      onPacket: (packet) => {
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Forward decoded packets without copying their byte views.
+      onPacket: (packet, length) => {
         if (isClientOnlyCommand(packet.cmd)) throw brokerPacketDirectionError(packet.cmd);
-        if (packet.cmd === 'publish') validateInboundTopic(packet.topic, packet.properties?.topicAlias !== undefined);
-        this.registration?.received(packet);
+        if (packet.cmd === 'publish') validateInboundTopic(packet.topic, packet.topicAlias !== undefined);
+        this.registration?.received(packet, length);
       },
     });
   }

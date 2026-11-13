@@ -43,6 +43,7 @@ async function runSession(
     clientId: 'sustained-' + mode,
     signal: controller.signal,
     timeoutMs: 1000,
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser message carries a mutable Correlation Data view.
     onMessage(packet: Readonly<Omit<BrowserMessage, 'payload'>> & Readonly<{ payload: unknown }>) {
       if (packet.topic === 'load/midpoint') midpoint.finish();
       if (packet.topic === 'load/end') ended.finish();
@@ -214,6 +215,7 @@ async function runBatchNetwork(url: string, mode: 'iterator' | 'batch-16') {
       clientId: 'packed-ready-' + mode,
       signal: controller.signal,
       timeoutMs: 1000,
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser message carries a mutable Correlation Data view.
       onMessage(packet: Readonly<Omit<BrowserMessage, 'payload'>> & Readonly<{ payload: unknown }>) {
         if (packet.topic === 'load/midpoint') midpoint.finish();
         if (packet.topic === 'load/end') end.finish();
