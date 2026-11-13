@@ -185,8 +185,14 @@ function utf8(value: string): Uint8Array<ArrayBuffer> {
   return join([uint16(bytes.length), bytes]);
 }
 
-function topic(value: string, filter: boolean): void {
-  if (filter && value.startsWith('$share/')) throw new Error('Unsupported shared subscription');
+function topic(value: string, filter: boolean, sharedSubscriptions = false): void {
+  if (filter && value.startsWith('$share/')) {
+    if (!sharedSubscriptions) throw new Error('Unsupported shared subscription');
+    const [, shareName = '', ...levels] = value.split('/');
+    if (shareName.length === 0 || /[+#]/u.test(shareName) || levels.length === 0 || levels.join('/').length === 0)
+      throw new Error('Invalid MQTT shared subscription');
+    value = levels.join('/');
+  }
   if (!value || (!filter && /[+#]/u.test(value))) throw new Error('Invalid MQTT topic');
   if (
     filter &&
@@ -248,8 +254,11 @@ function properties(
 }
 
 /** MQTT 5 preview profile. Unsupported packet forms and properties are rejected. */
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
-export function encodePacket(packet: Readonly<WirePacket>): Uint8Array<ArrayBuffer> {
+export function encodePacket(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
+  packet: Readonly<WirePacket>,
+  { sharedSubscriptions = false }: Readonly<{ sharedSubscriptions?: boolean }> = {},
+): Uint8Array<ArrayBuffer> {
   const fields = packetFields[packet.cmd];
   if (!fields || Object.keys(packet).some((field) => !fields.includes(field))) {
     throw new Error('Unsupported MQTT encoder field or packet');
@@ -326,7 +335,7 @@ export function encodePacket(packet: Readonly<WirePacket>): Uint8Array<ArrayBuff
         uint16(packet.messageId),
         properties(packet),
         ...packet.topics.map((value) => {
-          topic(value, true);
+          topic(value, true, sharedSubscriptions);
           const filter = utf8(value);
           return packet.cmd === 'subscribe' ? join([filter, Uint8Array.of(subscriptionQos)]) : filter;
         }),
