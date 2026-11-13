@@ -1,6 +1,6 @@
 # PUBLISH property byte validation
 
-The shared native decoder checks PUBLISH property strings before mqtt-packet 9.0.2 converts their original bytes. The TCP and Node WebSocket clients reject ill-formed UTF-8 and U+0000 in User Property keys and values, Content Type and Response Topic.
+The shared native decoder checks PUBLISH property strings before the portable codec converts their original bytes. The TCP and Node WebSocket clients reject ill-formed UTF-8 and U+0000 in User Property keys and values, Content Type and Response Topic.
 
 Independent failing User Property frames include:
 

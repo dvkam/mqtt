@@ -18,7 +18,7 @@ This introduces a default limit where the supported TCP adapter previously had n
 
 ## Input and operation outcomes
 
-The decoder interprets the first byte through mqtt-packet, preserving its early flag and QoS errors. It collects at most four length bytes, rejects a non-minimal Remaining Length before frame allocation, checks total wire size and copies the admitted remainder into compact owned storage. A declaration above the budget fails without waiting for its body, including a fragmented declaration. The adapter destroys the connection and reports a RangeError with message `MQTT packet allocation limit exceeded`.
+The decoder checks the first byte itself and reports the early flag and QoS errors that mqtt-packet reported. It collects at most four length bytes, rejects a non-minimal Remaining Length before frame allocation, checks total wire size and copies the admitted remainder into compact owned storage. A declaration above the budget fails without waiting for its body, including a fragmented declaration. The adapter destroys the connection and reports a RangeError with message `MQTT packet allocation limit exceeded`.
 
 Several complete packets can arrive in one chunk. Completed application publications are delivered synchronously before a later packet in that chunk fails. A still-pending connect, subscribe or ping operation fails on fatal input, even when a valid acknowledgment appeared earlier in the same callback. Tests cover CONNACK, SUBACK and PINGRESP prefixes. No artificial microtask delay selects the outcome. Operations already settled in an earlier turn keep their result.
 
@@ -34,7 +34,7 @@ A payload view can be transferred without detaching the chunk that still contain
 flowchart LR
   Socket[Node TCP socket] --> Input[NodePacketInput]
   Input --> Decoder[NodePacketDecoder]
-  Decoder --> Native[mqtt-packet]
+  Decoder --> Native[portable codec]
   Native --> Core[Portable session]
   Core -->|unlisten| Input
 ```
@@ -57,4 +57,4 @@ NodePacketAdmission covers frame admission and completion. NodeInputLifecycle se
 
 Node WS/WSS uses the same private decoder and input helper, with [its own native-close semantics](websocket-packet-input.md). Its aggregate WebSocket-message cap remains independent of MQTT assembled across messages. Broader malformed-packet rules, property limits and comparisons remain under #9; queue ordering and soak work remain under #11. The [measurement index](measurements.md) links all recorded observations and their limits.
 
-The shared Node decoder checks inbound PUBLISH topic bytes before handing the compact remainder to mqtt-packet. It rejects ill-formed UTF-8, U+0000 and a topic field that extends past the frame. The check reads a view of the topic bytes and leaves the binary payload and its Buffer ownership intact. It preserves valid U+FEFF, U+FFFD and supplementary characters. TCP and Node WebSocket retire the connection and preserve the first error. The browser codec already checks these string rules. The public adapter tests run over scripted peers, with the browser adapter using Node's native WebSocket. Property strings and topic alias semantics are separate checks. [MQTT 5 sections 1.5.4 and 3.3.2.1](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html)
+The shared Node decoder checks inbound PUBLISH topic bytes before handing the compact remainder to the portable codec. It rejects ill-formed UTF-8, U+0000 and a topic field that extends past the frame. The check reads a view of the topic bytes and leaves the binary payload and its Buffer ownership intact. It preserves valid U+FEFF, U+FFFD and supplementary characters. TCP and Node WebSocket retire the connection and preserve the first error. The browser codec already checks these string rules. The public adapter tests run over scripted peers, with the browser adapter using Node's native WebSocket. Property strings and topic alias semantics are separate checks. [MQTT 5 sections 1.5.4 and 3.3.2.1](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html)
