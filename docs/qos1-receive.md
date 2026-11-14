@@ -14,7 +14,7 @@ const client = await createTcpClient({
 await client.subscribe('sensors/+/temperature', { qos: 1 });
 ```
 
-Node handlers receive a `Buffer`. Browser handlers receive a `Uint8Array`. The QoS 1 callback also receives a numeric `messageId` and boolean `dup`. `QosOneMessage` and `SubscribeOptions` are exported types. The QoS 0 callback keeps its existing payload and QoS types.
+Node handlers receive a `Buffer`. Browser handlers receive a `Uint8Array`. The QoS 1 callback also receives a numeric `messageId` and boolean `dup`. `QosOneMessage` and `SubscribeOptions` are exported types. The QoS 0 callback keeps its existing payload and QoS types. Both callbacks receive the [flat message fields](public-types.md#received-message-fields).
 
 ## Flow control
 

@@ -1,7 +1,7 @@
 import { parser } from 'mqtt-packet';
 import { expect, test, vi } from 'vitest';
 import { StreamingNodeDecoder } from './experiments/streaming-node-decoder.js';
-import { NodePacketDecoder } from '../src/nodePacketDecoder.js';
+import { NodePacketDecoder } from './experiments/session-packet-decoder.js';
 
 const publication = Uint8Array.of(0x30, 6, 0, 1, 97, 0, 104, 105);
 const broadVectors = [

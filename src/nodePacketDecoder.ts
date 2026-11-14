@@ -1,7 +1,5 @@
 import { isUtf8 } from 'node:buffer';
-import type { Packet } from 'mqtt-packet';
-import { decodeFramedPacket } from './wireCodec.ts';
-import { toSessionPacket } from './sessionPacket.ts';
+import { decodeFramedPacket, type FramedPacket } from './wireCodec.ts';
 import { brokerPacketDirectionError, ProtocolInputError } from './protocolInputError.ts';
 
 type PropertyShape = 'byte' | 'two' | 'four' | 'variable' | 'string' | 'pair' | 'binary';
@@ -103,7 +101,7 @@ function validateFixedHeader(header: number): void {
 type DecoderOptions = Readonly<{
   maxPacketBytes?: number;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The decoder delivers mutable packets and Buffer payloads.
-  onPacket: (packet: Packet) => void;
+  onPacket: (packet: FramedPacket, length: number) => void;
 }>;
 
 export class NodePacketDecoder {
@@ -221,7 +219,7 @@ export class NodePacketDecoder {
     if (header >>> 4 === 0) throw new Error('Not supported');
     const type = header >>> 4;
     if (type === 1 || type === 8 || type === 10 || type === 12) throw brokerPacketDirectionError(packetNames[type]);
-    this.onPacket(toSessionPacket(decodeFramedPacket(header, completed), completed.length - lengthSize));
+    this.onPacket(decodeFramedPacket(header, completed), completed.length - lengthSize);
     this.assertOpen();
   }
 

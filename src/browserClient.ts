@@ -1,7 +1,8 @@
 import type { DiagnosticObserver } from './diagnostics.js';
 import { brokerPacketDirectionError, isClientOnlyCommand, ProtocolInputError } from './protocolInputError.js';
 import { openBrowserTransport } from './browserTransport.js';
-import { encodePacket, PacketDecoder, type UserProperty } from './codec.js';
+import { encodePacket, PacketDecoder } from './codec.js';
+import { messageProperties, type MessageProperties } from './messageProperties.js';
 import { toWirePacket } from './wirePacket.js';
 import { connectPortable, type PacketTransport } from './portable.js';
 import type { ClientFactory, ClientSession, QosOneMessage, SessionEndObserver } from './session.js';
@@ -14,14 +15,13 @@ import {
   type NativeWriteLimits,
 } from './nativeWriteBudget.js';
 
-export interface BrowserMessage {
+export interface BrowserMessage extends MessageProperties {
   cmd: 'publish';
   topic: string;
   payload: Uint8Array;
   qos: 0;
   dup: false;
   retain: boolean;
-  userProperties?: readonly UserProperty[];
 }
 
 export type BrowserQosOneMessage = QosOneMessage<BrowserMessage>;
@@ -42,6 +42,11 @@ export interface BrowserClientOptions extends PublicationLimits, SubscriptionLim
   onMessage?: (message: BrowserMessage) => void;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser message retains its mutable Uint8Array payload.
   onQosOneMessage?: (message: BrowserQosOneMessage) => void | Promise<void>;
+}
+
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Browser messages keep the decoder's mutable byte views.
+function browserBytes(value: Uint8Array): Uint8Array {
+  return value;
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
@@ -128,7 +133,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
               topic: packet.topic,
               payload: packet.payload,
               retain: packet.retain ?? false,
-              userProperties: packet.userProperties,
+              ...messageProperties(packet, browserBytes),
             };
             if (packet.qos === 1) {
               if (!onQosOneMessage) throw new Error('Unsupported incoming MQTT QoS 1');

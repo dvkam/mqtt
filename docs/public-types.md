@@ -6,9 +6,9 @@ Use `import type` for the named contracts. TypeScript 7.0.2 is the supported com
 | --------------------------------------------------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `TcpClientOptions`                                                                | `mqtt`                                  | Host, optional port, session options and cancellation signal                                                                                 |
 | `WebSocketClientOptions`                                                          | `mqtt`                                  | URL, TLS and agent options, session options and local write budget                                                                           |
-| `NodeMessage`, `NodeQosOneMessage`                                                | `mqtt`                                  | Received QoS 0 and 1 PUBLISH with a mutable Buffer payload                                                                                   |
+| `NodeMessage`, `NodeQosOneMessage`                                                | `mqtt`                                  | Received QoS 0 and 1 PUBLISH as a flat object with a mutable Buffer payload                                                                  |
 | `BrowserClientOptions`                                                            | `mqtt/browser`                          | URL, session options, cancellation and independent byte and packet budgets                                                                   |
-| `BrowserMessage`, `BrowserQosOneMessage`                                          | `mqtt/browser`                          | Received QoS 0 and 1 PUBLISH with a mutable Uint8Array payload                                                                               |
+| `BrowserMessage`, `BrowserQosOneMessage`                                          | `mqtt/browser`                          | Received QoS 0 and 1 PUBLISH as a flat object with a mutable Uint8Array payload                                                              |
 | `ClientDiagnostic`, `DiagnosticObserver`                                          | Both client entries and `mqtt/portable` | Optional packet command and connection state metadata                                                                                        |
 | `SessionEnd`, `SessionEndObserver`                                                | Both client entries and `mqtt/portable` | First logical retirement and its optional observer                                                                                           |
 | `ClientFactory`                                                                   | Both client entries                     | One cached connection attempt through `connect()`                                                                                            |
@@ -23,6 +23,48 @@ Use `import type` for the named contracts. TypeScript 7.0.2 is the supported com
 `onMessage` handles QoS 0. Register `onQosOneMessage` before requesting a QoS 1 subscription. Its message adds a packet identifier and a DUP flag, with the same platform-specific payload type. The client acknowledges the delivery after that handler succeeds. See [inbound QoS 1 delivery](qos1-receive.md).
 
 Node and browser factories share a session interface. Their repeated `connect()` calls return the same promise. Browser declarations compile using DOM libraries with no Node ambient types. Legacy options have their own [compatibility notes](legacy-options.md). The requested client identifier belongs to factory options. The future session identity contract, including broker-assigned identifiers, belongs to #19 and #28.
+
+## Received message fields
+
+`onMessage` and `onQosOneMessage` receive one flat object on every platform. The Node and browser messages differ only in their byte types.
+
+| Field                     | Type                                          | Notes                                                 |
+| ------------------------- | --------------------------------------------- | ----------------------------------------------------- |
+| `cmd`                     | `'publish'`                                   |                                                       |
+| `topic`                   | `string`                                      |                                                       |
+| `payload`                 | `Buffer` on Node, `Uint8Array` in the browser |                                                       |
+| `qos`                     | `0`, or `1` in `onQosOneMessage`              |                                                       |
+| `dup`                     | `false`, or `boolean` in `onQosOneMessage`    |                                                       |
+| `retain`                  | `boolean`                                     |                                                       |
+| `messageId`               | `number`                                      | Only in `onQosOneMessage`                             |
+| `payloadFormatIndicator`  | `0` or `1`                                    |                                                       |
+| `messageExpiryInterval`   | `number`                                      | Seconds                                               |
+| `contentType`             | `string`                                      |                                                       |
+| `responseTopic`           | `string`                                      |                                                       |
+| `correlationData`         | `Buffer` on Node, `Uint8Array` in the browser |                                                       |
+| `subscriptionIdentifiers` | `readonly number[]`                           | Wire order                                            |
+| `userProperties`          | `readonly UserProperty[]`                     | `[key, value]` pairs in wire order. A key can repeat. |
+
+The last seven fields are the PUBLISH properties, and `MessageProperties` names them. Its type parameter is the byte type, so `NodeMessage` extends `MessageProperties<Buffer>` and `BrowserMessage` extends `MessageProperties`. A property the broker left out is an absent key. Both client entries export `MessageProperties` and `UserProperty`.
+
+On Node, `payload` and `correlationData` are views of the one allocation the decoder made for the packet. Keeping either one keeps the whole packet in memory. Copy the bytes with `Buffer.from(message.payload)` to keep a payload for a long time.
+
+### Change from the mqtt-packet shape
+
+`NodeMessage` used to be mqtt-packet's `IPublishPacket` with a Buffer payload. It now matches `BrowserMessage`. `BrowserMessage` gained the six properties other than `userProperties`, which it dropped before.
+
+| Before                                                                       | After                                                  |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `message.properties?.contentType`                                            | `message.contentType`                                  |
+| `message.properties?.responseTopic`                                          | `message.responseTopic`                                |
+| `message.properties?.messageExpiryInterval`                                  | `message.messageExpiryInterval`                        |
+| `message.properties?.correlationData`                                        | `message.correlationData`                              |
+| `message.properties?.payloadFormatIndicator`, a `boolean`                    | `message.payloadFormatIndicator`, `0` or `1`           |
+| `message.properties?.subscriptionIdentifier`, a `number` or `number[]`       | `message.subscriptionIdentifiers`, always a list       |
+| `message.properties?.userProperties`, a map of `string` or `string[]` values | `message.userProperties`, ordered `[key, value]` pairs |
+| `message.length`                                                             | Removed                                                |
+
+The old map kept the order of values under one key but lost the order between keys. The pairs keep the order the broker sent, which MQTT 5 requires a forwarder to keep (MQTT-3.3.2-18).
 
 ## Packed verification
 
