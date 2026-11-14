@@ -17,19 +17,19 @@ Send encoded bytes through `openBrowserTransport` and feed its `onBytes` values 
 | Packet               | Supported fields                                                                                                                                |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | CONNECT              | MQTT 5, client identifier, Clean Start, Keep Alive, Receive Maximum, username, binary password, User Properties                                 |
-| CONNACK              | Session Present, reason code, Receive Maximum, Maximum QoS, Topic Alias Maximum, Assigned Client Identifier, User Properties |
-| PUBLISH              | QoS 0 or 1, nonempty topic name, binary payload, retain, User Properties. QoS 1 also carries a nonzero packet identifier and DUP.               |
+| CONNACK              | Session Present, reason code and every CONNACK property in MQTT 5 section 3.2.2.3                                                              |
+| PUBLISH              | QoS 0 or 1, nonempty topic name, binary payload, retain, Payload Format Indicator, Message Expiry Interval, Content Type, Response Topic, Correlation Data, Subscription Identifiers, User Properties. QoS 1 also carries a nonzero packet identifier and DUP. |
 | PUBACK               | Nonzero packet identifier, reason code, Reason String and ordered User Properties                                                               |
 | SUBSCRIBE            | Packet identifier, ordinary topic filters with a uniform requested QoS of 0 or 1, User Properties                                               |
 | SUBACK               | Packet identifier, reason codes, Reason String, User Properties                                                                                 |
 | UNSUBSCRIBE          | Packet identifier, ordinary topic filters, User Properties                                                                                      |
 | UNSUBACK             | Packet identifier, reason codes, Reason String, User Properties                                                                                 |
 | PINGREQ and PINGRESP | Empty bodies                                                                                                                                    |
-| DISCONNECT           | Normal disconnect, Malformed Packet, Protocol Error and Receive Maximum exceeded. Zero-, one- and two-byte bodies when permitted by the reason. |
+| DISCONNECT           | Every reason code in MQTT 5 section 3.14.2.1, Reason String, Server Reference, User Properties. Zero- and one-byte bodies when no property is present. |
 
 User Properties are ordered key/value tuples. Duplicate keys and empty keys or values are preserved.
 
-The encoder checks packet fields against this profile. Wills, other disconnect reasons, shared subscriptions and additional properties require profile expansion. The decoder rejects unsupported properties, including those allowed in broader MQTT 5 profiles.
+The encoder checks packet fields against this profile. Wills, shared subscriptions, AUTH, QoS 2 and CONNECT properties other than Receive Maximum require profile expansion. The decoder accepts each property only in the packet types that MQTT 5 assigns it to. It rejects a repeated property other than User Property and Subscription Identifier. The browser client rejects a CONNACK that carries Authentication Method or Authentication Data. It does not yet pass the other new CONNACK and PUBLISH properties to the application.
 
 Pass `qos: 1` and `messageId` on a QoS 1 PUBLISH. QoS 0 packets may omit `qos` and decode to their existing shape. PUBACK decodes the omitted reason as success and accepts explicit reasons with or without the zero Property Length field. Its encoder emits the shortest form for the supplied reason and properties.
 
