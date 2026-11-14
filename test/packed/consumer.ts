@@ -33,6 +33,11 @@ type Received = Parameters<NonNullable<import('mqtt').TcpClientOptions['onMessag
 export type PackedPayloadIsSpecific = RequireFalse<IsAny<Received['payload']>>;
 export type PackedPayloadIsBuffer = RequireTrue<Received['payload'] extends Buffer ? true : false>;
 export type PackedQosIsZero = RequireTrue<Received['qos'] extends 0 ? true : false>;
+export type PackedMessageIsFlat = RequireFalse<'properties' extends keyof Received ? true : false>;
+export type PackedMessageNamesItsProperties = RequireTrue<Received extends import('mqtt').MessageProperties ? true : false>;
+export type PackedUserPropertiesAreOrderedPairs = RequireTrue<
+  NonNullable<Received['userProperties']> extends readonly import('mqtt').UserProperty[] ? true : false
+>;
 type NodeQosOne = Parameters<NonNullable<import('mqtt').TcpClientOptions['onQosOneMessage']>>[0];
 type BrowserQosOne = Parameters<NonNullable<import('mqtt/browser').BrowserClientOptions['onQosOneMessage']>>[0];
 export type NodeQosOnePayloadIsSpecific = RequireFalse<IsAny<NodeQosOne['payload']>>;

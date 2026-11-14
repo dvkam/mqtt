@@ -76,4 +76,6 @@ export type {
   SubscribeOptions,
 } from './session.js';
 export type { NodeMessage, NodeQosOneMessage } from './nodeMessage.js';
+export type { MessageProperties } from './messageProperties.js';
+export type { UserProperty } from './codec.js';
 export type { ClientDiagnostic, DiagnosticObserver } from './diagnostics.js';

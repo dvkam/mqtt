@@ -1,6 +1,6 @@
 import { getEventListeners } from 'node:events';
 import { expect, test, vi } from 'vitest';
-import { NodePacketDecoder } from '../src/nodePacketDecoder.js';
+import { NodePacketDecoder } from './experiments/session-packet-decoder.js';
 import { NodePacketInput } from '../src/nodePacketInput.js';
 import { PacketDecoder } from '../src/codec.js';
 import { createTcpClient, createWebSocketClient } from '../src/index.js';
@@ -273,9 +273,7 @@ test.each(adapters.flatMap((adapter) => [0, 1].map((qos) => ({ adapter, qos })))
         throw new Error('Expected publication bytes');
       expect([...packet.payload]).toEqual(payload);
       const key = '\ufeff\ufffd';
-      const expected =
-        adapter === 'browser' ? { userProperties: [[key, 'v']] } : { properties: { userProperties: { [key]: 'v' } } };
-      expect(packet).toMatchObject(expected);
+      expect(packet).toMatchObject({ userProperties: [[key, 'v']] });
       await expect.poll(() => peer.commands).toEqual(qos === 0 ? ['connect', 'pingreq'] : ['connect', 'pingreq', 'puback']);
       await client.disconnect();
     } finally {

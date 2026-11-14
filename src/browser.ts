@@ -2,6 +2,8 @@ export { openBrowserTransport } from './browserTransport.js';
 export type { BrowserCloseKind, BrowserTransport, BrowserTransportOptions } from './browserTransport.js';
 export { createBrowserClient } from './browserClient.js';
 export type { BrowserClientOptions, BrowserMessage, BrowserQosOneMessage, BrowserSession } from './browserClient.js';
+export type { MessageProperties } from './messageProperties.js';
+export type { UserProperty } from './codec.js';
 export type {
   ClientFactory,
   ClientSession,

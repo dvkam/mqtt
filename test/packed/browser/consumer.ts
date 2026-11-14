@@ -29,6 +29,9 @@ export type PackedPayloadIsSpecific = RequireFalse<IsAny<Received['payload']>>;
 export type PackedPayloadIsBytes = RequireTrue<Received['payload'] extends Uint8Array ? true : false>;
 type ReceivedQosOne = Parameters<NonNullable<BrowserClientOptions['onQosOneMessage']>>[0];
 export type PackedQosOnePayloadIsSpecific = RequireFalse<IsAny<ReceivedQosOne['payload']>>;
+export type PackedBrowserMessageNamesItsProperties = RequireTrue<
+  Received extends import('mqtt/browser').MessageProperties ? true : false
+>;
 export type PackedQosOneMessage = RequireTrue<ReceivedQosOne extends QosOneMessage<Received> ? true : false>;
 export type BrowserQosOneCallbackUsesNamedMessage = RequireTrue<ReceivedQosOne extends BrowserQosOneMessage ? true : false>;
 export type NamedBrowserQosOneMatchesCallback = RequireTrue<BrowserQosOneMessage extends ReceivedQosOne ? true : false>;

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { generate, type Packet } from 'mqtt-packet';
 import { expect, test } from 'vitest';
-import { NodePacketDecoder } from '../src/nodePacketDecoder.js';
+import { NodePacketDecoder } from './experiments/session-packet-decoder.js';
 import { MqttPacketCompactDecoder } from './experiments/mqtt-packet-compact-decoder.js';
 
 const userProperties = { region: 'eu', tag: ['a', 'b'] };

@@ -28,7 +28,7 @@ try {
 
 Construction performs no I/O. Repeated `connect` calls on one factory return the same promise. Use a new factory for another connection attempt.
 
-The preview opens an MQTT 5 clean session with Keep Alive set to zero. It supports ordinary QoS 0 and 1 subscriptions, text publishing, binary received payloads, ping and graceful disconnect. Received User Properties retain their key/value order and duplicates. The codec profile in docs/codec.md defines the accepted broker packets and properties.
+The preview opens an MQTT 5 clean session with Keep Alive set to zero. It supports ordinary QoS 0 and 1 subscriptions, text publishing, binary received payloads, ping and graceful disconnect. A received message carries every PUBLISH property the broker sent as a flat field. User Properties keep their order and duplicates. [Public client types](public-types.md#received-message-fields) lists the fields. The codec profile in docs/codec.md defines the accepted broker packets and properties.
 
 The shared session rejects empty subscription filters, misplaced wildcards, NUL, lone UTF-16 surrogates and filters exceeding 65,535 UTF-8 bytes before reserving an identifier or sending. Invalid input leaves an active session usable. An existing terminal failure retains precedence. Valid Unicode pairs, byte-order marks and exact byte-limit filters preserve their original text. Publishing applies the same string limits and rejects both wildcard characters before sending. Invalid publication input leaves the session usable. Topic aliases and shared-subscription negotiation remain outside this API.
 
