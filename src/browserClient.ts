@@ -1,7 +1,8 @@
 import type { DiagnosticObserver } from './diagnostics.js';
 import { brokerPacketDirectionError, isClientOnlyCommand, ProtocolInputError } from './protocolInputError.js';
 import { openBrowserTransport } from './browserTransport.js';
-import { encodePacket, PacketDecoder, type UserProperty, type WirePacket } from './codec.js';
+import { encodePacket, PacketDecoder, type UserProperty } from './codec.js';
+import { toWirePacket } from './wirePacket.js';
 import { connectPortable, type PacketTransport } from './portable.js';
 import type { ClientFactory, ClientSession, QosOneMessage, SessionEndObserver } from './session.js';
 import { resolveSubscriptionLimits, type SubscriptionLimits } from './subscriptionExchanges.js';
@@ -164,80 +165,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
     supportsSharedSubscriptions: false,
     // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- Encoding and admission failures must reject through the packet transport's promise API. The browser adapter preserves native signals and mutable packet payloads.
     async send(packet) {
-      let encoded: WirePacket;
-      switch (packet.cmd) {
-        case 'connect':
-          encoded = {
-            cmd: 'connect',
-            clientId: packet.clientId,
-            cleanStart: packet.clean,
-            keepAlive: packet.keepalive,
-            username: packet.username,
-            password: packet.password,
-            receiveMaximum: packet.properties?.receiveMaximum,
-          };
-          break;
-        case 'subscribe': {
-          if (packet.messageId === undefined) throw new Error('SUBSCRIBE requires a packet identifier');
-          const qos = packet.subscriptions[0]?.qos;
-          if (qos === 2 || packet.subscriptions.some((subscription: Readonly<{ qos: number }>) => subscription.qos !== qos))
-            throw new Error('Unsupported browser subscription options');
-          encoded = {
-            cmd: 'subscribe',
-            messageId: packet.messageId,
-            topics: packet.subscriptions.map(({ topic }: Readonly<{ topic: string }>) => topic),
-            qos,
-          };
-          break;
-        }
-        case 'unsubscribe':
-          if (packet.messageId === undefined) throw new Error('UNSUBSCRIBE requires a packet identifier');
-          encoded = {
-            cmd: 'unsubscribe',
-            messageId: packet.messageId,
-            topics: packet.unsubscriptions,
-          };
-          break;
-        case 'publish': {
-          if (packet.qos === 2) throw new Error('Unsupported browser PUBLISH QoS');
-          const fields = {
-            cmd: 'publish' as const,
-            topic: packet.topic,
-            payload: typeof packet.payload === 'string' ? new TextEncoder().encode(packet.payload) : packet.payload,
-            retain: packet.retain,
-          };
-          if (packet.qos === 1) {
-            if (packet.messageId === undefined) throw new Error('QoS 1 PUBLISH requires a packet identifier');
-            encoded = { ...fields, qos: 1, messageId: packet.messageId, dup: packet.dup };
-          } else encoded = fields;
-          break;
-        }
-        case 'puback':
-          if (packet.messageId === undefined) throw new Error('PUBACK requires a packet identifier');
-          encoded = {
-            cmd: 'puback',
-            messageId: packet.messageId,
-            reasonCode: packet.reasonCode ?? 0,
-          };
-          break;
-        case 'disconnect':
-          encoded = { cmd: 'disconnect', reasonCode: packet.reasonCode };
-          break;
-        case 'pingreq':
-          encoded = { cmd: packet.cmd };
-          break;
-        case 'auth':
-        case 'connack':
-        case 'pingresp':
-        case 'pubcomp':
-        case 'pubrec':
-        case 'pubrel':
-        case 'suback':
-        case 'unsuback':
-        default:
-          throw new Error('Unsupported browser client operation');
-      }
-      const frame = encodePacket(encoded);
+      const frame = encodePacket(toWirePacket(packet));
       try {
         bytes.send(frame, packet.cmd === 'publish' ? 'publication' : 'control');
       } catch (reason) {

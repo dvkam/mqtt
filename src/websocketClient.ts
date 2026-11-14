@@ -1,8 +1,9 @@
-import { generate } from 'mqtt-packet';
 import type { Agent } from 'node:http';
 import type { SecureContextOptions } from 'node:tls';
 import WebSocket from 'ws';
+import { encodePacket } from './codec.js';
 import { connectPortable, type PacketTransport, type PortableOptions } from './portable.js';
+import { toWirePacket } from './wirePacket.js';
 import type { ClientFactory } from './session.js';
 import type { NodeMessage } from './nodeMessage.js';
 import { NodePacketInput } from './nodePacketInput.js';
@@ -66,7 +67,6 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
     maxPayload: maxWebSocketMessageBytes,
   });
   socket.binaryType = 'nodebuffer';
-  const codec = { protocolVersion: 5 };
   const closed = new Promise<void>((resolve) => {
     socket.once('close', () => {
       try {
@@ -105,7 +105,7 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
     async send(packet) {
       if (socket.readyState !== WebSocket.OPEN) throw input.reason ?? new Error('MQTT WebSocket closed');
-      const bytes = generate(packet, codec);
+      const bytes = encodePacket(toWirePacket(packet), { sharedSubscriptions: true });
       // Client frames are masked and compression is disabled.
       const frameBytes = bytes.byteLength + (bytes.byteLength < 126 ? 6 : bytes.byteLength < 65_536 ? 8 : 14);
       if (

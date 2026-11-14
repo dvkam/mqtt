@@ -1,7 +1,8 @@
 import { createConnection, isIP } from 'node:net';
 import tls, { type ConnectionOptions } from 'node:tls';
-import { generate } from 'mqtt-packet';
+import { encodePacket } from './codec.js';
 import { connectPortable, type PacketTransport, type PortableOptions } from './portable.js';
+import { toWirePacket } from './wirePacket.js';
 import type { ClientFactory } from './session.js';
 import type { NodeMessage } from './nodeMessage.js';
 import { NodePacketInput } from './nodePacketInput.js';
@@ -69,7 +70,6 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
           servername: tlsOptions.servername ?? (isIP(options.host) === 0 ? options.host : undefined),
         });
   socket.setNoDelay(true);
-  const codec = { protocolVersion: 5 };
   socket.on('error', (error: Readonly<Error>) => {
     input.retire('error', error);
     signal?.removeEventListener('abort', abort);
@@ -108,7 +108,7 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
     // oxlint-disable-next-line typescript/promise-function-async, typescript/prefer-readonly-parameter-types -- Forward the existing promise without adding an async wrapper. The TCP adapter uses native signals, sockets and shared packet buffers.
     send(packet) {
       return new Promise((resolve, reject) => {
-        const bytes = generate(packet, codec);
+        const bytes = encodePacket(toWirePacket(packet), { sharedSubscriptions: true });
         if (
           !allowsNativeWrite(writeLimits, socket.writableLength, bytes.length, packet.cmd === 'publish' ? 'publication' : 'control')
         ) {
