@@ -63,6 +63,8 @@ On Node, `payload` and `correlationData` are views of the one allocation the dec
 | `message.properties?.subscriptionIdentifier`, a `number` or `number[]`       | `message.subscriptionIdentifiers`, always a list       |
 | `message.properties?.userProperties`, a map of `string` or `string[]` values | `message.userProperties`, ordered `[key, value]` pairs |
 | `message.length`                                                             | Removed                                                |
+| `message.messageId` and `message.properties?.topicAlias` on a QoS 0 message | Removed. Neither was ever set |
+| `message.dup`, a `boolean` | `false` on a QoS 0 message, `boolean` on a QoS 1 message |
 
 The old map kept the order of values under one key but lost the order between keys. The pairs keep the order the broker sent, which MQTT 5 requires a forwarder to keep (MQTT-3.3.2-18).
 

@@ -75,7 +75,7 @@ type QosZeroFields = { qos?: 0; messageId?: never; dup?: never };
 
 /**
  * A broker packet as `decodeFramedPacket` returns it for the Node adapters. It adds QoS 2 PUBLISH, PUBREC, PUBREL,
- * PUBCOMP, AUTH and the Topic Alias, which the session rejects. The public `mqtt/codec` entry does not export it.
+ * PUBCOMP, AUTH and the Topic Alias, which the session ignores or rejects. The public `mqtt/codec` entry does not export it.
  */
 export type FramedPacket =
   | Exclude<WirePacket, { cmd: 'publish' }>
@@ -634,6 +634,13 @@ export function decodeFramedPacket(header: number, lengthAndBody: Readonly<Uint8
   return decodeBody(header, reader, false);
 }
 
+/** Read a packet identifier. MQTT-2.2.1-3 forbids zero, which is a protocol error. */
+function packetIdentifier(reader: Readonly<Reader>): number {
+  const messageId = reader.uint16();
+  if (messageId === 0) throw new ProtocolInputError('MQTT integer out of range', 0x82);
+  return messageId;
+}
+
 function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic: boolean): FramedPacket {
   let packet: FramedPacket;
   switch (header) {
@@ -677,7 +684,7 @@ function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic:
     case 0x3c:
     case 0x3d: {
       const name = reader.string();
-      const messageId = (header & 6) === 0 ? undefined : integer(reader.uint16(), 65_535, 1);
+      const messageId = (header & 6) === 0 ? undefined : packetIdentifier(reader);
       const { topicAlias, ...publishProperties } = readProperties(reader, 'publish');
       if (checkInboundTopic) validateInboundTopic(name, topicAlias !== undefined);
       const props = checkInboundTopic || topicAlias === undefined ? publishProperties : { ...publishProperties, topicAlias };
@@ -693,7 +700,7 @@ function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic:
       break;
     }
     case 0x40: {
-      const messageId = integer(reader.uint16(), 65_535, 1);
+      const messageId = packetIdentifier(reader);
       const reasonCode = reader.remaining === 0 ? 0 : reader.byte();
       if (!isPubackReason(reasonCode)) throw new Error('Invalid PUBACK reason code');
       const props = reader.remaining === 0 ? {} : readProperties(reader, 'puback');
@@ -703,7 +710,7 @@ function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic:
     case 0x82:
     case 0xa2: {
       const cmd = header === 0x82 ? 'subscribe' : 'unsubscribe';
-      const messageId = integer(reader.uint16(), 65_535, 1);
+      const messageId = packetIdentifier(reader);
       const props = readProperties(reader, cmd);
       const topics = [];
       let qos: 0 | 1 | undefined;
@@ -725,8 +732,7 @@ function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic:
     case 0x90:
     case 0xb0: {
       const cmd = header === 0x90 ? 'suback' : 'unsuback';
-      const messageId = reader.uint16();
-      if (messageId === 0) throw new ProtocolInputError('MQTT integer out of range', 0x82);
+      const messageId = packetIdentifier(reader);
       const props = readProperties(reader, cmd);
       const granted = Array.from(reader.take(reader.remaining));
       if (granted.length === 0) throw new ProtocolInputError('Invalid ' + cmd.toUpperCase(), 0x81);
@@ -745,7 +751,7 @@ function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic:
     case 0x62:
     case 0x70: {
       const cmd = header === 0x50 ? 'pubrec' : header === 0x62 ? 'pubrel' : 'pubcomp';
-      const messageId = integer(reader.uint16(), 65_535, 1);
+      const messageId = packetIdentifier(reader);
       const reasonCode = reader.remaining === 0 ? 0 : reader.byte();
       if (cmd === 'pubrec' ? !isPubackReason(reasonCode) : reasonCode !== 0 && reasonCode !== 0x92)
         throw new Error('Invalid ' + cmd.toUpperCase() + ' reason code');

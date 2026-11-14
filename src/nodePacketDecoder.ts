@@ -96,6 +96,7 @@ function validateFixedHeader(header: number): void {
   if (((header >>> 1) & 3) === 3) throw new Error('Packet must not have both QoS bits set to 1');
   // MQTT-3.3.1-2: a QoS 0 PUBLISH has DUP 0. Before the portable parse, mqtt-packet delivered it.
   if (type === 3 && (header & 0x0e) === 0x08) throw new ProtocolInputError('Invalid MQTT PUBLISH DUP flag for QoS 0', 0x81);
+  if (type === 1 || type === 8 || type === 10 || type === 12) throw brokerPacketDirectionError(packetNames[type]);
 }
 
 type DecoderOptions = Readonly<{
@@ -217,8 +218,6 @@ export class NodePacketDecoder {
     this.lengthBytes = [];
     if (!this.open) throw this.failure ?? new Error('MQTT decoder has ended');
     if (header >>> 4 === 0) throw new Error('Not supported');
-    const type = header >>> 4;
-    if (type === 1 || type === 8 || type === 10 || type === 12) throw brokerPacketDirectionError(packetNames[type]);
     this.onPacket(decodeFramedPacket(header, completed), completed.length - lengthSize);
     this.assertOpen();
   }

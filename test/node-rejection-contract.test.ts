@@ -56,21 +56,75 @@ const changes = [
   },
   {
     name: 'a PUBACK with packet identifier 0',
-    bytes: [0x40, 2, 0, 0],
+    bytes: [0x40, 0x2, 0x0, 0x0],
     before: 'packet puback',
-    after: 'RangeError MQTT integer out of range',
+    after: 'ProtocolInputError 0x82 MQTT integer out of range',
   },
   {
     name: 'a QoS 1 PUBLISH with packet identifier 0',
-    bytes: [0x32, 6, 0, 1, 0x61, 0, 0, 0],
+    bytes: [0x32, 0x6, 0x0, 0x1, 0x61, 0x0, 0x0, 0x0],
     before: 'packet publish',
-    after: 'RangeError MQTT integer out of range',
+    after: 'ProtocolInputError 0x82 MQTT integer out of range',
+  },
+  {
+    name: 'a SUBACK with packet identifier 0',
+    bytes: [0x90, 0x4, 0x0, 0x0, 0x0, 0x0],
+    before: 'packet suback',
+    after: 'ProtocolInputError 0x82 MQTT integer out of range',
+  },
+  {
+    name: 'a UNSUBACK with packet identifier 0',
+    bytes: [0xb0, 0x4, 0x0, 0x0, 0x0, 0x0],
+    before: 'packet unsuback',
+    after: 'ProtocolInputError 0x82 MQTT integer out of range',
+  },
+  {
+    name: 'a PUBREC with packet identifier 0',
+    bytes: [0x50, 0x2, 0x0, 0x0],
+    before: 'packet pubrec',
+    after: 'ProtocolInputError 0x82 MQTT integer out of range',
+  },
+  {
+    name: 'a PUBREL with packet identifier 0',
+    bytes: [0x62, 0x2, 0x0, 0x0],
+    before: 'packet pubrel',
+    after: 'ProtocolInputError 0x82 MQTT integer out of range',
+  },
+  {
+    name: 'a PUBCOMP with packet identifier 0',
+    bytes: [0x70, 0x2, 0x0, 0x0],
+    before: 'packet pubcomp',
+    after: 'ProtocolInputError 0x82 MQTT integer out of range',
   },
   {
     name: 'a SUBACK without reason codes',
     bytes: [0x90, 3, 0, 1, 0],
     before: 'packet suback',
     after: 'ProtocolInputError 0x81 Invalid SUBACK',
+  },
+  {
+    name: 'an UNSUBACK without reason codes',
+    bytes: [0xb0, 3, 0, 1, 0],
+    before: 'packet unsuback',
+    after: 'ProtocolInputError 0x81 Invalid UNSUBACK',
+  },
+  {
+    name: 'an UNSUBACK with a reserved reason code',
+    bytes: [0xb0, 4, 0, 1, 0, 3],
+    before: 'ProtocolInputError 0x82 Invalid unsuback code',
+    after: 'ProtocolInputError 0x82 Invalid UNSUBACK',
+  },
+  {
+    name: 'a PINGRESP with a body',
+    bytes: [0xd0, 1, 0],
+    before: 'packet pingresp',
+    after: 'Error Trailing MQTT bytes',
+  },
+  {
+    name: 'an AUTH with an unparsable property',
+    bytes: [0xf0, 3, 0x18, 1, 0],
+    before: 'Error Cannot parse property code type',
+    after: 'packet auth',
   },
   {
     name: 'a SUBACK with a reserved reason code',
@@ -109,6 +163,36 @@ const changes = [
     after: 'Error Invalid AUTH reason code',
   },
   {
+    name: 'a QoS 2 PUBLISH with packet identifier 0',
+    bytes: [0x34, 0x6, 0x0, 0x1, 0x61, 0x0, 0x0, 0x0],
+    before: 'packet publish',
+    after: 'ProtocolInputError 0x82 MQTT integer out of range',
+  },
+  {
+    name: 'a PUBCOMP with a reserved reason code',
+    bytes: [0x70, 0x4, 0x0, 0x1, 0x1, 0x0],
+    before: 'Error Invalid pubcomp reason code',
+    after: 'Error Invalid PUBCOMP reason code',
+  },
+  {
+    name: 'a CONNACK with reserved flag bits',
+    bytes: [0x20, 0x3, 0x2, 0x0, 0x0],
+    before: 'Error Invalid connack flags, bits 7-1 must be set to 0',
+    after: 'Error Invalid CONNACK',
+  },
+  {
+    name: 'an AUTH without a reason code',
+    bytes: [0xf0, 0x0],
+    before: 'Error Invalid auth reason code',
+    after: 'packet auth',
+  },
+  {
+    name: 'a PUBACK with a truncated packet identifier',
+    bytes: [0x40, 0x1, 0x0],
+    before: 'packet puback',
+    after: 'Error Truncated MQTT field',
+  },
+  {
     name: 'a five-byte Remaining Length',
     bytes: [0xd0, 0x80, 0x80, 0x80, 0x80],
     before: 'Error Invalid variable byte integer',
@@ -127,4 +211,5 @@ test.each([
   ['a shared SUBSCRIBE', [0x82, 15, 0, 1, 0, 0, 9, 0x24, 0x73, 0x68, 0x61, 0x72, 0x65, 0x2f, 0x67, 0x2f, 0x74, 0]],
 ] as const)('rejects a broker %s by its fixed header with the direction error', (_name, bytes) => {
   expect(outcome('after', bytes)).toMatch(/^ProtocolInputError 0x82 Unexpected MQTT packet from broker: /);
+  expect(outcome('after', bytes.slice(0, 1))).toMatch(/^ProtocolInputError 0x82 Unexpected MQTT packet from broker: /);
 });
