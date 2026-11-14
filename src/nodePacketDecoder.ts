@@ -1,6 +1,8 @@
 import { isUtf8 } from 'node:buffer';
-import { parser, type Packet } from 'mqtt-packet';
-import { ProtocolInputError } from './protocolInputError.ts';
+import type { Packet } from 'mqtt-packet';
+import { decodeFramedPacket } from './wireCodec.ts';
+import { toSessionPacket } from './sessionPacket.ts';
+import { brokerPacketDirectionError, ProtocolInputError } from './protocolInputError.ts';
 
 type PropertyShape = 'byte' | 'two' | 'four' | 'variable' | 'string' | 'pair' | 'binary';
 const connackProperties: Readonly<Record<number, PropertyShape>> = {
@@ -65,8 +67,48 @@ const propertyShapes: Readonly<Record<PropertyKind, Readonly<Record<number, Prop
   DISCONNECT: disconnectProperties,
 };
 
+const packetNames = [
+  'reserved',
+  'connect',
+  'connack',
+  'publish',
+  'puback',
+  'pubrec',
+  'pubrel',
+  'pubcomp',
+  'subscribe',
+  'suback',
+  'unsubscribe',
+  'unsuback',
+  'pingreq',
+  'pingresp',
+  'disconnect',
+  'auth',
+] as const;
+
+/** MQTT 5 section 2.1.3. Reject reserved flag bits as soon as the first byte arrives. */
+function validateFixedHeader(header: number): void {
+  const type = header >>> 4;
+  const flags = header & 15;
+  if (type !== 0 && type !== 3) {
+    const required = type === 6 || type === 8 || type === 10 ? 2 : 0;
+    if (flags !== required)
+      throw new Error('Invalid header flag bits, must be 0x' + required + ' for ' + packetNames[type] + ' packet');
+  }
+  if (((header >>> 1) & 3) === 3) throw new Error('Packet must not have both QoS bits set to 1');
+  // MQTT-3.3.1-2: a QoS 0 PUBLISH has DUP 0. Before the portable parse, mqtt-packet delivered it.
+  if (type === 3 && (header & 0x0e) === 0x08) throw new ProtocolInputError('Invalid MQTT PUBLISH DUP flag for QoS 0', 0x81);
+}
+
+type DecoderOptions = Readonly<{
+  maxPacketBytes?: number;
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The decoder delivers mutable packets and Buffer payloads.
+  onPacket: (packet: Packet) => void;
+}>;
+
 export class NodePacketDecoder {
-  private decoder: ReturnType<typeof parser> | undefined;
+  private open = true;
+  private readonly onPacket: DecoderOptions['onPacket'];
   private readonly maxPacketBytes: number;
   private header: number | undefined;
   private lengthBytes: number[] = [];
@@ -76,25 +118,13 @@ export class NodePacketDecoder {
   private ended = false;
   private pushing = false;
 
-  constructor(
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The retained parser delivers mutable packets and Buffer payloads.
-    options: Readonly<{ maxPacketBytes?: number; onPacket: (packet: Packet) => void }>,
-  ) {
+  constructor(options: DecoderOptions) {
     const { maxPacketBytes: capacity = 1024 * 1024 } = options;
     if (!Number.isInteger(capacity) || capacity < 2 || capacity > 268_435_460) {
       throw new RangeError('MQTT packet capacity must be an integer from 2 to 268435460');
     }
     this.maxPacketBytes = capacity;
-    const decoder = parser({ protocolVersion: 5 });
-    this.decoder = decoder;
-    decoder.on('packet', options.onPacket);
-    decoder.on('error', (reason: unknown) => {
-      if (!(reason instanceof Error)) throw new Error('MQTT parser failed');
-      // mqtt-packet 9.0.2 exposes these packet-specific failures as message strings.
-      if (reason.message === 'Invalid suback code' || reason.message === 'Invalid unsuback code')
-        throw new ProtocolInputError(reason.message, 0x82);
-      throw reason;
-    });
+    this.onPacket = options.onPacket;
   }
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native views keep mutable backing storage; admitted data is copied before decoding.
@@ -117,13 +147,12 @@ export class NodePacketDecoder {
         const digit = bytes[index++]!;
         if (this.header === undefined) {
           this.header = digit;
-          this.parse(Buffer.of(digit));
+          validateFixedHeader(digit);
           continue;
         }
         this.lengthBytes.push(digit);
         if (digit & 128) {
           if (this.lengthBytes.length === 4) {
-            this.parse(Buffer.from(this.lengthBytes));
             throw new Error('Malformed MQTT Remaining Length');
           }
           continue;
@@ -154,7 +183,7 @@ export class NodePacketDecoder {
     if (this.pushing) throw this.reject(new Error('MQTT decoder completion is reentrant'));
     if (this.header !== undefined) throw this.reject(new Error('Truncated MQTT packet at end of input'));
     this.ended = true;
-    this.decoder = undefined;
+    this.open = false;
   }
 
   stop(reason: Readonly<Error>): void {
@@ -164,6 +193,8 @@ export class NodePacketDecoder {
   private flush(): void {
     if (this.header === undefined || !this.remainder || this.offset !== this.remainder.length) return;
     const completed = this.remainder;
+    const header = this.header;
+    const lengthSize = this.lengthBytes.length;
     if (this.header >>> 4 === 2) this.validateProperties('CONNACK', this.lengthBytes.length + 2);
     if (this.header >>> 4 === 3) {
       const topicStart = this.lengthBytes.length + 2;
@@ -186,7 +217,12 @@ export class NodePacketDecoder {
     this.offset = 0;
     this.header = undefined;
     this.lengthBytes = [];
-    this.parse(completed);
+    if (!this.open) throw this.failure ?? new Error('MQTT decoder has ended');
+    if (header >>> 4 === 0) throw new Error('Not supported');
+    const type = header >>> 4;
+    if (type === 1 || type === 8 || type === 10 || type === 12) throw brokerPacketDirectionError(packetNames[type]);
+    this.onPacket(toSessionPacket(decodeFramedPacket(header, completed), completed.length - lengthSize));
+    this.assertOpen();
   }
 
   private validateProperties(kind: PropertyKind, offset: number): void {
@@ -289,20 +325,13 @@ export class NodePacketDecoder {
     }
   }
 
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The retained parser consumes native Buffer objects.
-  private parse(bytes: Buffer): void {
-    if (!this.decoder) throw this.failure ?? new Error('MQTT decoder has ended');
-    this.decoder.parse(bytes);
-    this.assertOpen();
-  }
-
   private assertOpen(): void {
     if (this.failure) throw this.failure;
   }
 
   private reject(reason: unknown): Error {
     this.failure ??= reason instanceof Error ? reason : new Error('MQTT decode failed');
-    this.decoder = undefined;
+    this.open = false;
     this.remainder = undefined;
     this.lengthBytes = [];
     this.offset = 0;

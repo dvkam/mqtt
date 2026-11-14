@@ -1,5 +1,7 @@
 # Bounded Node decoding experiment
 
+Update, 13 November 2026: the supported decoder now parses each compact frame with the portable codec. The observations below describe the framer that handed frames to mqtt-packet. `test/experiments/mqtt-packet-compact-decoder.ts` keeps that framer for this comparison.
+
 The compact candidate is now the private decoder behind [supported TCP packet admission](tcp-packet-input.md) and [Node WS/WSS input](websocket-packet-input.md). Streaming remains an experimental comparator. No storage-policy option or decoder entry point is published. Broader malformed-packet rules and property limits remain under #9; the admission comparison and adoption decision are tracked in [#75](https://github.com/dvkam/mqtt/issues/75).
 
 ## What the experiment preserves

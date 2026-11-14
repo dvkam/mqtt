@@ -1,6 +1,6 @@
 # Node WebSocket packet input
 
-`createWebSocketClient` uses the same private bounded decoder and input helper as TCP. It keeps mqtt-packet 9.0.2 and mutable Buffer payloads. The browser client continues to use the portable codec; accepted packet profiles have not converged.
+`createWebSocketClient` uses the same private bounded decoder and input helper as TCP. It parses each frame with the portable codec and keeps mutable Buffer payloads. The browser client continues to use the portable codec; accepted packet profiles have not converged.
 
 ```ts
 import { createWebSocketClient } from 'mqtt';
