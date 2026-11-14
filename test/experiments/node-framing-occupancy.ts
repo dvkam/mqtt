@@ -1,4 +1,4 @@
-import { NodePacketDecoder } from '../../src/nodePacketDecoder.ts';
+import { MqttPacketCompactDecoder } from './mqtt-packet-compact-decoder.ts';
 import { StreamingNodeDecoder } from './streaming-node-decoder.ts';
 
 const observed = new WeakSet();
@@ -14,7 +14,7 @@ export interface FramingOccupancy {
 
 export function observeFramingOccupancy(decoder: unknown, strategy: 'compact' | 'streaming') {
   if (
-    !(strategy === 'compact' && decoder instanceof NodePacketDecoder) &&
+    !(strategy === 'compact' && decoder instanceof MqttPacketCompactDecoder) &&
     !(strategy === 'streaming' && decoder instanceof StreamingNodeDecoder)
   ) {
     throw new Error('Unsupported decoder strategy');

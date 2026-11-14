@@ -14,6 +14,16 @@ const broadVectors = [
   [0x40, 2, 0, 7],
 ];
 
+// The supported decoder does not build mqtt-packet's Packet object, so packets other than PUBLISH lack that class's unset publish fields.
+function sessionFields(packet: unknown): unknown {
+  if (typeof packet !== 'object' || packet === null || !('cmd' in packet) || packet.cmd === 'publish') return packet;
+  return Object.fromEntries(
+    Object.entries(packet).filter(
+      (entry: Readonly<[string, unknown]>) => !['retain', 'qos', 'dup', 'topic', 'payload'].includes(entry[0]),
+    ),
+  );
+}
+
 function nativePackets(bytes: readonly number[]): unknown[] {
   const packets: unknown[] = [];
   const decoder = parser({ protocolVersion: 5 });
@@ -132,7 +142,7 @@ test.each(
       decoder.push(Uint8Array.from(bytes.slice(0, split)));
       decoder.push(Uint8Array.from(bytes.slice(split)));
       decoder.finish();
-      expect(actual).toEqual(expected);
+      expect(actual).toEqual(assembly === 'compact' ? expected.map(sessionFields) : expected);
     }
   },
 );

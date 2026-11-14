@@ -1,6 +1,6 @@
 # CONNACK property byte validation
 
-The supported TCP and Node WebSocket clients validate CONNACK property bytes before the retained mqtt-packet 9.0.2 parser converts strings. They share the private NodePacketDecoder. No public option or export changes.
+The supported TCP and Node WebSocket clients validate CONNACK property bytes before the portable codec converts strings. They share the private NodePacketDecoder. No public option or export changes.
 
 The recorded failing frames are:
 

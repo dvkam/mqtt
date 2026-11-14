@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { NodePacketDecoder } from '../../src/nodePacketDecoder.ts';
+import { MqttPacketCompactDecoder } from '../experiments/mqtt-packet-compact-decoder.ts';
 import { StreamingNodeDecoder } from '../experiments/streaming-node-decoder.ts';
 import { observeFramingOccupancy } from '../experiments/node-framing-occupancy.ts';
 
@@ -18,7 +18,7 @@ for (const strategy of ['compact', 'streaming'] as const) {
           checksum += packet.payload.byteLength;
         },
       };
-      const decoder = strategy === 'compact' ? new NodePacketDecoder(options) : new StreamingNodeDecoder(options);
+      const decoder = strategy === 'compact' ? new MqttPacketCompactDecoder(options) : new StreamingNodeDecoder(options);
       const observation = observeFramingOccupancy(decoder, strategy);
       try {
         const input = completion === 'complete' ? wire : wire.subarray(0, wire.length - 1);
