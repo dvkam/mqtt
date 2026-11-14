@@ -1,6 +1,6 @@
 import { isUtf8 } from 'node:buffer';
-import { decodeFramedPacket, type WirePacket } from './codec.ts';
-import { ProtocolInputError } from './protocolInputError.ts';
+import { decodeFramedPacket, type FramedPacket } from './wireCodec.ts';
+import { brokerPacketDirectionError, ProtocolInputError } from './protocolInputError.ts';
 
 type PropertyShape = 'byte' | 'two' | 'four' | 'variable' | 'string' | 'pair' | 'binary';
 const connackProperties: Readonly<Record<number, PropertyShape>> = {
@@ -94,12 +94,14 @@ function validateFixedHeader(header: number): void {
       throw new Error('Invalid header flag bits, must be 0x' + required + ' for ' + packetNames[type] + ' packet');
   }
   if (((header >>> 1) & 3) === 3) throw new Error('Packet must not have both QoS bits set to 1');
+  // MQTT-3.3.1-2: a QoS 0 PUBLISH has DUP 0. Before the portable parse, mqtt-packet delivered it.
+  if (type === 3 && (header & 0x0e) === 0x08) throw new ProtocolInputError('Invalid MQTT PUBLISH DUP flag for QoS 0', 0x81);
 }
 
 type DecoderOptions = Readonly<{
   maxPacketBytes?: number;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The decoder delivers mutable packets and Buffer payloads.
-  onPacket: (packet: WirePacket, length: number) => void;
+  onPacket: (packet: FramedPacket, length: number) => void;
 }>;
 
 export class NodePacketDecoder {
@@ -215,6 +217,8 @@ export class NodePacketDecoder {
     this.lengthBytes = [];
     if (!this.open) throw this.failure ?? new Error('MQTT decoder has ended');
     if (header >>> 4 === 0) throw new Error('Not supported');
+    const type = header >>> 4;
+    if (type === 1 || type === 8 || type === 10 || type === 12) throw brokerPacketDirectionError(packetNames[type]);
     this.onPacket(decodeFramedPacket(header, completed), completed.length - lengthSize);
     this.assertOpen();
   }

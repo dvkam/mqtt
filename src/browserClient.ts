@@ -2,7 +2,7 @@ import type { DiagnosticObserver } from './diagnostics.js';
 import { brokerPacketDirectionError, isClientOnlyCommand, ProtocolInputError } from './protocolInputError.js';
 import { openBrowserTransport } from './browserTransport.js';
 import { encodePacket, PacketDecoder } from './codec.js';
-import { withMessageProperties, type MessageProperties } from './messageProperties.js';
+import { messageProperties, type MessageProperties } from './messageProperties.js';
 import { toWirePacket } from './wirePacket.js';
 import { connectPortable, type PacketTransport } from './portable.js';
 import type { ClientFactory, ClientSession, QosOneMessage, SessionEndObserver } from './session.js';
@@ -42,6 +42,11 @@ export interface BrowserClientOptions extends PublicationLimits, SubscriptionLim
   onMessage?: (message: BrowserMessage) => void;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser message retains its mutable Uint8Array payload.
   onQosOneMessage?: (message: BrowserQosOneMessage) => void | Promise<void>;
+}
+
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Browser messages keep the decoder's mutable byte views.
+function browserBytes(value: Uint8Array): Uint8Array {
+  return value;
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
@@ -123,10 +128,13 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
             deliver?.({ cmd: 'disconnect', reasonCode: packet.reasonCode ?? 0 });
             break;
           case 'publish': {
-            const message = withMessageProperties<Omit<BrowserMessage, 'qos' | 'dup'>>(
-              { cmd: 'publish', topic: packet.topic, payload: packet.payload, retain: packet.retain ?? false },
-              packet,
-            );
+            const message = {
+              cmd: 'publish' as const,
+              topic: packet.topic,
+              payload: packet.payload,
+              retain: packet.retain ?? false,
+              ...messageProperties(packet, browserBytes),
+            };
             if (packet.qos === 1) {
               if (!onQosOneMessage) throw new Error('Unsupported incoming MQTT QoS 1');
               deliver?.({
@@ -138,10 +146,6 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
             } else deliver?.({ ...message, qos: 0, dup: false });
             break;
           }
-          case 'auth':
-          case 'pubrec':
-          case 'pubrel':
-          case 'pubcomp':
           default:
             throw new Error('Unexpected MQTT packet from broker');
         }

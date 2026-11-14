@@ -1,12 +1,12 @@
 import type { IPublishPacket, Packet } from 'mqtt-packet';
-import type { WirePacket } from '../../src/codec.js';
+import type { FramedPacket } from '../../src/wireCodec.js';
 import { NodePacketDecoder as WirePacketDecoder } from '../../src/nodePacketDecoder.js';
 import { defined, nodeBytes, toSessionPacket, userPropertyMap } from '../../src/sessionPacket.js';
 
-type WirePublish = Extract<WirePacket, { cmd: 'publish' }>;
+type FramedPublish = Extract<FramedPacket, { cmd: 'publish' }>;
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Decoded packets carry mutable byte views.
-function publishPacket(packet: WirePublish, length: number): IPublishPacket {
+function publishPacket(packet: FramedPublish, length: number): IPublishPacket {
   const identifiers = packet.subscriptionIdentifiers;
   const properties = defined({
     payloadFormatIndicator: packet.payloadFormatIndicator === undefined ? undefined : packet.payloadFormatIndicator === 1,

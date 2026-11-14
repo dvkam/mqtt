@@ -45,7 +45,7 @@ Node and browser factories share a session interface. Their repeated `connect()`
 | `subscriptionIdentifiers` | `readonly number[]`                           | Wire order                                            |
 | `userProperties`          | `readonly UserProperty[]`                     | `[key, value]` pairs in wire order. A key can repeat. |
 
-The last seven fields are the PUBLISH properties, and `MessageProperties` names them. A property the broker left out is an absent key. Both client entries export `MessageProperties` and `UserProperty`.
+The last seven fields are the PUBLISH properties, and `MessageProperties` names them. Its type parameter is the byte type, so `NodeMessage` extends `MessageProperties<Buffer>` and `BrowserMessage` extends `MessageProperties`. A property the broker left out is an absent key. Both client entries export `MessageProperties` and `UserProperty`.
 
 On Node, `payload` and `correlationData` are views of the one allocation the decoder made for the packet. Keeping either one keeps the whole packet in memory. Copy the bytes with `Buffer.from(message.payload)` to keep a payload for a long time.
 

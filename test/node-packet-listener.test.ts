@@ -1,9 +1,9 @@
 import { expect, test, vi } from 'vitest';
-import type { WirePacket } from '../src/codec.js';
+import type { FramedPacket } from '../src/wireCodec.js';
 import { NodePacketInput } from '../src/nodePacketInput.js';
 import { nodePacketListener } from '../src/nodePacketListener.js';
 
-const publication: WirePacket = { cmd: 'publish', topic: 'typed/message', payload: Buffer.from([0, 255]), retain: false };
+const publication: FramedPacket = { cmd: 'publish', topic: 'typed/message', payload: Buffer.from([0, 255]), retain: false };
 
 function listener(receiveQosOne = false) {
   const received: unknown[] = [];

@@ -1,5 +1,6 @@
 import type { IPublishPacket, Packet } from 'mqtt-packet';
-import type { UserProperty, WirePacket } from './codec.ts';
+import type { FramedPacket, UserProperty } from './wireCodec.ts';
+import { brokerPacketDirectionError } from './protocolInputError.ts';
 
 type UserPropertyMap = Record<string, string | string[]>;
 
@@ -28,8 +29,11 @@ export function nodeBytes(bytes: Uint8Array): Buffer {
 }
 
 /** Give a decoded packet other than PUBLISH the shape the shared session reads. `length` is the MQTT Remaining Length. */
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Decoded packets carry mutable byte views that the session hands to the application.
-export function toSessionPacket(packet: Exclude<WirePacket, { cmd: 'publish' }>, length: number): Exclude<Packet, IPublishPacket> {
+export function toSessionPacket(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Decoded packets carry mutable byte views that the session hands to the application.
+  packet: Exclude<FramedPacket, { cmd: 'publish' }>,
+  length: number,
+): Exclude<Packet, IPublishPacket> {
   switch (packet.cmd) {
     case 'connack': {
       const properties = defined({
@@ -96,26 +100,11 @@ export function toSessionPacket(packet: Exclude<WirePacket, { cmd: 'publish' }>,
     case 'pingresp':
       return { cmd: 'pingresp', length };
     case 'pingreq':
-      return { cmd: 'pingreq', length };
     case 'connect':
-      return {
-        cmd: 'connect',
-        length,
-        clientId: packet.clientId,
-        protocolVersion: 5,
-        protocolId: 'MQTT',
-        clean: packet.cleanStart ?? true,
-      };
     case 'subscribe':
-      return {
-        cmd: 'subscribe',
-        length,
-        messageId: packet.messageId,
-        subscriptions: packet.topics.map((topic) => ({ topic, qos: packet.qos ?? 0 })),
-      };
     case 'unsubscribe':
-      return { cmd: 'unsubscribe', length, messageId: packet.messageId, unsubscriptions: [...packet.topics] };
     default:
-      throw new Error('Unsupported MQTT packet');
+      // NodePacketDecoder rejects these broker-direction packets by their fixed header.
+      throw brokerPacketDirectionError(packet.cmd);
   }
 }

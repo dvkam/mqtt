@@ -1,4 +1,4 @@
-import { brokerPacketDirectionError, isClientOnlyCommand, ProtocolInputError } from './protocolInputError.js';
+import { ProtocolInputError } from './protocolInputError.js';
 import type { PacketTransport } from './portable.js';
 import type { NodeMessage } from './nodeMessage.js';
 import { validateInboundTopic } from './inboundTopic.js';
@@ -26,7 +26,6 @@ export class NodePacketInput {
       maxPacketBytes,
       // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Forward decoded packets without copying their byte views.
       onPacket: (packet, length) => {
-        if (isClientOnlyCommand(packet.cmd)) throw brokerPacketDirectionError(packet.cmd);
         if (packet.cmd === 'publish') validateInboundTopic(packet.topic, packet.topicAlias !== undefined);
         this.registration?.received(packet, length);
       },
