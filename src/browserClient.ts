@@ -141,10 +141,6 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
             } else deliver?.({ ...message, qos: 0, dup: false });
             break;
           }
-          case 'auth':
-          case 'pubrec':
-          case 'pubrel':
-          case 'pubcomp':
           default:
             throw new Error('Unexpected MQTT packet from broker');
         }
