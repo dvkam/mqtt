@@ -3,11 +3,11 @@
 `createTcpClient` accepts `maxPacketBytes` for incoming MQTT packets. It defaults to 1,048,576 bytes and accepts integers from 2 through 268,435,460. The count includes the first byte, the actual Remaining Length encoding and the body. `connect()` rejects invalid configuration before host access or socket creation. A pre-aborted signal keeps its existing precedence.
 
 ```ts
-import { createTcpClient } from 'mqtt';
+import { createTcpClient } from "mqtt";
 
 const factory = createTcpClient({
-  host: '127.0.0.1',
-  clientId: 'bounded-input',
+  host: "127.0.0.1",
+  clientId: "bounded-input",
   maxPacketBytes: 1024 * 1024,
 });
 ```
@@ -58,3 +58,19 @@ NodePacketAdmission covers frame admission and completion. NodeInputLifecycle se
 Node WS/WSS uses the same private decoder and input helper, with [its own native-close semantics](websocket-packet-input.md). Its aggregate WebSocket-message cap remains independent of MQTT assembled across messages. Broader malformed-packet rules, property limits and comparisons remain under #9; queue ordering and soak work remain under #11. The [measurement index](measurements.md) links all recorded observations and their limits.
 
 The shared Node decoder checks inbound PUBLISH topic bytes before handing the compact remainder to the portable codec. It rejects ill-formed UTF-8, U+0000 and a topic field that extends past the frame. The check reads a view of the topic bytes and leaves the binary payload and its Buffer ownership intact. It preserves valid U+FEFF, U+FFFD and supplementary characters. TCP and Node WebSocket retire the connection and preserve the first error. The browser codec already checks these string rules. The public adapter tests run over scripted peers, with the browser adapter using Node's native WebSocket. Property strings and topic alias semantics are separate checks. [MQTT 5 sections 1.5.4 and 3.3.2.1](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html)
+
+## Outcomes changed by the portable parse
+
+The TCP and Node WebSocket adapters parse frames with the portable codec since #165. The codec checks packet bodies that mqtt-packet 9.0.2 passed to the session, and its error messages differ. `test/node-rejection-contract.test.ts` runs each case below through the retained mqtt-packet framer and the supported decoder, and pins both outcomes.
+
+| Broker input                                                                 | Before                                                                    | After                                                                  |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| QoS 0 PUBLISH with DUP set                                                   | Delivered                                                                 | `ProtocolInputError` 0x81                                              |
+| CONNECT, SUBSCRIBE, UNSUBSCRIBE or PINGREQ                                   | Parsed, then the 0x82 direction error                                     | The 0x82 direction error from the fixed header, before parsing         |
+| Refused CONNACK with Session Present, or an undefined CONNACK reason code    | Judged by the session                                                     | `Invalid CONNACK`                                                      |
+| PUBACK or QoS 1 PUBLISH with packet identifier 0                             | Judged by the session, or dropped without a QoS 1 handler                 | `RangeError`                                                           |
+| SUBACK without reason codes                                                  | Judged by the session                                                     | `ProtocolInputError` 0x81                                              |
+| A reserved reason code in PUBACK, PUBREC, PUBREL, DISCONNECT, AUTH or SUBACK | `Invalid puback reason code` and the other lowercase mqtt-packet messages | `Invalid PUBACK reason code` and the matching uppercase codec messages |
+| A five-byte Remaining Length                                                 | `Invalid variable byte integer`                                           | `Malformed MQTT Remaining Length`                                      |
+
+Each new rejection follows the MQTT 5 rule for that field, and the browser codec already applied it. The direction check now runs before the codec reads the body. A broker CONNECT or SUBSCRIBE outside the client profile still ends the session with DISCONNECT 0x82, not a codec error.
