@@ -18,7 +18,7 @@ Use `import type` for the named contracts. TypeScript 7.0.2 is the supported com
 | `BrowserTransportOptions`, `BrowserTransport`, `BrowserCloseKind`, `WriteTraffic` | `mqtt/browser`                          | Native browser transport callbacks, send and close operations, and their argument types                                                      |
 | `WebSocketOptions`                                                                | `mqtt/websocket`                        | Timeout and cancellation for opening a native MQTT WebSocket                                                                                 |
 | `PortableOptions`, `PacketTransport`                                              | `mqtt/portable`                         | Experimental generic client and custom transport options. The packet contract uses the codec's packet model. See [custom transport contract](#custom-transport-contract).                                 |
-| `ProtocolInputError`, `ProtocolInputCode`                                         | `mqtt/portable`                         | Decoder rejection passed to the optional transport protocol-error callback. Its readonly code is 0x81, 0x82 or 0x94. These are type exports. |
+| `ProtocolInputError`, `ProtocolInputCode`                                         | `mqtt/portable`                         | Decoder rejection passed to the optional transport protocol-error callback. Its readonly code is 0x81, 0x82 or 0x94. A custom transport can construct one. |
 
 `onMessage` handles QoS 0. Register `onQosOneMessage` before requesting a QoS 1 subscription. Its message adds a packet identifier and a DUP flag, with the same platform-specific payload type. The client acknowledges the delivery after that handler succeeds. See [inbound QoS 1 delivery](qos1-receive.md).
 
@@ -73,33 +73,44 @@ The old map kept the order of values under one key but lost the order between ke
 `PacketTransport` speaks the packet model of `mqtt/codec`, so a custom transport can encode with `encodePacket` and decode with `PacketDecoder` without a translation layer.
 
 - `send(packet)` receives a `ClientPacket`: CONNECT, SUBSCRIBE, UNSUBSCRIBE, PUBLISH, PUBACK, PINGREQ or DISCONNECT. `encodePacket` accepts every one. A PUBLISH payload is a `Uint8Array`, because the session encodes a string payload once.
-- Encode the packet object you receive. The session matches a write-budget refusal to that object, so do not pass a copy to `recordNativeBudgetFailure` or a similar check.
-- `listen(onPacket, onClose, onProtocolError)` delivers `ReceivedPacket`: CONNACK, PUBACK, SUBACK, UNSUBACK, PINGRESP and DISCONNECT as the codec decodes them, and PUBLISH as a flat received message. Reject a broker CONNECT, SUBSCRIBE, UNSUBSCRIBE or PINGREQ yourself, with the 0x82 direction error.
+- Set `supportsSharedSubscriptions: false` unless the transport passes `{ sharedSubscriptions: true }` to `encodePacket`. The session then refuses a `$share/` filter locally. Otherwise the encoder throws inside `send` and the session ends.
+- `listen(onPacket, onClose, onProtocolError)` delivers `ReceivedPacket`: CONNACK, PUBACK, SUBACK, UNSUBACK, PINGRESP and DISCONNECT as the codec decodes them, and PUBLISH as a flat received message. The types leave out broker CONNECT, SUBSCRIBE, UNSUBSCRIBE and PINGREQ, so the transport rejects them itself.
+- Pass a `ProtocolInputError` to `onProtocolError`, the third `listen` argument, for a malformed or wrong-direction packet. The session then sends DISCONNECT with its code once active. `PacketDecoder.pushBatch` returns its decode errors as `ProtocolInputError` where MQTT 5 assigns a reason code. Pass any other error to `onClose`.
 - `PacketTransport`, `PortableOptions` and `connectPortable` take a byte type parameter instead of a message type. `PacketTransport<Buffer>` delivers Node Buffers, and the default is `Uint8Array`.
-- `mqtt/portable` exports `ClientPacket`, `BrokerPacket`, `ReceivedPacket`, `PublishMessage`, `MessageProperties` and `QosOneMessage`.
+- `mqtt/portable` exports the `ProtocolInputError` class and the types `ClientPacket`, `BrokerPacket`, `ReceivedPacket`, `PublishMessage`, `MessageProperties` and `QosOneMessage`.
 
 `test/types/custom-transport.ts` compiles this example against the built declarations.
 
 ```ts
 import { encodePacket, PacketDecoder } from 'mqtt/codec';
-import { connectPortable, type PacketTransport } from 'mqtt/portable';
+import { connectPortable, ProtocolInputError, type PacketTransport } from 'mqtt/portable';
 
 const decoder = new PacketDecoder();
 const transport: PacketTransport = {
+  // encodePacket refuses $share/ filters unless asked, so the session refuses them locally first.
+  supportsSharedSubscriptions: false,
   async send(packet) {
     await channel.write(encodePacket(packet));
   },
-  listen(onPacket, onClose) {
+  listen(onPacket, onClose, onProtocolError) {
+    // A protocol error lets the session send DISCONNECT with its reason code. Any other error closes the session.
+    const fail = (error: Error) => {
+      if (error instanceof ProtocolInputError && onProtocolError) onProtocolError(error);
+      else onClose(error);
+    };
     return channel.onData((chunk) => {
-      for (const packet of decoder.push(chunk)) {
+      const batch = decoder.pushBatch(chunk);
+      const packets = Array.isArray(batch) ? batch : batch.packets;
+      for (const packet of packets) {
         if (packet.cmd === 'connect' || packet.cmd === 'subscribe' || packet.cmd === 'unsubscribe' || packet.cmd === 'pingreq') {
-          onClose(new Error('Unexpected MQTT packet from broker'));
+          fail(new ProtocolInputError('Unexpected MQTT packet from broker: ' + packet.cmd.toUpperCase(), 0x82));
           return;
         }
         if (packet.cmd !== 'publish') onPacket(packet);
         else if (packet.qos === 1) onPacket({ ...packet, dup: packet.dup ?? false, retain: packet.retain ?? false });
         else onPacket({ ...packet, qos: 0, dup: false, retain: packet.retain ?? false });
       }
+      if (!Array.isArray(batch)) fail(batch.error);
     }, onClose);
   },
   close: async (force) => channel.close(force),
