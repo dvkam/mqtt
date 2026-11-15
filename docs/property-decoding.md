@@ -44,7 +44,7 @@ Run `pnpm build`, then `node --expose-gc test/bench/node-property-decode.ts`.
 
 The medians are 305,491 and 300,361 for the plain PUBLISH, 68,218 and 163,196 for the PUBLISH with properties, and 59,446 and 165,821 for the CONNACK. The plain PUBLISH has no property bytes to read, so it does not change beyond run-to-run variation. In the fourth workload every string is non-ASCII or longer than 64 bytes, so each one takes the `TextDecoder` path. Its medians are 96,345 and 143,382, a gain of 1.5 times against 2.4 times for short ASCII strings.
 
-On `main` with the Node validator switched off, the same workloads ran at 310,890, 93,995 and 80,193 packets per second. So reading the bytes once accounts for about 27% of the gain on the PUBLISH with properties (25,777 of 94,978 packets per second) and about 19% on the CONNACK (20,747 of 106,375). The rest comes from reading scalars by index, where the old reader made a `subarray` for each byte, and from the ASCII path.
+In one run on `main` with the Node validator switched off, the first, second and fourth workloads ran at 310,890, 93,995 and 80,193 packets per second. So reading the bytes once accounts for about 27% of the gain on the PUBLISH with properties (25,777 of 94,978 packets per second) and about 19% on the CONNACK (20,747 of 106,375). The rest comes from reading scalars by index, where the old reader made a `subarray` for each byte, and from the ASCII path.
 
 The reader now builds strings and User Property pairs while it checks, where the old validator rejected a malformed section before the codec built anything. A malformed packet can therefore cost more work before it is rejected. The packet size limit bounds that work.
 
