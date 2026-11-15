@@ -1,20 +1,10 @@
 import {
-  connect,
   createTcpClient,
   createWebSocketClient,
   type ClientDiagnostic,
   type DiagnosticObserver,
   type NodeQosOneMessage,
   type SessionEnd,
-} from 'mqtt';
-export type {
-  ConnectInput,
-  ConnectOptions,
-  LegacyAckCompletion,
-  LegacyAckHandler,
-  PacketIdentifier,
-  PacketLookup,
-  PacketStore,
 } from 'mqtt';
 export type { ClientFactory, ClientSession, NodeMessage, PublishOptions, TcpClientOptions, WebSocketClientOptions } from 'mqtt';
 export type { BrowserClientOptions, ClientFactory as BrowserFactory, ClientSession as BrowserClientSession } from 'mqtt/browser';
@@ -63,11 +53,6 @@ export type TransportProtocolCodeAcceptsNamedType = RequireTrue<
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
 export async function checkDeclarations(transport: PacketTransport) {
-  const legacy = await connect({ brokerUrl: new URL('mqtt://localhost') });
-  const typedLegacyInput: import('mqtt').ConnectInput = { brokerUrl: 'mqtt://localhost' };
-  await connect(typedLegacyInput);
-  await legacy.disconnect();
-
   const portable = await connectPortable(transport, { clientId: 'consumer' });
   await portable.subscribe('consumer/test');
   await portable.unsubscribe('consumer/test');

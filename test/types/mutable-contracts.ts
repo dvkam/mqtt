@@ -1,4 +1,3 @@
-import type { ConnectOptions } from '../../dist/interface/connectOptions.js';
 import type { PacketTransport } from '../../dist/portable.js';
 import { createBrowserClient, openBrowserTransport } from '../../dist/browser.js';
 
@@ -27,12 +26,6 @@ export const packetTransport: PacketTransport = {
     return () => {};
   },
   async close() {},
-};
-
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-export const customStreamFactory: ConnectOptions['customStreamFactory'] = (options) => {
-  options.clientId = 'factory-normalized';
-  throw new Error('Compile-only fixture');
 };
 
 export const browserFactory = createBrowserClient({

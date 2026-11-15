@@ -74,17 +74,15 @@
     "format:check": "oxfmt -c oxfmt.config.mjs --check src test sample lint verification vitest.config.ts oxlint.config.mjs oxfmt.config.mjs"
   },
   "dependencies": {
-    "mqtt-packet": "9.0.2",
-    "pino": "10.4.0",
     "ws": "8.22.1"
   },
   "devDependencies": {
     "@types/node": "26.6.6",
     "@types/ws": "8.18.2",
+    "mqtt-packet": "9.0.2",
     "oxfmt": "0.77.0",
     "oxlint": "1.92.0",
     "oxlint-tsgolint": "7.0.2006",
-    "pino-pretty": "13.2.0",
     "playwright": "1.65.0",
     "typescript": "7.1.0-beta",
     "typescript-stable": "npm:typescript@7.0.2",
