@@ -2,6 +2,8 @@
 
 The native decoder validates Reason String and User Property keys and values before mqtt-packet 9.0.2 converts them. This applies to PUBACK, PUBREC, PUBREL, PUBCOMP, SUBACK and UNSUBACK. TCP and Node WebSocket share the guard.
 
+Update, 16 November 2026: since #169 one property reader in `src/wireProperties.ts` applies these checks while it decodes, for the Node and the browser decoders. The Node decoder no longer walks the bytes first. The rules and the error messages on this page are unchanged. See [property decoding](property-decoding.md).
+
 Independent malformed frames include:
 
     40 08 00 01 00 04 1f 00 01 c0

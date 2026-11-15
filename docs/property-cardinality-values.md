@@ -2,6 +2,8 @@
 
 The native decoder rejects duplicate singleton properties before mqtt-packet can overwrite their first value. Tracking resets for each packet. User Property remains repeatable in every supported incoming packet. Subscription Identifier remains repeatable in PUBLISH, and every occurrence must be nonzero.
 
+Update, 16 November 2026: since #169 one property reader in `src/wireProperties.ts` applies these checks while it decodes, for the Node and the browser decoders. The Node decoder no longer walks the bytes first. The rules and the error messages on this page are unchanged. See [property decoding](property-decoding.md).
+
 The guard checks the supported CONNACK, PUBLISH, acknowledgment and server DISCONNECT property tables. It accepts boolean properties only at 0 or 1. Receive Maximum, Maximum Packet Size and Subscription Identifier must be nonzero. Width-limited values retain their unsigned range, including Maximum Packet Size 4,294,967,295. Session Expiry, Message Expiry, Server Keep Alive and Topic Alias Maximum may be zero.
 
 Response Topic must be nonempty and contain neither wildcard. Invalid Response Topic uses reason 0x82. Topic Alias zero retains reason 0x94, and a duplicate Topic Alias uses 0x82. Other duplicate and scalar failures keep the existing generic input-error policy. These checks do not negotiate aliases or add a new public error contract.
