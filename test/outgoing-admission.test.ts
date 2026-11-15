@@ -1,4 +1,4 @@
-import type { Packet } from 'mqtt-packet';
+import type { ReceivedPacket } from '../src/portable.js';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 beforeEach(() => {
   vi.useFakeTimers();
@@ -13,7 +13,7 @@ import { PublicationAdmission } from '../src/publicationAdmission.js';
 
 function peer() {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The scripted peer retains the packet transport callback contract.
-  let receive: (packet: Packet) => void;
+  let receive: (packet: ReceivedPacket) => void;
   const sent: string[] = [];
   const writes: { resolve: () => void; reject: (error: Readonly<Error>) => void }[] = [];
   const transport: PacketTransport = {

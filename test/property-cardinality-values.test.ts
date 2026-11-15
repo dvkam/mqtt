@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { NodePacketDecoder } from './experiments/node-packet-decoder.js';
+import { NodePacketDecoder } from '../src/nodePacketDecoder.js';
 import { PacketDecoder } from '../src/codec.js';
 import { createTcpClient, createWebSocketClient } from '../src/index.js';
 import { createBrowserClient } from '../src/browser.js';

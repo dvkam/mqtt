@@ -1,5 +1,5 @@
 import { setImmediate } from 'node:timers/promises';
-import type { Packet } from 'mqtt-packet';
+import type { ClientPacket } from '../src/codec.js';
 import { expect, test, vi } from 'vitest';
 import { connectPortable, type PacketTransport } from '../src/portable.js';
 
@@ -16,7 +16,7 @@ function deferred() {
 async function peer(options = {}) {
   let receive!: Parameters<PacketTransport['listen']>[0];
   let retire!: Parameters<PacketTransport['listen']>[1];
-  const packets: Packet[] = [];
+  const packets: ClientPacket[] = [];
   const transport: PacketTransport = {
     // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- The scripted transport delivers mutable packets synchronously before its send promise settles.
     async send(packet) {
@@ -50,7 +50,7 @@ test('correlates concurrent subscriptions by identifier and kind while ping stay
     ]);
     expect(broker.packets[1]).toMatchObject({ messageId: 1 });
     expect(broker.packets[2]).toMatchObject({ messageId: 2 });
-    broker.receive({ cmd: 'puback', messageId: 1 });
+    broker.receive({ cmd: 'puback', messageId: 1, reasonCode: 0 });
     broker.receive({ cmd: 'suback', messageId: 99, granted: [0] });
     await setImmediate();
     expect(completed).toEqual([]);

@@ -1,13 +1,12 @@
 import { ProtocolInputError } from './protocolInputError.js';
 import type { PacketTransport } from './portable.js';
-import type { NodeMessage } from './nodeMessage.js';
 import { validateInboundTopic } from './inboundTopic.js';
 import { NodePacketDecoder } from './nodePacketDecoder.js';
 import { nodePacketListener } from './nodePacketListener.js';
 
-type PacketSink = Parameters<PacketTransport<NodeMessage>['listen']>[0];
-type FailureSink = Parameters<PacketTransport<NodeMessage>['listen']>[1];
-type ProtocolErrorSink = Parameters<PacketTransport<NodeMessage>['listen']>[2];
+type PacketSink = Parameters<PacketTransport<Buffer>['listen']>[0];
+type FailureSink = Parameters<PacketTransport<Buffer>['listen']>[1];
+type ProtocolErrorSink = Parameters<PacketTransport<Buffer>['listen']>[2];
 type Registration = Readonly<{
   received: ReturnType<typeof nodePacketListener>;
   failed: FailureSink;
@@ -25,9 +24,9 @@ export class NodePacketInput {
     this.decoder = new NodePacketDecoder({
       maxPacketBytes,
       // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Forward decoded packets without copying their byte views.
-      onPacket: (packet, length) => {
+      onPacket: (packet) => {
         if (packet.cmd === 'publish') validateInboundTopic(packet.topic, packet.topicAlias !== undefined);
-        this.registration?.received(packet, length);
+        this.registration?.received(packet);
       },
     });
   }

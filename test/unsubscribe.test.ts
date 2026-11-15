@@ -1,7 +1,7 @@
 import { setImmediate } from 'node:timers/promises';
-import { generate, type Packet } from 'mqtt-packet';
+import { generate } from 'mqtt-packet';
 import { expect, test, vi } from 'vitest';
-import { encodePacket, PacketDecoder } from '../src/codec.js';
+import { encodePacket, PacketDecoder, type ClientPacket } from '../src/codec.js';
 import { PacketIdentifiers } from '../src/packetIdentifiers.js';
 import { connectPortable, type PacketTransport, type PortableOptions } from '../src/portable.js';
 
@@ -46,13 +46,12 @@ test.each([
 async function peer(limits: Readonly<Pick<PortableOptions, 'maxPendingSubscriptions' | 'maxPendingSubscriptionBytes'>> = {}) {
   let receive!: Parameters<PacketTransport['listen']>[0];
   let retire!: Parameters<PacketTransport['listen']>[1];
-  const packets: Packet[] = [];
+  const packets: ClientPacket[] = [];
   const transport: PacketTransport = {
     // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- The fixture records mutable packets and can reply synchronously.
     async send(packet) {
       packets.push(packet);
-      if (packet.cmd === 'connect')
-        receive({ cmd: 'connack', reasonCode: 0, sessionPresent: false, properties: { receiveMaximum: 1 } });
+      if (packet.cmd === 'connect') receive({ cmd: 'connack', reasonCode: 0, sessionPresent: false, receiveMaximum: 1 });
       if (packet.cmd === 'pingreq') receive({ cmd: 'pingresp' });
     },
     listen(onPacket, onClose) {
@@ -101,11 +100,11 @@ test('preserves mixed-kind ACK ownership when the shared identifier range is exh
     expect(broker.packets.slice(1)).toMatchObject([
       { cmd: 'subscribe', messageId: 1 },
       { cmd: 'publish', messageId: 2, qos: 1 },
-      { cmd: 'unsubscribe', messageId: 3, unsubscriptions: ['c'] },
+      { cmd: 'unsubscribe', messageId: 3, topics: ['c'] },
     ]);
     await setImmediate();
     broker.receive({ cmd: 'unsuback', messageId: 1, granted: [0] });
-    broker.receive({ cmd: 'puback', messageId: 3 });
+    broker.receive({ cmd: 'puback', messageId: 3, reasonCode: 0 });
     broker.receive({ cmd: 'suback', messageId: 3, granted: [0] });
     broker.receive({ cmd: 'suback', messageId: 2, granted: [0] });
     await setImmediate();
@@ -113,11 +112,11 @@ test('preserves mixed-kind ACK ownership when the shared identifier range is exh
     expect(broker.packets).toHaveLength(4);
     broker.receive({ cmd: 'unsuback', messageId: 3, granted: [17] });
     await unsubscribed;
-    broker.receive({ cmd: 'puback', messageId: 2 });
+    broker.receive({ cmd: 'puback', messageId: 2, reasonCode: 0 });
     await published;
     await setImmediate();
     expect(broker.packets[4]).toMatchObject({ cmd: 'publish', messageId: 2, topic: 'd' });
-    broker.receive({ cmd: 'puback', messageId: 2 });
+    broker.receive({ cmd: 'puback', messageId: 2, reasonCode: 0 });
     await queued;
     broker.receive({ cmd: 'suback', messageId: 1, granted: [0] });
     await subscribed;
@@ -196,7 +195,7 @@ test('preserves shared-filter spelling for transports that can encode it', async
   const pending = broker.client.unsubscribe(filter);
   const outcome = Promise.allSettled([pending]);
   try {
-    expect(broker.packets[1]).toMatchObject({ cmd: 'unsubscribe', messageId: 1, unsubscriptions: [filter] });
+    expect(broker.packets[1]).toMatchObject({ cmd: 'unsubscribe', messageId: 1, topics: [filter] });
     broker.receive({ cmd: 'unsuback', messageId: 1, granted: [0] });
     await pending;
   } finally {

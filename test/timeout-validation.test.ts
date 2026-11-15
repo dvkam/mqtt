@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import type { Packet } from 'mqtt-packet';
+import type { ReceivedPacket } from '../src/portable.js';
 import { createTcpClient } from '../src/tcpClient.js';
 import { connectPortable, type PacketTransport } from '../src/portable.js';
 import { createWebSocketClient } from '../src/websocketClient.js';
@@ -94,7 +94,7 @@ test.each(invalidTimeouts)('rejects Node WebSocket timeout %s before endpoint ac
 test.each([1, 3000, 2_147_483_647])('uses validated timeout %s for the active session after caller mutation', async (timeoutMs) => {
   vi.useFakeTimers();
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The injected transport retains the mutable packet callback contract.
-  let receive: (packet: Packet) => void;
+  let receive: (packet: ReceivedPacket) => void;
   const transport: PacketTransport = {
     listen(onPacket) {
       receive = onPacket;

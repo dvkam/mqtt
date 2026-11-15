@@ -120,10 +120,11 @@ test.each([
     expect(input.push(frame)).toBeUndefined();
     expect(received).toHaveBeenCalledTimes(1);
     expect(received.mock.calls[0]?.[0]).toMatchObject({
-      properties: {
-        userProperties: { [expected]: ['x', 'y'] },
-        authenticationData: Buffer.from([0xc0, 0, 0x26]),
-      },
+      userProperties: [
+        [expected, 'x'],
+        [expected, 'y'],
+      ],
+      authenticationData: Buffer.from([0xc0, 0, 0x26]),
     });
     expect(failed).not.toHaveBeenCalled();
   },
@@ -210,7 +211,7 @@ test.each([
   input.listen(received, () => {});
   expect(input.push(connack([identifier, 0, 3, 0xef, 0xbb, 0xbf]))).toBeUndefined();
   expect(received).toHaveBeenCalledTimes(1);
-  expect(received.mock.calls[0]?.[0]).toMatchObject({ properties: { [name]: '\ufeff' } });
+  expect(received.mock.calls[0]?.[0]).toMatchObject({ [name]: '\ufeff' });
 });
 
 test('accepts a two-byte property length and Remaining Length at every split', () => {
@@ -223,7 +224,7 @@ test('accepts a two-byte property length and Remaining Length at every split', (
     expect(input.push(frame.subarray(0, split))).toBeUndefined();
     expect(input.push(frame.subarray(split))).toBeUndefined();
     expect(received).toHaveBeenCalledTimes(1);
-    expect(received.mock.calls[0]?.[0]).toMatchObject({ properties: { userProperties: { [key]: '' } } });
+    expect(received.mock.calls[0]?.[0]).toMatchObject({ userProperties: [[key, '']] });
   }
   expect(new PacketDecoder().push(frame)).toHaveLength(1);
 });

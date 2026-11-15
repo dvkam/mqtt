@@ -103,7 +103,7 @@ function validateFixedHeader(header: number): void {
 type DecoderOptions = Readonly<{
   maxPacketBytes?: number;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The decoder delivers mutable packets and Buffer payloads.
-  onPacket: (packet: FramedPacket, length: number) => void;
+  onPacket: (packet: FramedPacket) => void;
 }>;
 
 export class NodePacketDecoder {
@@ -194,7 +194,6 @@ export class NodePacketDecoder {
     if (this.header === undefined || !this.remainder || this.offset !== this.remainder.length) return;
     const completed = this.remainder;
     const header = this.header;
-    const lengthSize = this.lengthBytes.length;
     if (this.header >>> 4 === 2) this.validateProperties('CONNACK', this.lengthBytes.length + 2);
     if (this.header >>> 4 === 3) {
       const topicStart = this.lengthBytes.length + 2;
@@ -219,7 +218,7 @@ export class NodePacketDecoder {
     this.lengthBytes = [];
     if (!this.open) throw this.failure ?? new Error('MQTT decoder has ended');
     if (header >>> 4 === 0) throw new Error('Not supported');
-    this.onPacket(decodeFramedPacket(header, completed), completed.length - lengthSize);
+    this.onPacket(decodeFramedPacket(header, completed));
     this.assertOpen();
   }
 

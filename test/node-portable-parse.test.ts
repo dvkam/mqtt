@@ -1,10 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { generate, type Packet } from 'mqtt-packet';
 import { expect, test } from 'vitest';
-import { NodePacketDecoder as SupportedDecoder } from '../src/nodePacketDecoder.js';
-import { toSessionPacket } from '../src/sessionPacket.js';
-import { NodePacketDecoder } from './experiments/node-packet-decoder.js';
-import { MqttPacketCompactDecoder } from './experiments/mqtt-packet-compact-decoder.js';
+import { NodePacketDecoder } from '../src/nodePacketDecoder.js';
 
 const userProperties = { region: 'eu', tag: ['a', 'b'] };
 // mqtt-packet writes the object's keys in order and each array value in order.
@@ -181,39 +178,6 @@ test.each(brokerPackets)('decodes %s from mqtt-packet bytes at every split', (_n
   for (let split = 0; split <= bytes.length; split++) expect(decode(bytes, split)).toStrictEqual([expected]);
 });
 
-const publishOnly = new Set(['retain', 'qos', 'dup', 'topic', 'payload']);
-
-// mqtt-packet's Packet object carries unset publish fields on every packet type.
-function withoutPublishFields(packet: unknown): unknown {
-  if (typeof packet !== 'object' || packet === null) throw new Error('Expected a decoded packet');
-  return Object.fromEntries(Object.entries(packet).filter((entry: Readonly<[string, unknown]>) => !publishOnly.has(entry[0])));
-}
-
-// Until the session reads the codec model, Node gives every packet other than PUBLISH mqtt-packet's nested shape.
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-test.each(brokerPackets.filter((row) => row[1].cmd !== 'publish'))(
-  'translates %s to the session shape mqtt-packet produced',
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture rows hold mqtt-packet input objects with mutable Buffers.
-  (_name, packet) => {
-    const bytes = Uint8Array.from(generate(packet, { protocolVersion: 5 }));
-    const reference: unknown[] = [];
-    new MqttPacketCompactDecoder({
-      onPacket: (decoded: unknown) => {
-        reference.push(withoutPublishFields(decoded));
-      },
-    }).push(bytes);
-    const translated: unknown[] = [];
-    new SupportedDecoder({
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Decoded packets carry mutable byte views.
-      onPacket: (decoded, length) => {
-        if (decoded.cmd !== 'publish') translated.push(toSessionPacket(decoded, length));
-      },
-    }).push(bytes);
-    expect(reference).toHaveLength(1);
-    expect(translated).toEqual(reference);
-  },
-);
-
 test('delivers a PUBLISH payload as a Buffer view of the packet allocation', () => {
   const payloads: unknown[] = [];
   const decoder = new NodePacketDecoder({
@@ -245,17 +209,22 @@ test.each([
   }).toThrow(message);
 });
 
-test.each([
-  'tcpClient',
-  'websocketClient',
+const supportedPath = [
+  'browserClient',
+  'codec',
+  'messageProperties',
+  'nodeMessage',
   'nodePacketDecoder',
   'nodePacketInput',
   'nodePacketListener',
-  'sessionPacket',
-  'wirePacket',
   'portable',
-])('src/%s.ts takes only types from mqtt-packet', (name) => {
+  'session',
+  'tcpClient',
+  'websocketClient',
+  'wireCodec',
+];
+
+test.each(supportedPath)('src/%s.ts does not import mqtt-packet', (name) => {
   const source = readFileSync(new URL('../src/' + name + '.ts', import.meta.url), 'utf8');
-  const imports = source.split('\n').filter((line) => line.includes("from 'mqtt-packet'"));
-  expect(imports.filter((line) => !line.startsWith('import type '))).toEqual([]);
+  expect(source.split('\n').filter((line) => line.includes("from 'mqtt-packet'"))).toEqual([]);
 });

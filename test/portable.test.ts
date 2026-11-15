@@ -1,8 +1,10 @@
-import type { Packet } from 'mqtt-packet';
+import type { ClientPacket } from '../src/codec.js';
+import type { ReceivedPacket } from '../src/portable.js';
 import { expect, test, vi } from 'vitest';
 import { connectPortable, type PacketTransport } from '../src/portable.js';
 import { ProtocolInputError } from '../src/protocolInputError.js';
 import type { SessionEnd } from '../src/session.js';
+import { echo, sentText, utf8 } from './experiments/portable-packets.js';
 
 test.each(['', '+', 'a/#', 'a+b', 'a\u0000b', '\uD800', '\uDC00', 'a'.repeat(65_536), 'é'.repeat(32_768)])(
   'rejects an invalid publication before transport send and keeps the session active',
@@ -12,7 +14,8 @@ test.each(['', '+', 'a/#', 'a+b', 'a\u0000b', '\uD800', '\uDC00', 'a'.repeat(65_
     await expect(client.publish(topic, 'payload')).rejects.toThrow('Invalid MQTT topic name');
     expect(broker.packets).toEqual([expect.objectContaining({ cmd: 'connect' })]);
     await client.publish('valid/topic', 'next');
-    expect(broker.packets[1]).toMatchObject({ cmd: 'publish', topic: 'valid/topic', payload: 'next' });
+    expect(broker.packets[1]).toMatchObject({ cmd: 'publish', topic: 'valid/topic' });
+    expect(sentText(broker.packets[1])).toBe('next');
     await client.disconnect();
   },
 );
@@ -97,7 +100,7 @@ test.each([undefined, 0, 0x8e])('broker DISCONNECT %s owns the terminal result b
   broker.receive({ cmd: 'disconnect', reasonCode });
   const later = client.publish('a', 'late').catch((reason: unknown) => reason);
   expect(broker.packets).toHaveLength(2);
-  broker.receive({ cmd: 'publish', topic: 'a', payload: 'suffix', qos: 0, dup: false, retain: false });
+  broker.receive({ cmd: 'publish', topic: 'a', payload: utf8('suffix'), qos: 0, dup: false, retain: false });
   broker.receive({ cmd: 'disconnect', reasonCode: 0x80 });
   broker.close(new Error('trailing native close'));
   const reason = await pending;
@@ -133,16 +136,16 @@ test('DISCONNECT after CONNACK but before handoff rejects the opening attempt', 
 
 function peer() {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  let receive: (packet: Packet) => void;
+  let receive: (packet: ReceivedPacket) => void;
   let closed: (error: Readonly<Error>) => void;
   let rejectProtocolInput: NonNullable<Parameters<PacketTransport['listen']>[2]> | undefined;
-  const packets: Packet[] = [];
+  const packets: ClientPacket[] = [];
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- The fixture exercises native mutable objects and packet buffers with their declared API types.
   const sent: PacketTransport['send'] = async (packet) => {
     packets.push(packet);
     if (packet.cmd === 'connect') receive({ cmd: 'connack', sessionPresent: false, reasonCode: 0 });
     if (packet.cmd === 'subscribe') receive({ cmd: 'suback', messageId: packet.messageId, granted: [0] });
-    if (packet.cmd === 'publish') receive(packet);
+    if (packet.cmd === 'publish') receive(echo(packet));
   };
   const transport: PacketTransport = {
     send: sent,
@@ -158,7 +161,7 @@ function peer() {
     transport,
     packets,
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    receive: (packet: Packet) => {
+    receive: (packet: ReceivedPacket) => {
       receive(packet);
     },
     close: (error: Readonly<Error>) => {
@@ -196,7 +199,7 @@ test('completes the MQTT 5 QoS 0 tracer through an injected packet transport', a
     'pingreq',
     'disconnect',
   ]);
-  expect(messages).toEqual([{ cmd: 'publish', qos: 0, topic: 'tracer/echo', payload: 'hello', dup: false, retain: false }]);
+  expect(messages).toEqual([{ cmd: 'publish', qos: 0, topic: 'tracer/echo', payload: utf8('hello'), dup: false, retain: false }]);
 });
 
 test('settles a blocked publish with the transport failure before drain', async () => {
@@ -256,7 +259,7 @@ test('ignores a queued application frame delivered after transport failure', asy
   });
   const reason = new Error('transport closed');
   broker.close(reason);
-  broker.receive({ cmd: 'publish', topic: 'late', payload: 'late', qos: 0, dup: false, retain: false });
+  broker.receive({ cmd: 'publish', topic: 'late', payload: utf8('late'), qos: 0, dup: false, retain: false });
   await expect(client.publish('late', 'reply')).rejects.toBe(reason);
   expect(messages).toEqual([]);
 });
@@ -275,9 +278,11 @@ test('opt-in diagnostics include only connection state and packet commands', asy
   Reflect.apply(broker.receive, undefined, [{ cmd: 'private-unrecognized-command' }]);
   await client.publish('private/topic', 'private-payload');
   broker.receive({
-    cmd: 'auth',
-    reasonCode: 0x18,
-    properties: { authenticationMethod: 'private-method', authenticationData: Buffer.from('private-auth') },
+    cmd: 'connack',
+    sessionPresent: false,
+    reasonCode: 0,
+    reasonString: 'private-reason',
+    userProperties: [['private-key', 'private-value']],
   });
   await expect(client.ping()).rejects.toMatchObject({ code: 0x82 });
   broker.close(new Error('private-failure'));
@@ -288,7 +293,7 @@ test('opt-in diagnostics include only connection state and packet commands', asy
     { kind: 'packet', direction: 'inbound', command: 'publish' },
     { kind: 'packet', direction: 'outbound', command: 'publish' },
     { kind: 'connection', state: 'retired' },
-    { kind: 'packet', direction: 'inbound', command: 'auth' },
+    { kind: 'packet', direction: 'inbound', command: 'connack' },
     { kind: 'packet', direction: 'outbound', command: 'disconnect' },
   ]);
 });
@@ -376,7 +381,7 @@ test.each([false, true])('keeps the opening QoS 1 retirement with diagnostics en
       broker.close(failure);
     },
   });
-  broker.receive({ cmd: 'publish', topic: 'early', payload: 'message', qos: 1, messageId: 1, dup: false, retain: false });
+  broker.receive({ cmd: 'publish', topic: 'early', payload: utf8('message'), qos: 1, messageId: 1, dup: false, retain: false });
   await expect(connecting).rejects.toBe(failure);
 });
 

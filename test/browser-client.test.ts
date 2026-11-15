@@ -109,7 +109,7 @@ test('forwards broker limits and PUBACK to the portable session', async () => {
     broker.sendWire([0x40, 3, 0, 7, 0x97]);
     await client.ping();
     expect(received).toMatchObject([
-      { cmd: 'connack', properties: { receiveMaximum: 1, maximumQoS: 0 } },
+      { cmd: 'connack', receiveMaximum: 1, maximumQoS: 0 },
       { cmd: 'puback', messageId: 7, reasonCode: 0x97 },
     ]);
     await client.disconnect();

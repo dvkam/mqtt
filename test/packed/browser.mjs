@@ -20,7 +20,15 @@ export async function trace() {
       if (block) await new Promise(() => {});
       if (packet.cmd === 'connect') receive({ cmd: 'connack', sessionPresent: false, reasonCode: 0 });
       if (packet.cmd === 'subscribe') receive({ cmd: 'suback', messageId: packet.messageId, granted: [0] });
-      if (packet.cmd === 'publish') receive(packet);
+      if (packet.cmd === 'publish')
+        receive({
+          cmd: 'publish',
+          topic: packet.topic,
+          payload: packet.payload,
+          qos: 0,
+          dup: false,
+          retain: packet.retain ?? false,
+        });
     },
     listen(onPacket, onClose) {
       receive = onPacket;
@@ -32,9 +40,9 @@ export async function trace() {
   /** @type {Parameters<typeof connectPortable>[1]} */
   const options = {
     clientId: 'browser-ci',
-    onMessage: (/** @type {Readonly<{payload: unknown}>} */ packet) => {
-      if (typeof packet.payload !== 'string') throw new Error('Expected fixture payload');
-      messages.push(packet.payload);
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+    onMessage: (/** @type {Readonly<{payload: Uint8Array}>} */ packet) => {
+      messages.push(new TextDecoder().decode(packet.payload));
     },
   };
   const client = await connectPortable(transport, options);

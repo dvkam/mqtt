@@ -2,7 +2,6 @@ import { expect, test, vi } from 'vitest';
 import { NodePacketInput } from '../src/nodePacketInput.js';
 import { NodePacketDecoder } from '../src/nodePacketDecoder.js';
 import { connectPortable, type PacketTransport } from '../src/portable.js';
-import type { NodeMessage } from '../src/nodeMessage.js';
 
 const publication = Uint8Array.of(0x30, 6, 0, 1, 97, 0, 104, 105);
 
@@ -11,7 +10,7 @@ test('an early input failure rejects core construction without writing CONNECT',
   const reason = new Error('failed before core construction');
   input.retire('error', reason);
   const send = vi.fn<(packet: unknown) => Promise<void>>().mockResolvedValue(undefined);
-  const transport: PacketTransport<NodeMessage> = {
+  const transport: PacketTransport<Buffer> = {
     send,
     listen(onPacket, onClose) {
       return input.listen(onPacket, onClose);

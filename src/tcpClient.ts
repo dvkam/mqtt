@@ -2,9 +2,7 @@ import { createConnection, isIP } from 'node:net';
 import tls, { type ConnectionOptions } from 'node:tls';
 import { encodePacket } from './codec.js';
 import { connectPortable, type PacketTransport, type PortableOptions } from './portable.js';
-import { toWirePacket } from './wirePacket.js';
 import type { ClientFactory } from './session.js';
-import type { NodeMessage } from './nodeMessage.js';
 import { NodePacketInput } from './nodePacketInput.js';
 import { resolveSubscriptionLimits } from './subscriptionExchanges.js';
 import { resolveTimeout } from './timeout.js';
@@ -18,7 +16,7 @@ import {
 
 export type TcpTlsOptions = Pick<ConnectionOptions, 'ca' | 'cert' | 'key' | 'servername'>;
 
-export interface TcpClientOptions extends PortableOptions<NodeMessage>, NativeWriteLimits {
+export interface TcpClientOptions extends PortableOptions<Buffer>, NativeWriteLimits {
   host: string;
   port?: number;
   tls?: TcpTlsOptions;
@@ -104,11 +102,11 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
     }
   });
 
-  const transport: PacketTransport<NodeMessage> = {
+  const transport: PacketTransport<Buffer> = {
     // oxlint-disable-next-line typescript/promise-function-async, typescript/prefer-readonly-parameter-types -- Forward the existing promise without adding an async wrapper. The TCP adapter uses native signals, sockets and shared packet buffers.
     send(packet) {
       return new Promise((resolve, reject) => {
-        const bytes = encodePacket(toWirePacket(packet), { sharedSubscriptions: true });
+        const bytes = encodePacket(packet, { sharedSubscriptions: true });
         if (
           !allowsNativeWrite(writeLimits, socket.writableLength, bytes.length, packet.cmd === 'publish' ? 'publication' : 'control')
         ) {
