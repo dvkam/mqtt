@@ -3,9 +3,7 @@ import type { SecureContextOptions } from 'node:tls';
 import WebSocket from 'ws';
 import { encodePacket } from './codec.js';
 import { connectPortable, type PacketTransport, type PortableOptions } from './portable.js';
-import { toWirePacket } from './wirePacket.js';
 import type { ClientFactory } from './session.js';
-import type { NodeMessage } from './nodeMessage.js';
 import { NodePacketInput } from './nodePacketInput.js';
 import { resolveWebSocketMessageLimit } from './websocketLimits.js';
 import { resolveTimeout } from './timeout.js';
@@ -19,7 +17,7 @@ import {
 } from './nativeWriteBudget.js';
 
 export interface WebSocketClientOptions
-  extends PortableOptions<NodeMessage>, NativeWriteLimits, Pick<SecureContextOptions, 'ca' | 'cert' | 'key'> {
+  extends PortableOptions<Buffer>, NativeWriteLimits, Pick<SecureContextOptions, 'ca' | 'cert' | 'key'> {
   url: string | URL;
   agent?: Agent;
   headers?: Record<string, string>;
@@ -101,11 +99,11 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
     if (reason) terminate(reason);
   });
 
-  const transport: PacketTransport<NodeMessage> = {
+  const transport: PacketTransport<Buffer> = {
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
     async send(packet) {
       if (socket.readyState !== WebSocket.OPEN) throw input.reason ?? new Error('MQTT WebSocket closed');
-      const bytes = encodePacket(toWirePacket(packet), { sharedSubscriptions: true });
+      const bytes = encodePacket(packet, { sharedSubscriptions: true });
       // Client frames are masked and compression is disabled.
       const frameBytes = bytes.byteLength + (bytes.byteLength < 126 ? 6 : bytes.byteLength < 65_536 ? 8 : 14);
       if (

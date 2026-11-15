@@ -13,12 +13,12 @@ function decodedPeer() {
   const close = vi.fn<(force?: boolean) => Promise<void>>(async () => {
     await Promise.resolve();
   });
-  const connects: { clean: boolean | undefined; clientId: string | undefined }[] = [];
+  const connects: { cleanStart: boolean | undefined; clientId: string | undefined }[] = [];
   const commands: string[] = [];
   const transport: PacketTransport = {
-    async send(packet: Readonly<{ cmd: string; clean?: boolean; clientId?: string }>) {
+    async send(packet: Readonly<{ cmd: string; cleanStart?: boolean; clientId?: string }>) {
       commands.push(packet.cmd);
-      if (packet.cmd === 'connect') connects.push({ clean: packet.clean, clientId: packet.clientId });
+      if (packet.cmd === 'connect') connects.push({ cleanStart: packet.cleanStart, clientId: packet.clientId });
       await Promise.resolve();
     },
     listen(onPacket, onClose) {
@@ -50,7 +50,7 @@ test.each([0, 0x87])('rejects decoded Session Present with reason %i before acce
   peer.closed()?.(new Error('later close'));
   const failure = await opening;
   expect(failure).toMatchObject({ message: 'Unexpected MQTT Session Present', code: 0x82 });
-  expect(peer.connects).toEqual([{ clean: true, clientId: 'clean-start' }]);
+  expect(peer.connects).toEqual([{ cleanStart: true, clientId: 'clean-start' }]);
   expect(peer.commands).toEqual(['connect']);
   expect(peer.close).toHaveBeenCalledExactlyOnceWith(true);
   expect(onMessage).not.toHaveBeenCalled();
@@ -82,7 +82,7 @@ test('Session Present false permits a clean session without a persistence option
   const opening = connectPortable(peer.transport, { clientId: 'clean-start' });
   peer.receive()?.({ cmd: 'connack', sessionPresent: false, reasonCode: 0 });
   const client = await opening;
-  expect(peer.connects).toEqual([{ clean: true, clientId: 'clean-start' }]);
+  expect(peer.connects).toEqual([{ cleanStart: true, clientId: 'clean-start' }]);
   await client.disconnect();
 });
 

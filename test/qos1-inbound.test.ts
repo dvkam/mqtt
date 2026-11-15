@@ -1,7 +1,9 @@
 import { setImmediate } from 'node:timers/promises';
-import { generate, type IPublishPacket, type Packet } from 'mqtt-packet';
+import { generate } from 'mqtt-packet';
 import { expect, test, vi } from 'vitest';
-import { encodePacket, PacketDecoder } from '../src/codec.js';
+import { encodePacket, PacketDecoder, type ClientPacket } from '../src/codec.js';
+import type { PublishMessage } from '../src/messageProperties.js';
+import type { QosOneMessage } from '../src/session.js';
 import { connectPortable, type PacketTransport, type PortableOptions } from '../src/portable.js';
 
 test('encodes and parses CONNECT Receive Maximum and QoS 1 SUBSCRIBE', () => {
@@ -56,7 +58,7 @@ async function peer(
 ) {
   let receive!: Parameters<PacketTransport['listen']>[0];
   let retire!: Parameters<PacketTransport['listen']>[1];
-  const sent: Packet[] = [];
+  const sent: ClientPacket[] = [];
   const closes: Array<boolean | undefined> = [];
   const transport: PacketTransport = {
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The scripted peer records the original packet and may reply during send.
@@ -87,7 +89,7 @@ async function peer(
   };
 }
 
-function publication(messageId: number, dup = false): IPublishPacket & { qos: 1; messageId: number; dup: boolean } {
+function publication(messageId: number, dup = false): QosOneMessage<PublishMessage> {
   return {
     cmd: 'publish',
     qos: 1,
@@ -101,18 +103,19 @@ function publication(messageId: number, dup = false): IPublishPacket & { qos: 1;
 
 test.each([0, 1])('advertises one inbound slot and accepts SUBACK grant %i', async (grant) => {
   const broker = await peer({ onQosOneMessage() {} }, undefined, grant);
-  expect(broker.sent[0]).toMatchObject({ cmd: 'connect', properties: { receiveMaximum: 1 } });
+  expect(broker.sent[0]).toMatchObject({ cmd: 'connect', receiveMaximum: 1 });
   await broker.client.subscribe('a', { qos: 1 });
   expect(broker.sent[1]).toMatchObject({
     cmd: 'subscribe',
-    subscriptions: [{ topic: 'a', qos: 1 }],
+    topics: ['a'],
+    qos: 1,
   });
   await broker.client.disconnect();
 });
 
 test('rejects a QoS 1 subscription locally without a handler', async () => {
   const broker = await peer({}, undefined, 0);
-  expect(broker.sent[0]).not.toHaveProperty('properties');
+  expect(broker.sent[0]).not.toHaveProperty('receiveMaximum');
   await expect(broker.client.subscribe('a', { qos: 1 })).rejects.toThrow('QoS 1 subscription requires onQosOneMessage');
   expect(broker.sent).toHaveLength(1);
   await broker.client.ping();
@@ -120,7 +123,8 @@ test('rejects a QoS 1 subscription locally without a handler', async () => {
   expect(broker.sent[2]).toMatchObject({
     cmd: 'subscribe',
     messageId: 1,
-    subscriptions: [{ topic: 'a', qos: 0 }],
+    topics: ['a'],
+    qos: 0,
   });
   await broker.client.disconnect();
 });
@@ -146,12 +150,12 @@ test('keeps inbound ownership separate and waits for application success before 
   try {
     expect(broker.sent[1]).toMatchObject({ cmd: 'publish', messageId: 1 });
     broker.receive(publication(1));
-    broker.receive({ ...publication(2), qos: 0, topic: 'qos-zero' });
+    broker.receive({ cmd: 'publish', topic: 'qos-zero', payload: Buffer.from('hello'), qos: 0, dup: false, retain: false });
     await broker.client.ping();
     expect(delivered).toEqual([1]);
     expect(qosZero).toEqual(['qos-zero']);
     expect(broker.sent.some((packet: Readonly<{ cmd: string }>) => packet.cmd === 'puback')).toBe(false);
-    broker.receive({ cmd: 'puback', messageId: 1 });
+    broker.receive({ cmd: 'puback', messageId: 1, reasonCode: 0 });
     await published;
     handler.release();
     await setImmediate();
@@ -176,7 +180,7 @@ test('holds one next PUBLISH during ACK write settlement and delivers a reused I
   );
   broker.receive(publication(7));
   await setImmediate();
-  expect(broker.sent[broker.sent.length - 1]).toMatchObject({ cmd: 'puback', messageId: 7 });
+  expect(broker.sent[broker.sent.length - 1]).toMatchObject({ cmd: 'puback', messageId: 7, reasonCode: 0 });
   broker.receive(publication(7, true));
   await expect(broker.client.ping()).resolves.toBeUndefined();
   expect(delivered).toEqual([false]);
@@ -266,7 +270,7 @@ test('retains the first QoS 1 PUBLISH arriving with CONNACK while CONNECT send s
           receive(publication(7));
           await sent.promise;
         }
-        if (packet.cmd === 'puback' && packet.messageId !== undefined) acks.push(packet.messageId);
+        if (packet.cmd === 'puback') acks.push(packet.messageId);
       },
       async close() {},
     },

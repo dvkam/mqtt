@@ -1,6 +1,7 @@
 import { getEventListeners } from 'node:events';
 import { expect, test, vi } from 'vitest';
 import { connectPortable, type PacketTransport } from '../src/portable.js';
+import { ProtocolInputError } from '../src/protocolInputError.js';
 import { createTcpClient, createWebSocketClient } from '../src/index.js';
 import { createBrowserClient } from '../src/browser.js';
 import { PacketDecoder, encodePacket } from '../src/codec.js';
@@ -10,6 +11,7 @@ import { startWebSocketPacketPeer } from './experiments/websocket-packet-peer.js
 function decodedPeer(onListen?: () => void) {
   let receive: Parameters<PacketTransport['listen']>[0] | undefined;
   let closed: Parameters<PacketTransport['listen']>[1] | undefined;
+  let protocolError: Parameters<PacketTransport['listen']>[2];
   const close = vi.fn<(force?: boolean) => Promise<void>>(async () => {
     await Promise.resolve();
   });
@@ -21,15 +23,27 @@ function decodedPeer(onListen?: () => void) {
       if (packet.clientId !== undefined) clientIds.push(packet.clientId);
       await Promise.resolve();
     },
-    listen(onPacket, onClose) {
+    listen(onPacket, onClose, onProtocolError) {
       receive = onPacket;
       closed = onClose;
+      protocolError = onProtocolError;
       onListen?.();
       return () => {};
     },
     close,
   };
-  return { transport, close, sent, clientIds, receive: () => receive, closed: () => closed };
+  return {
+    transport,
+    close,
+    sent,
+    clientIds,
+    receive: () => receive,
+    closed: () => closed,
+    // The Node listener reports a broker AUTH to the session as this protocol error.
+    rejectAuth: () => {
+      protocolError?.(new ProtocolInputError('Unexpected MQTT AUTH', 0x82));
+    },
+  };
 }
 
 test.each(['empty-method', 'method', 'empty-data', 'data', 'both'])(
@@ -48,7 +62,7 @@ test.each(['empty-method', 'method', 'empty-data', 'data', 'both'])(
     const peer = decodedPeer();
     const onMessage = vi.fn<() => void>();
     const opening = connectPortable(peer.transport, { clientId: 'named', onMessage }).catch((reason: unknown) => reason);
-    peer.receive()?.({ cmd: 'connack', reasonCode: 0, sessionPresent: false, properties });
+    peer.receive()?.({ cmd: 'connack', reasonCode: 0, sessionPresent: false, ...properties });
     peer.receive()?.({ cmd: 'publish', qos: 0, topic: 'a', payload: Buffer.from('suffix'), dup: false, retain: false });
     const failure = await opening;
     expect(failure).toMatchObject({ message: 'Unexpected MQTT authentication properties', code: 0x82 });
@@ -74,7 +88,7 @@ test.each([
   }: Readonly<{ clientId: string; properties: Readonly<{ assignedClientIdentifier: string }> | undefined }>) => {
     const peer = decodedPeer();
     const opening = connectPortable(peer.transport, { clientId }).catch((reason: unknown) => reason);
-    peer.receive()?.({ cmd: 'connack', reasonCode: 0, sessionPresent: false, properties });
+    peer.receive()?.({ cmd: 'connack', reasonCode: 0, sessionPresent: false, ...properties });
     expect(await opening).toMatchObject({ message: 'Invalid MQTT Assigned Client Identifier', code: 0x82 });
     expect(peer.close).toHaveBeenCalledExactlyOnceWith(true);
   },
@@ -89,9 +103,9 @@ test.each([
   async ({ clientId, assigned }: Readonly<{ clientId: string; assigned: string }>) => {
     const peer = decodedPeer();
     const opening = connectPortable(peer.transport, { clientId });
-    const properties = { assignedClientIdentifier: assigned };
-    peer.receive()?.({ cmd: 'connack', reasonCode: 0, sessionPresent: false, properties });
-    properties.assignedClientIdentifier = '';
+    const reply = { cmd: 'connack' as const, reasonCode: 0, sessionPresent: false, assignedClientIdentifier: assigned };
+    peer.receive()?.(reply);
+    reply.assignedClientIdentifier = '';
     const client = await opening;
     await client.disconnect();
     expect(peer.sent).toEqual(['connect', 'disconnect']);
@@ -101,7 +115,7 @@ test.each([
 test('AUTH before CONNACK owns failure before a later refusal and close', async () => {
   const peer = decodedPeer();
   const opening = connectPortable(peer.transport, { clientId: 'named' }).catch((reason: unknown) => reason);
-  peer.receive()?.({ cmd: 'auth', reasonCode: 0x18 });
+  peer.rejectAuth();
   peer.receive()?.({ cmd: 'connack', reasonCode: 0x87, sessionPresent: false });
   peer.closed()?.(new Error('later close'));
   expect(await opening).toMatchObject({ message: 'Unexpected MQTT AUTH', code: 0x82 });
@@ -115,7 +129,7 @@ test('active AUTH retires a pending ping and blocks the suffix with one error', 
   peer.receive()?.({ cmd: 'connack', reasonCode: 0, sessionPresent: false });
   const client = await opening;
   const pending = client.ping().catch((reason: unknown) => reason);
-  peer.receive()?.({ cmd: 'auth', reasonCode: 0 });
+  peer.rejectAuth();
   peer.receive()?.({ cmd: 'pingresp' });
   peer.receive()?.({ cmd: 'publish', qos: 0, topic: 'a', payload: Buffer.alloc(0), dup: false, retain: false });
   const failure = await pending;
@@ -144,7 +158,7 @@ test('uses one client ID snapshot for CONNECT and agreement despite mutable opti
   });
   const opening = connectPortable(peer.transport, options);
   options.clientId = 'after-send';
-  peer.receive()?.({ cmd: 'connack', reasonCode: 0, sessionPresent: false, properties: { assignedClientIdentifier: 'original' } });
+  peer.receive()?.({ cmd: 'connack', reasonCode: 0, sessionPresent: false, assignedClientIdentifier: 'original' });
   const client = await opening;
   expect(peer.clientIds).toEqual(['original']);
   await client.disconnect();
@@ -156,9 +170,9 @@ test('coalesced success and QoS 1 followed by AUTH cannot activate or deliver', 
     await Promise.resolve();
   });
   const opening = connectPortable(peer.transport, { clientId: '', onQosOneMessage }).catch((reason: unknown) => reason);
-  peer.receive()?.({ cmd: 'connack', reasonCode: 0, sessionPresent: false, properties: { assignedClientIdentifier: 'assigned' } });
+  peer.receive()?.({ cmd: 'connack', reasonCode: 0, sessionPresent: false, assignedClientIdentifier: 'assigned' });
   peer.receive()?.({ cmd: 'publish', qos: 1, messageId: 1, topic: 'a', payload: Buffer.alloc(0), dup: false, retain: false });
-  peer.receive()?.({ cmd: 'auth', reasonCode: 0x18 });
+  peer.rejectAuth();
   const failure = await opening;
   expect(failure).toMatchObject({ message: 'Unexpected MQTT AUTH', code: 0x82 });
   expect(onQosOneMessage).not.toHaveBeenCalled();
@@ -169,7 +183,7 @@ test('a refused empty-ID CONNACK owns failure before later AUTH', async () => {
   const peer = decodedPeer();
   const opening = connectPortable(peer.transport, { clientId: '' }).catch((reason: unknown) => reason);
   peer.receive()?.({ cmd: 'connack', reasonCode: 0x85, sessionPresent: false });
-  peer.receive()?.({ cmd: 'auth', reasonCode: 0x18 });
+  peer.rejectAuth();
   expect(await opening).toMatchObject({ message: 'MQTT acknowledgment refused', code: 0x85 });
   expect(peer.sent).toEqual(['connect']);
 });
@@ -310,7 +324,14 @@ test.each(adapters)('%s retires active AUTH before ping and publication suffixes
           : createWebSocketClient({ ...peer, ...options });
     const client = await factory.connect();
     const failure = await client.ping().catch((reason: unknown) => reason);
-    expect(failure).toBeInstanceOf(Error);
+    // Node rejects AUTH in its listener and sends DISCONNECT 0x82. The browser decoder rejects the AUTH header with a
+    // plain error and sends no DISCONNECT, as it did before.
+    expect(failure).toMatchObject(
+      adapter === 'browser'
+        ? { message: 'Unsupported MQTT packet or invalid fixed-header flags' }
+        : { message: 'Unexpected MQTT AUTH', code: 0x82 },
+    );
+    await expect.poll(() => peer.disconnectReasons).toEqual(adapter === 'browser' ? [] : [0x82]);
     await expect(client.ping()).rejects.toBe(failure);
     await expect.poll(peer.connections).toBe(0);
     expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);

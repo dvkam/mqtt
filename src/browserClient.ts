@@ -1,9 +1,8 @@
 import type { DiagnosticObserver } from './diagnostics.js';
 import { brokerPacketDirectionError, ProtocolInputError } from './protocolInputError.js';
 import { openBrowserTransport } from './browserTransport.js';
-import { encodePacket, isClientOnlyCommand, PacketDecoder } from './wireCodec.js';
+import { encodePacket, isClientOnlyPacket, PacketDecoder } from './wireCodec.js';
 import { publishMessage, type PublishMessage } from './messageProperties.js';
-import { toWirePacket } from './wirePacket.js';
 import { connectPortable, type PacketTransport } from './portable.js';
 import type { ClientFactory, ClientSession, QosOneMessage, SessionEndObserver } from './session.js';
 import { resolveSubscriptionLimits, type SubscriptionLimits } from './subscriptionExchanges.js';
@@ -61,10 +60,10 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
   const subscriptionLimits = resolveSubscriptionLimits(options);
   const writeLimits = resolveNativeWriteLimits(options);
   const decoder = new PacketDecoder({ maxPacketBytes: options.maxPacketBytes });
-  let deliver: Parameters<PacketTransport<BrowserMessage>['listen']>[0] | undefined;
+  let deliver: Parameters<PacketTransport['listen']>[0] | undefined;
   let failed: ((reason: Readonly<Error>) => void) | undefined;
   let failure: Error | undefined;
-  let protocolError: Parameters<PacketTransport<BrowserMessage>['listen']>[2];
+  let protocolError: Parameters<PacketTransport['listen']>[2];
   const bytes = await openBrowserTransport(options.url, {
     signal: options.signal,
     timeoutMs,
@@ -80,62 +79,14 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
       const listener = deliver;
       for (const packet of packets) {
         if (deliver !== listener) return;
-        if (isClientOnlyCommand(packet.cmd)) {
+        if (isClientOnlyPacket(packet)) {
           error = brokerPacketDirectionError(packet.cmd);
           break;
         }
-        if (packet.cmd === 'connack' && (packet.authenticationMethod !== undefined || packet.authenticationData !== undefined)) {
-          error = new ProtocolInputError('Unexpected MQTT authentication properties', 0x82);
-          break;
-        }
-        switch (packet.cmd) {
-          case 'connack': {
-            const { receiveMaximum, maximumQoS, assignedClientIdentifier } = packet;
-            deliver?.({
-              cmd: 'connack',
-              sessionPresent: packet.sessionPresent,
-              reasonCode: packet.reasonCode,
-              properties: { receiveMaximum, maximumQoS, assignedClientIdentifier },
-            });
-            break;
-          }
-          case 'puback':
-            deliver?.({
-              cmd: 'puback',
-              messageId: packet.messageId,
-              reasonCode: packet.reasonCode,
-            });
-            break;
-          case 'suback':
-          case 'unsuback':
-            deliver?.({
-              cmd: packet.cmd,
-              messageId: packet.messageId,
-              granted: [...packet.granted],
-            });
-            break;
-          case 'pingresp':
-            deliver?.(packet);
-            break;
-          case 'disconnect':
-            deliver?.({ cmd: 'disconnect', reasonCode: packet.reasonCode ?? 0 });
-            break;
-          case 'publish': {
-            const message = publishMessage(packet, browserBytes);
-            if (packet.qos === 1) {
-              if (!onQosOneMessage) throw new Error('Unsupported incoming MQTT QoS 1');
-              deliver?.({
-                ...message,
-                qos: 1,
-                dup: packet.dup ?? false,
-                messageId: packet.messageId,
-              });
-            } else deliver?.(message);
-            break;
-          }
-          default:
-            throw new Error('Unexpected MQTT packet from broker');
-        }
+        if (packet.cmd !== 'publish') deliver?.(packet);
+        else if (packet.qos !== 1) deliver?.(publishMessage(packet, browserBytes));
+        else if (!onQosOneMessage) throw new Error('Unsupported incoming MQTT QoS 1');
+        else deliver?.({ ...publishMessage(packet, browserBytes), qos: 1, messageId: packet.messageId, dup: packet.dup ?? false });
       }
       if (deliver !== listener || !error) return;
       if (!(error instanceof ProtocolInputError) || !protocolError) throw error;
@@ -153,11 +104,11 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
       failed?.(failure);
     },
   });
-  const transport: PacketTransport<BrowserMessage> = {
+  const transport: PacketTransport = {
     supportsSharedSubscriptions: false,
     // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- Encoding and admission failures must reject through the packet transport's promise API. The browser adapter preserves native signals and mutable packet payloads.
     async send(packet) {
-      const frame = encodePacket(toWirePacket(packet));
+      const frame = encodePacket(packet);
       try {
         bytes.send(frame, packet.cmd === 'publish' ? 'publication' : 'control');
       } catch (reason) {

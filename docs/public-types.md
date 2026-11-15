@@ -17,8 +17,8 @@ Use `import type` for the named contracts. TypeScript 7.0.2 is the supported com
 | `PublishOptions`, `SubscribeOptions`                                              | Both client entries                     | QoS options. Only QoS 1 publish accepts a cancellation signal.                                                                               |
 | `BrowserTransportOptions`, `BrowserTransport`, `BrowserCloseKind`, `WriteTraffic` | `mqtt/browser`                          | Native browser transport callbacks, send and close operations, and their argument types                                                      |
 | `WebSocketOptions`                                                                | `mqtt/websocket`                        | Timeout and cancellation for opening a native MQTT WebSocket                                                                                 |
-| `PortableOptions`, `PacketTransport`                                              | `mqtt/portable`                         | Experimental generic client and custom transport options. The packet contract uses mqtt-packet declarations.                                 |
-| `ProtocolInputError`, `ProtocolInputCode`                                         | `mqtt/portable`                         | Decoder rejection passed to the optional transport protocol-error callback. Its readonly code is 0x81, 0x82 or 0x94. These are type exports. |
+| `PortableOptions`, `PacketTransport`                                              | `mqtt/portable`                         | Experimental generic client and custom transport options. The packet contract uses the codec's packet model. See [custom transport contract](#custom-transport-contract).                                 |
+| `ProtocolInputError`, `ProtocolInputCode`                                         | `mqtt/portable`                         | Decoder rejection passed to the optional transport protocol-error callback. Its readonly code is 0x81, 0x82 or 0x94. A custom transport can construct one. |
 
 `onMessage` handles QoS 0. Register `onQosOneMessage` before requesting a QoS 1 subscription. Its message adds a packet identifier and a DUP flag, with the same platform-specific payload type. The client acknowledges the delivery after that handler succeeds. See [inbound QoS 1 delivery](qos1-receive.md).
 
@@ -67,6 +67,74 @@ On Node, `payload` and `correlationData` are views of the one allocation the dec
 | `message.dup`, a `boolean` | `false` on a QoS 0 message, `boolean` on a QoS 1 message |
 
 The old map kept the order of values under one key but lost the order between keys. The pairs keep the order the broker sent, which MQTT 5 requires a forwarder to keep (MQTT-3.3.2-18).
+
+## Custom transport contract
+
+`PacketTransport` speaks the packet model of `mqtt/codec`, so a custom transport can encode with `encodePacket` and decode with `PacketDecoder` without a translation layer.
+
+- `send(packet)` receives a `ClientPacket`: CONNECT, SUBSCRIBE, UNSUBSCRIBE, PUBLISH, PUBACK, PINGREQ or DISCONNECT. `encodePacket` accepts every one. A PUBLISH payload is a `Uint8Array`, because the session encodes a string payload once.
+- Set `supportsSharedSubscriptions: false` unless the transport passes `{ sharedSubscriptions: true }` to `encodePacket`. The session then refuses a `$share/` filter locally. Otherwise the encoder throws inside `send` and the session ends.
+- `listen(onPacket, onClose, onProtocolError)` delivers `ReceivedPacket`: CONNACK, PUBACK, SUBACK, UNSUBACK, PINGRESP and DISCONNECT as the codec decodes them, and PUBLISH as a flat received message. The types leave out broker CONNECT, SUBSCRIBE, UNSUBSCRIBE and PINGREQ, so the transport rejects them itself.
+- Pass a `ProtocolInputError` to `onProtocolError`, the third `listen` argument, for a malformed or wrong-direction packet. The session then sends DISCONNECT with its code once active. `PacketDecoder.pushBatch` returns its decode errors as `ProtocolInputError` where MQTT 5 assigns a reason code. Pass any other error to `onClose`.
+- `PacketTransport`, `PortableOptions` and `connectPortable` take a byte type parameter instead of a message type. `PacketTransport<Buffer>` delivers Node Buffers, and the default is `Uint8Array`.
+- `mqtt/portable` exports the `ProtocolInputError` class and the types `ClientPacket`, `BrokerPacket`, `ReceivedPacket`, `PublishMessage`, `MessageProperties` and `QosOneMessage`.
+
+`test/types/custom-transport.ts` compiles this example against the built declarations.
+
+```ts
+import { encodePacket, PacketDecoder } from 'mqtt/codec';
+import { connectPortable, ProtocolInputError, type PacketTransport } from 'mqtt/portable';
+
+const decoder = new PacketDecoder();
+const transport: PacketTransport = {
+  // encodePacket refuses $share/ filters unless asked, so the session refuses them locally first.
+  supportsSharedSubscriptions: false,
+  async send(packet) {
+    await channel.write(encodePacket(packet));
+  },
+  listen(onPacket, onClose, onProtocolError) {
+    // A protocol error lets the session send DISCONNECT with its reason code. Any other error closes the session.
+    const fail = (error: Error) => {
+      if (error instanceof ProtocolInputError && onProtocolError) onProtocolError(error);
+      else onClose(error);
+    };
+    return channel.onData((chunk) => {
+      const batch = decoder.pushBatch(chunk);
+      const packets = Array.isArray(batch) ? batch : batch.packets;
+      for (const packet of packets) {
+        if (packet.cmd === 'connect' || packet.cmd === 'subscribe' || packet.cmd === 'unsubscribe' || packet.cmd === 'pingreq') {
+          fail(new ProtocolInputError('Unexpected MQTT packet from broker: ' + packet.cmd.toUpperCase(), 0x82));
+          return;
+        }
+        if (packet.cmd !== 'publish') onPacket(packet);
+        else if (packet.qos === 1) onPacket({ ...packet, dup: packet.dup ?? false, retain: packet.retain ?? false });
+        else onPacket({ ...packet, qos: 0, dup: false, retain: packet.retain ?? false });
+      }
+      if (!Array.isArray(batch)) fail(batch.error);
+    }, onClose);
+  },
+  close: async (force) => channel.close(force),
+};
+const session = await connectPortable(transport, { clientId: 'sensor-7' });
+```
+
+### Change from the mqtt-packet contract
+
+This is a breaking change to the experimental `mqtt/portable` contract. Before, `send` and `listen` used mqtt-packet's `Packet` declarations.
+
+| Before | After |
+| --- | --- |
+| `PacketTransport<Message>`, `PortableOptions<Message>` | `PacketTransport<Bytes>`, `PortableOptions<Bytes>` |
+| CONNECT `clean`, `keepalive`, `properties.receiveMaximum`, `protocolVersion`, `protocolId` | `cleanStart`, `keepAlive`, `receiveMaximum`. The codec fixes MQTT 5. |
+| SUBSCRIBE `subscriptions: [{ topic, qos }]` | `topics: [topic]`, `qos` |
+| UNSUBSCRIBE `unsubscriptions` | `topics` |
+| PUBLISH `payload` as a string | `payload` as a `Uint8Array`. A QoS 0 PUBLISH has no `qos` or `dup` field. |
+| CONNACK and acknowledgment `properties.*` | The same names as top-level fields |
+| User Properties as a map | Ordered `[key, value]` pairs |
+| PUBACK `reasonCode` optional | Required |
+| AUTH, PUBREC, PUBREL and PUBCOMP delivered to the session | Not part of the contract. The Node adapters reject AUTH with 0x82 and drop the QoS 2 handshake packets, as the session did. |
+| `username` and `password` typed from mqtt-packet | `username?: string`, `password?: Uint8Array`. A `Buffer` still fits. |
+| A delivered packet's `length` | Removed |
 
 ## Packed verification
 

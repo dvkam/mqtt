@@ -1,6 +1,6 @@
 import { getEventListeners } from 'node:events';
 import { expect, test, vi } from 'vitest';
-import { NodePacketDecoder } from './experiments/node-packet-decoder.js';
+import { NodePacketDecoder } from '../src/nodePacketDecoder.js';
 import { NodePacketInput } from '../src/nodePacketInput.js';
 import { PacketDecoder } from '../src/codec.js';
 import { createTcpClient, createWebSocketClient } from '../src/index.js';

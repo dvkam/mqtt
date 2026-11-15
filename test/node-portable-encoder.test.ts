@@ -2,13 +2,14 @@ import { once } from 'node:events';
 import { createServer } from 'node:net';
 import { generate, parser, type Packet } from 'mqtt-packet';
 import { expect, test } from 'vitest';
-import { encodePacket } from '../src/codec.js';
+import { encodePacket, type ClientPacket } from '../src/codec.js';
 import { createTcpClient } from '../src/tcpClient.js';
-import { toWirePacket } from '../src/wirePacket.js';
 
-const sessionPackets: [string, Packet][] = [
+// Each row is a packet the session sends, in the codec model, and the same operation as an mqtt-packet input.
+const sessionPackets: [string, ClientPacket, Packet][] = [
   [
     'CONNECT with credentials and Receive Maximum',
+    { cmd: 'connect', clientId: 'c', cleanStart: true, keepAlive: 0, username: 'u', password: Buffer.from('p'), receiveMaximum: 1 },
     {
       cmd: 'connect',
       protocolVersion: 5,
@@ -21,15 +22,35 @@ const sessionPackets: [string, Packet][] = [
       properties: { receiveMaximum: 1 },
     },
   ],
-  ['SUBSCRIBE at QoS 1', { cmd: 'subscribe', messageId: 2, subscriptions: [{ topic: 'a/+', qos: 1 }] }],
-  ['SUBSCRIBE to a shared filter', { cmd: 'subscribe', messageId: 3, subscriptions: [{ topic: '$share/group/a', qos: 0 }] }],
-  ['UNSUBSCRIBE', { cmd: 'unsubscribe', messageId: 4, unsubscriptions: ['a/+'] }],
-  ['QoS 0 PUBLISH', { cmd: 'publish', topic: 'a/b', payload: 'hé', qos: 0, dup: false, retain: false }],
-  ['QoS 1 PUBLISH', { cmd: 'publish', topic: 'a/b', payload: 'x', qos: 1, messageId: 5, dup: false, retain: false }],
-  ['PUBACK', { cmd: 'puback', messageId: 6, reasonCode: 0 }],
-  ['PINGREQ', { cmd: 'pingreq' }],
-  ['DISCONNECT', { cmd: 'disconnect' }],
-  ['DISCONNECT with a protocol error', { cmd: 'disconnect', reasonCode: 0x82 }],
+  [
+    'SUBSCRIBE at QoS 1',
+    { cmd: 'subscribe', messageId: 2, topics: ['a/+'], qos: 1 },
+    { cmd: 'subscribe', messageId: 2, subscriptions: [{ topic: 'a/+', qos: 1 }] },
+  ],
+  [
+    'SUBSCRIBE to a shared filter',
+    { cmd: 'subscribe', messageId: 3, topics: ['$share/group/a'], qos: 0 },
+    { cmd: 'subscribe', messageId: 3, subscriptions: [{ topic: '$share/group/a', qos: 0 }] },
+  ],
+  [
+    'UNSUBSCRIBE',
+    { cmd: 'unsubscribe', messageId: 4, topics: ['a/+'] },
+    { cmd: 'unsubscribe', messageId: 4, unsubscriptions: ['a/+'] },
+  ],
+  [
+    'QoS 0 PUBLISH',
+    { cmd: 'publish', topic: 'a/b', payload: new TextEncoder().encode('hé'), retain: false },
+    { cmd: 'publish', topic: 'a/b', payload: 'hé', qos: 0, dup: false, retain: false },
+  ],
+  [
+    'QoS 1 PUBLISH',
+    { cmd: 'publish', topic: 'a/b', payload: new TextEncoder().encode('x'), qos: 1, messageId: 5, dup: false, retain: false },
+    { cmd: 'publish', topic: 'a/b', payload: 'x', qos: 1, messageId: 5, dup: false, retain: false },
+  ],
+  ['PUBACK', { cmd: 'puback', messageId: 6, reasonCode: 0 }, { cmd: 'puback', messageId: 6, reasonCode: 0 }],
+  ['PINGREQ', { cmd: 'pingreq' }, { cmd: 'pingreq' }],
+  ['DISCONNECT', { cmd: 'disconnect' }, { cmd: 'disconnect' }],
+  ['DISCONNECT with a protocol error', { cmd: 'disconnect', reasonCode: 0x82 }, { cmd: 'disconnect', reasonCode: 0x82 }],
 ];
 
 function comparable(packet: unknown): unknown {
@@ -51,9 +72,9 @@ function parse(bytes: readonly number[]): Packet[] {
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-test.each(sessionPackets)('mqtt-packet reads the portable encoding of %s as the same packet', (_name, packet) => {
-  const portable = parse(Array.from(encodePacket(toWirePacket(packet), { sharedSubscriptions: true })));
-  const reference = parse(Array.from(generate(packet, { protocolVersion: 5 })));
+test.each(sessionPackets)('mqtt-packet reads the portable encoding of %s as the same packet', (_name, packet, legacy) => {
+  const portable = parse(Array.from(encodePacket(packet, { sharedSubscriptions: true })));
+  const reference = parse(Array.from(generate(legacy, { protocolVersion: 5 })));
   expect(portable).toHaveLength(1);
   expect(comparable(portable[0])).toEqual(comparable(reference[0]));
 });
@@ -73,13 +94,6 @@ test('encodes a shared filter only when the caller allows shared subscriptions',
   expect(Array.from(encodePacket(packet, { sharedSubscriptions: true }))).toEqual([
     0x82, 18, 0, 1, 0, 0, 12, 0x24, 0x73, 0x68, 0x61, 0x72, 0x65, 0x2f, 0x67, 0x2f, 0x61, 0x2f, 0x2b, 0,
   ]);
-});
-
-test('rejects a session packet that a client never sends', () => {
-  expect(() => toWirePacket({ cmd: 'pingresp' })).toThrow('Unsupported client operation');
-  expect(() => toWirePacket({ cmd: 'subscribe', messageId: 1, subscriptions: [{ topic: 'a', qos: 2 }] })).toThrow(
-    'Unsupported subscription options',
-  );
 });
 
 test('TCP client writes the portable encoding for a connect, subscribe, publish and disconnect exchange', async () => {

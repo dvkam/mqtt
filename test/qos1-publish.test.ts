@@ -1,5 +1,6 @@
 import { setImmediate } from 'node:timers/promises';
-import { generate, type IConnackPacket, type Packet } from 'mqtt-packet';
+import { generate } from 'mqtt-packet';
+import type { ClientPacket } from '../src/codec.js';
 import { expect, test, vi } from 'vitest';
 import { connectPortable, type PacketTransport, type PortableOptions } from '../src/portable.js';
 import { PublicationAdmission } from '../src/publicationAdmission.js';
@@ -18,20 +19,22 @@ function gate() {
 }
 
 async function peer(
-  properties?: Readonly<Pick<NonNullable<IConnackPacket['properties']>, 'receiveMaximum' | 'maximumQoS'>>,
+  properties?: Readonly<{ receiveMaximum?: number; maximumQoS?: number }>,
   limits?: Readonly<Pick<PortableOptions, 'maxPendingPublishes' | 'maxPendingPublishBytes' | 'timeoutMs'>>,
-  afterConnack?: () => void,
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The callback mutates the delivered CONNACK to prove the session snapshots it.
+  afterConnack?: (reply: { receiveMaximum?: number; maximumQoS?: number }) => void,
 ) {
   let receive!: Parameters<PacketTransport['listen']>[0];
   let retire!: Parameters<PacketTransport['listen']>[1];
-  const packets: Packet[] = [];
+  const packets: ClientPacket[] = [];
   const transport: PacketTransport = {
     // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- The fixture records mutable transport packets and delivers replies synchronously.
     async send(packet) {
       packets.push(packet);
       if (packet.cmd === 'connect') {
-        receive({ cmd: 'connack', sessionPresent: false, reasonCode: 0, properties });
-        afterConnack?.();
+        const reply = { cmd: 'connack' as const, sessionPresent: false, reasonCode: 0, ...properties };
+        receive(reply);
+        afterConnack?.(reply);
       }
       if (packet.cmd === 'pingreq') receive({ cmd: 'pingresp' });
     },
@@ -95,7 +98,7 @@ test('uses a broker quota of two and handles a negative PUBACK without closing t
     broker.receive({ cmd: 'puback', messageId: 2, reasonCode: 0x97 });
     await expect(second).rejects.toMatchObject({ code: 0x97 });
     expect(broker.published()[2]).toMatchObject({ qos: 1, messageId: 3, topic: 'c' });
-    broker.receive({ cmd: 'puback', messageId: 1 });
+    broker.receive({ cmd: 'puback', messageId: 1, reasonCode: 0 });
     broker.receive({ cmd: 'puback', messageId: 3, reasonCode: 0x10 });
     await Promise.all([first, third]);
     await broker.client.ping();
@@ -121,10 +124,10 @@ test('queued abort returns bytes and consumes neither a timer nor an identifier'
     const third = broker.client.publish('c', 'x', qosOne);
     const result = Promise.allSettled([third]);
     try {
-      broker.receive({ cmd: 'puback', messageId: 1 });
+      broker.receive({ cmd: 'puback', messageId: 1, reasonCode: 0 });
       await first;
       expect(broker.published()[1]).toMatchObject({ qos: 1, messageId: 2, topic: 'c' });
-      broker.receive({ cmd: 'puback', messageId: 2 });
+      broker.receive({ cmd: 'puback', messageId: 2, reasonCode: 0 });
       await third;
     } finally {
       broker.retire(new Error('fixture ended'));
@@ -150,11 +153,11 @@ test('abort after dispatch rejects the caller and retains quota and bytes until 
     await expect(broker.client.publish('c', 'x')).rejects.toThrow('MQTT publication capacity exceeded');
     await setImmediate();
     expect(broker.published()).toHaveLength(1);
-    broker.receive({ cmd: 'puback', messageId: 1 });
+    broker.receive({ cmd: 'puback', messageId: 1, reasonCode: 0 });
     await vi.waitFor(() => {
       expect(broker.published()[1]).toMatchObject({ qos: 1, messageId: 2, topic: 'b' });
     });
-    broker.receive({ cmd: 'puback', messageId: 2 });
+    broker.receive({ cmd: 'puback', messageId: 2, reasonCode: 0 });
     await second;
   } finally {
     broker.retire(new Error('fixture ended'));
@@ -177,7 +180,7 @@ test('uncertain send failure retires active and queued publications even after a
   const outcomes = Promise.allSettled([first, second]);
   const failure = new Error('write uncertain');
   try {
-    broker.receive({ cmd: 'puback', messageId: 1 });
+    broker.receive({ cmd: 'puback', messageId: 1, reasonCode: 0 });
     write.reject(failure);
     await expect(first).rejects.toBe(failure);
     await expect(second).rejects.toBe(failure);
@@ -204,7 +207,7 @@ test('disconnect fences queued dispatch before sending DISCONNECT', async () => 
   const second = broker.client.publish('b', 'x', qosOne);
   const outcomes = Promise.allSettled([first, second]);
   try {
-    broker.receive({ cmd: 'puback', messageId: 1 });
+    broker.receive({ cmd: 'puback', messageId: 1, reasonCode: 0 });
     const closing = broker.client.disconnect();
     const closed = Promise.allSettled([closing]);
     try {
@@ -231,13 +234,13 @@ test('wrong-kind and unmatched acknowledgments leave a sent QoS 1 publication pe
   try {
     await setImmediate();
     broker.receive({ cmd: 'suback', messageId: 1, granted: [0] });
-    broker.receive({ cmd: 'puback', messageId: 99 });
+    broker.receive({ cmd: 'puback', messageId: 99, reasonCode: 0 });
     await setImmediate();
     expect(broker.published()).toHaveLength(1);
-    broker.receive({ cmd: 'puback', messageId: 1 });
+    broker.receive({ cmd: 'puback', messageId: 1, reasonCode: 0 });
     await first;
     expect(broker.published()).toHaveLength(2);
-    broker.receive({ cmd: 'puback', messageId: 2 });
+    broker.receive({ cmd: 'puback', messageId: 2, reasonCode: 0 });
     await second;
   } finally {
     broker.retire(new Error('fixture ended'));
@@ -255,7 +258,7 @@ test('an early PUBACK does not stop the deadline while the actual write is held'
     failure = reason;
   });
   try {
-    broker.receive({ cmd: 'puback', messageId: 1 });
+    broker.receive({ cmd: 'puback', messageId: 1, reasonCode: 0 });
     await setImmediate();
     vi.advanceTimersByTime(100);
     await setImmediate();
@@ -273,7 +276,8 @@ test('broker Maximum QoS zero rejects QoS 1 before sending and permits QoS 0', a
   await expect(broker.client.publish('a', 'x', qosOne)).rejects.toThrow('Broker does not support QoS 1');
   expect(broker.published()).toEqual([]);
   await broker.client.publish('a', 'x');
-  expect(broker.published()).toEqual([expect.objectContaining({ qos: 0 })]);
+  // A QoS 0 PUBLISH carries no qos field in the codec model.
+  expect(broker.published()).toStrictEqual([{ cmd: 'publish', topic: 'a', payload: new TextEncoder().encode('x'), retain: false }]);
   await broker.client.disconnect();
 });
 
@@ -289,7 +293,7 @@ test('pre-aborted QoS 1 publish consumes no capacity or packet identifier', asyn
   const outcome = Promise.allSettled([next]);
   try {
     expect(broker.published()).toEqual([expect.objectContaining({ qos: 1, messageId: 1 })]);
-    broker.receive({ cmd: 'puback', messageId: 1 });
+    broker.receive({ cmd: 'puback', messageId: 1, reasonCode: 0 });
     await next;
   } finally {
     broker.retire(new Error('fixture ended'));
@@ -349,7 +353,7 @@ test('allocates before synchronous acknowledgments and keeps reentrant dispatch 
       nested = broker.client.publish('second', 'x', qosOne);
     }
     const sent = original(packet);
-    if (packet.cmd === 'publish') broker.receive({ cmd: 'puback', messageId: packet.messageId });
+    if (packet.cmd === 'publish' && packet.qos === 1) broker.receive({ cmd: 'puback', messageId: packet.messageId, reasonCode: 0 });
     await sent;
   };
   const first = broker.client.publish('first', 'x', qosOne);
@@ -384,7 +388,7 @@ test('rejects a local publication when all shared IDs are held and can retry aft
     try {
       expect(broker.published()[0]).toMatchObject({ messageId: 2, qos: 1 });
       broker.receive({ cmd: 'suback', messageId: 2, granted: [0] });
-      broker.receive({ cmd: 'puback', messageId: 2 });
+      broker.receive({ cmd: 'puback', messageId: 2, reasonCode: 0 });
       await retried;
     } finally {
       broker.retire(new Error('fixture ended'));
@@ -413,7 +417,7 @@ test('queued abort survives a caller listener stopping propagation', async () =>
     controller.abort(reason);
     await setImmediate();
     expect(rejected).toBe(reason);
-    broker.receive({ cmd: 'puback', messageId: 1 });
+    broker.receive({ cmd: 'puback', messageId: 1, reasonCode: 0 });
     await first;
     expect(broker.published()).toHaveLength(1);
   } finally {
@@ -445,20 +449,20 @@ test.each([
 );
 
 test('snapshots broker limits before the transport can mutate the CONNACK object', async () => {
-  const properties = { receiveMaximum: 1, maximumQoS: 1 };
-  const broker = await peer(properties, undefined, () => {
-    properties.receiveMaximum = 2;
-    properties.maximumQoS = 0;
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The callback mutates the delivered CONNACK to prove the session snapshots it.
+  const broker = await peer({ receiveMaximum: 1, maximumQoS: 1 }, undefined, (reply) => {
+    reply.receiveMaximum = 2;
+    reply.maximumQoS = 0;
   });
   const first = broker.client.publish('a', 'x', qosOne);
   const second = broker.client.publish('b', 'x', qosOne);
   const outcomes = Promise.allSettled([first, second]);
   try {
     expect(broker.published()).toHaveLength(1);
-    broker.receive({ cmd: 'puback', messageId: 1 });
+    broker.receive({ cmd: 'puback', messageId: 1, reasonCode: 0 });
     await first;
     expect(broker.published()).toHaveLength(2);
-    broker.receive({ cmd: 'puback', messageId: 2 });
+    broker.receive({ cmd: 'puback', messageId: 2, reasonCode: 0 });
     await second;
   } finally {
     broker.retire(new Error('fixture ended'));
@@ -482,7 +486,7 @@ test.each(['é'.repeat(60) + 'a', 'é'.repeat(61)])(
     const outcome = Promise.allSettled([published]);
     try {
       expect(exact.published()).toHaveLength(1);
-      exact.receive({ cmd: 'puback', messageId: 1 });
+      exact.receive({ cmd: 'puback', messageId: 1, reasonCode: 0 });
       await published;
     } finally {
       exact.retire(new Error('fixture ended'));

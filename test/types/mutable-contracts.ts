@@ -19,7 +19,7 @@ export const packetTransport: PacketTransport = {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The assignment below checks that packed transport adapters can replace the payload.
   async send(packet) {
     const admitted = await Promise.resolve(packet);
-    if (admitted.cmd === 'publish') admitted.payload = 'adapter-owned payload';
+    if (admitted.cmd === 'publish') admitted.payload = new Uint8Array();
   },
   listen(_receive, onClose) {
     const error = new Error('transport failure');

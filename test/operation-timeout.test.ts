@@ -1,4 +1,4 @@
-import type { Packet } from 'mqtt-packet';
+import type { ReceivedPacket } from '../src/portable.js';
 import { Socket } from 'node:net';
 import { getEventListeners } from 'node:events';
 import { afterEach, expect, test, vi } from 'vitest';
@@ -15,7 +15,7 @@ function stalledPeer(closeMode: 'resolve' | 'reject' | 'pending' = 'resolve', th
   const commands: string[] = [];
   const writes: { resolve: () => void; reject: (reason: Readonly<Error>) => void }[] = [];
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The transport retains the mutable packet callback contract.
-  let receive: (packet: Packet) => void;
+  let receive: (packet: ReceivedPacket) => void;
   const close = vi.fn<PacketTransport['close']>(async () => {
     if (closeMode === 'reject') throw new Error('close rejected');
     if (closeMode === 'pending') await new Promise(() => {});

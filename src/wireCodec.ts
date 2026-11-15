@@ -107,6 +107,12 @@ export function isClientOnlyCommand(command: string): command is (typeof clientO
   return clientOnly.has(command);
 }
 
+export function isClientOnlyPacket<Packet extends Readonly<{ cmd: string }>>(
+  packet: Packet,
+): packet is Extract<Packet, { cmd: (typeof clientOnlyCommands)[number] }> {
+  return clientOnly.has(packet.cmd);
+}
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const connackCodes = new Set([

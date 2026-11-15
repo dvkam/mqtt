@@ -1,6 +1,7 @@
 import { notifyObserver, packetReceiver, packetSender, type DiagnosticObserver } from './diagnostics.js';
 import { ProtocolInputError } from './protocolInputError.js';
-import type { IConnectPacket, IPublishPacket, Packet } from 'mqtt-packet';
+import type { PublishMessage } from './messageProperties.js';
+import type { BrokerPacket, ClientPacket } from './wireCodec.js';
 import type { ClientSession, QosOneMessage, SessionEndObserver, SubscribeOptions } from './session.js';
 import { validateTopic } from './util/validateTopic.js';
 import { resolveTimeout } from './timeout.js';
@@ -13,19 +14,29 @@ import { takeNativeBudgetFailure } from './nativeWriteBudget.js';
 
 export type { ClientDiagnostic, DiagnosticObserver } from './diagnostics.js';
 export type { SessionEnd, SessionEndObserver } from './session.js';
-export type { ProtocolInputCode, ProtocolInputError } from './protocolInputError.js';
+export { ProtocolInputError } from './protocolInputError.js';
+export type { ProtocolInputCode } from './protocolInputError.js';
+export type { BrokerPacket, ClientPacket } from './wireCodec.js';
+export type { MessageProperties, PublishMessage } from './messageProperties.js';
+export type { QosOneMessage } from './session.js';
 
-type SessionMessage = Omit<IPublishPacket, 'payload'> & { payload: unknown };
-type IncomingPacket<Message extends SessionMessage> = Exclude<Packet, IPublishPacket> | Message | QosOneMessage<Message>;
+const payloadEncoder = new TextEncoder();
 
-export interface PacketTransport<Message extends SessionMessage = IPublishPacket> {
+/** What a transport delivers: the codec's broker packets and received messages with `Bytes` payloads. */
+export type ReceivedPacket<Bytes extends Uint8Array = Uint8Array> =
+  | Exclude<BrokerPacket, { cmd: 'publish' }>
+  | PublishMessage<Bytes>
+  | QosOneMessage<PublishMessage<Bytes>>;
+
+export interface PacketTransport<Bytes extends Uint8Array = Uint8Array> {
   /** Whether this adapter can encode shared filters. Broker capabilities are separate. */
   readonly supportsSharedSubscriptions?: boolean;
+  /** Write `packet`. The built-in adapters record a write-budget refusal against this same object. */
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
-  send(packet: Packet): Promise<void>;
+  send(packet: ClientPacket): Promise<void>;
   listen(
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Custom transport packet fields are writable. test/types/mutable-contracts.ts checks the emitted declaration.
-    onPacket: (packet: IncomingPacket<Message>) => void,
+    onPacket: (packet: ReceivedPacket<Bytes>) => void,
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Custom transport error callbacks can write Error.message. test/types/mutable-contracts.ts checks the emitted declaration.
     onClose: (error: Error) => void,
     /** Report a decoder rejection while the transport can still write DISCONNECT. */
@@ -35,34 +46,31 @@ export interface PacketTransport<Message extends SessionMessage = IPublishPacket
   close(force?: boolean): Promise<void>;
 }
 
-export interface PortableOptions<Message extends SessionMessage = IPublishPacket> extends PublicationLimits, SubscriptionLimits {
+export interface PortableOptions<Bytes extends Uint8Array = Uint8Array> extends PublicationLimits, SubscriptionLimits {
   clientId: string;
-  username?: IConnectPacket['username'];
-  password?: IConnectPacket['password'];
+  username?: string;
+  password?: Uint8Array;
   timeoutMs?: number;
   onDiagnostic?: DiagnosticObserver;
   onSessionEnd?: SessionEndObserver;
-  onMessage?: (packet: Message) => void;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Delivery preserves the adapter's mutable byte buffer type.
-  onQosOneMessage?: (packet: QosOneMessage<Message>) => void | Promise<void>;
+  onMessage?: (packet: PublishMessage<Bytes>) => void;
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Delivery preserves the adapter's mutable byte buffer type.
+  onQosOneMessage?: (packet: QosOneMessage<PublishMessage<Bytes>>) => void | Promise<void>;
 }
 
 type InboundPhase = 'handling' | 'acknowledging';
-type Connack = Extract<Packet, { cmd: 'connack' }>;
+type Connack = Extract<BrokerPacket, { cmd: 'connack' }>;
 type Acknowledgment =
-  | Readonly<
-      Pick<Connack, 'cmd' | 'reasonCode' | 'sessionPresent'> & {
-        properties?: Readonly<Pick<NonNullable<Connack['properties']>, 'receiveMaximum' | 'maximumQoS'>>;
-      }
-    >
-  | Readonly<Extract<Packet, { cmd: 'pingresp' }>>;
+  | Readonly<Pick<Connack, 'cmd' | 'reasonCode' | 'sessionPresent' | 'receiveMaximum' | 'maximumQoS'>>
+  | Readonly<{ cmd: 'pingresp' }>;
 
-class PortableClient<Message extends SessionMessage> {
-  private readonly transport: PacketTransport<Message>;
-  private readonly sendPacket: PacketTransport<Message>['send'];
+class PortableClient<Bytes extends Uint8Array> {
+  private readonly transport: PacketTransport<Bytes>;
+  private readonly sendPacket: PacketTransport<Bytes>['send'];
   private readonly onDiagnostic: DiagnosticObserver | undefined;
   private readonly onSessionEnd: SessionEndObserver | undefined;
-  private readonly options: PortableOptions<Message>;
+  private readonly options: PortableOptions<Bytes>;
   private readonly clientId: string;
   private pendingAck?: (packet: Acknowledgment) => void;
   private readonly pendingOperations = new Set<(error: Readonly<Error>) => void>();
@@ -76,13 +84,13 @@ class PortableClient<Message extends SessionMessage> {
   private activation: 'opening' | 'accepted' | 'active' = 'opening';
   private connackReceived = false;
   private inboundPhase?: InboundPhase;
-  private nextInbound?: QosOneMessage<Message>;
-  private readonly onQosOneMessage: PortableOptions<Message>['onQosOneMessage'];
+  private nextInbound?: QosOneMessage<PublishMessage<Bytes>>;
+  private readonly onQosOneMessage: PortableOptions<Bytes>['onQosOneMessage'];
   private readonly timeoutMs: number;
   private readonly publications: PublicationAdmission;
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
-  constructor(transport: PacketTransport<Message>, options: PortableOptions<Message>) {
+  constructor(transport: PacketTransport<Bytes>, options: PortableOptions<Bytes>) {
     this.timeoutMs = resolveTimeout(options.timeoutMs);
     this.publications = new PublicationAdmission(options);
     this.subscriptions = new SubscriptionExchanges(options, this.identifiers);
@@ -96,12 +104,8 @@ class PortableClient<Message extends SessionMessage> {
     this.unlisten = transport.listen(
       packetReceiver(
         // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
-        (packet: IncomingPacket<Message>) => {
+        (packet: ReceivedPacket<Bytes>) => {
           if (this.failure) return;
-          if (packet.cmd === 'auth') {
-            this.rejectProtocolInput(new ProtocolInputError('Unexpected MQTT AUTH', 0x82));
-            return;
-          }
           if (packet.cmd === 'connack') {
             if (this.connackReceived) {
               this.rejectProtocolInput(new ProtocolInputError('Duplicate MQTT CONNACK', 0x82));
@@ -112,7 +116,7 @@ class PortableClient<Message extends SessionMessage> {
               this.rejectProtocolInput(new ProtocolInputError('Unexpected MQTT Session Present', 0x82));
               return;
             }
-            const { authenticationMethod, authenticationData, assignedClientIdentifier } = packet.properties ?? {};
+            const { authenticationMethod, authenticationData, assignedClientIdentifier } = packet;
             if (authenticationMethod !== undefined || authenticationData !== undefined) {
               this.rejectProtocolInput(new ProtocolInputError('Unexpected MQTT authentication properties', 0x82));
               return;
@@ -145,8 +149,8 @@ class PortableClient<Message extends SessionMessage> {
             }
           }
           if (packet.cmd === 'puback') {
-            const { messageId, reasonCode: code = 0 } = packet;
-            if (messageId === undefined || !Number.isInteger(messageId) || messageId < 1 || messageId > 65_535) {
+            const { messageId, reasonCode: code } = packet;
+            if (!Number.isInteger(messageId) || messageId < 1 || messageId > 65_535) {
               void this.abort(new Error('Invalid PUBACK packet identifier')).catch(() => {});
               return;
             }
@@ -161,13 +165,7 @@ class PortableClient<Message extends SessionMessage> {
           if (this.activation === 'active' && packet.qos === 0) options.onMessage?.(packet);
           if (packet.qos === 1 && this.onQosOneMessage) {
             const { messageId, dup } = packet;
-            if (
-              messageId === undefined ||
-              !Number.isInteger(messageId) ||
-              messageId < 1 ||
-              messageId > 65_535 ||
-              typeof dup !== 'boolean'
-            ) {
+            if (!Number.isInteger(messageId) || messageId < 1 || messageId > 65_535 || typeof dup !== 'boolean') {
               void this.abort(new Error('Invalid inbound QoS 1 PUBLISH')).catch(() => {});
               return;
             }
@@ -195,20 +193,18 @@ class PortableClient<Message extends SessionMessage> {
     const reply = await this.exchange(
       {
         cmd: 'connect',
-        protocolVersion: 5,
-        protocolId: 'MQTT',
-        clean: true,
-        keepalive: 0,
         clientId: this.clientId,
+        cleanStart: true,
+        keepAlive: 0,
         username: this.options.username,
         password: this.options.password,
-        ...(this.onQosOneMessage ? { properties: { receiveMaximum: 1 } } : {}),
+        ...(this.onQosOneMessage ? { receiveMaximum: 1 } : {}),
       },
       (ack) => ack.cmd === 'connack',
     );
     if (this.failure) throw this.failure;
     if (reply.cmd !== 'connack') throw new Error('Expected CONNACK');
-    const { receiveMaximum = 65_535, maximumQoS } = reply.properties ?? {};
+    const { receiveMaximum = 65_535, maximumQoS } = reply;
     if (!Number.isInteger(receiveMaximum) || receiveMaximum < 1 || receiveMaximum > 65_535)
       throw new Error('Invalid broker Receive Maximum');
     if (maximumQoS !== undefined && maximumQoS !== 0 && maximumQoS !== 1) throw new Error('Invalid broker Maximum QoS');
@@ -232,9 +228,9 @@ class PortableClient<Message extends SessionMessage> {
     const subscribing = command === 'subscribe';
     const reservation = this.subscriptions.reserve(topic, subscribing ? 'suback' : 'unsuback', qos);
     const { messageId } = reservation;
-    const packet: Packet = subscribing
-      ? { cmd: 'subscribe', messageId, subscriptions: [{ topic, qos }] }
-      : { cmd: 'unsubscribe', messageId, unsubscriptions: [topic] };
+    const packet: ClientPacket = subscribing
+      ? { cmd: 'subscribe', messageId, topics: [topic], qos }
+      : { cmd: 'unsubscribe', messageId, topics: [topic] };
     await this.run(async () => {
       try {
         const sent = this.sendIdentified(packet, subscribing ? 'MQTT subscription send failed' : 'MQTT unsubscribe send failed');
@@ -248,7 +244,7 @@ class PortableClient<Message extends SessionMessage> {
   }
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The handler receives the adapter's mutable packet payload.
-  private receiveQosOne(packet: QosOneMessage<Message>): void {
+  private receiveQosOne(packet: QosOneMessage<PublishMessage<Bytes>>): void {
     if (this.activation === 'opening') {
       void this.abort(new Error('Inbound QoS 1 PUBLISH arrived before CONNACK')).catch(() => {});
       return;
@@ -267,7 +263,7 @@ class PortableClient<Message extends SessionMessage> {
   }
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Preserve the mutable application payload while keeping the ACK identifier private.
-  private async deliverQosOne(packet: QosOneMessage<Message>): Promise<void> {
+  private async deliverQosOne(packet: QosOneMessage<PublishMessage<Bytes>>): Promise<void> {
     const { messageId } = packet;
     try {
       await this.run(async () => {
@@ -311,14 +307,7 @@ class PortableClient<Message extends SessionMessage> {
     const release = this.publications.reserve(topic, payload);
     await this.run(async () => {
       try {
-        await this.sendPacket({
-          cmd: 'publish',
-          topic,
-          payload,
-          qos: 0,
-          dup: false,
-          retain: false,
-        });
+        await this.sendPacket({ cmd: 'publish', topic, payload: payloadEncoder.encode(payload), retain: false });
       } finally {
         release();
       }
@@ -335,7 +324,7 @@ class PortableClient<Message extends SessionMessage> {
     try {
       return await this.run(async () => {
         sent = this.sendIdentified(
-          { cmd: 'publish', topic, payload, qos: 1, messageId, dup: false, retain: false },
+          { cmd: 'publish', topic, payload: payloadEncoder.encode(payload), qos: 1, messageId, dup: false, retain: false },
           'MQTT publication send failed',
         );
         const [code] = await Promise.all([acknowledgment, sent]);
@@ -348,7 +337,7 @@ class PortableClient<Message extends SessionMessage> {
   }
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The transport accepts the original mutable packet shape.
-  private async sendIdentified(packet: Packet, fallback: string): Promise<void> {
+  private async sendIdentified(packet: ClientPacket, fallback: string): Promise<void> {
     try {
       await this.sendPacket(packet);
     } catch (reason) {
@@ -418,7 +407,7 @@ class PortableClient<Message extends SessionMessage> {
   }
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
-  private async exchange(packet: Packet, matches: (ack: Acknowledgment) => boolean): Promise<Acknowledgment> {
+  private async exchange(packet: ClientPacket, matches: (ack: Acknowledgment) => boolean): Promise<Acknowledgment> {
     const failureBeforeExchange = this.failure;
     if (failureBeforeExchange) throw failureBeforeExchange;
     if (this.pendingAck) throw new Error('Another acknowledgment is pending');
@@ -430,12 +419,12 @@ class PortableClient<Message extends SessionMessage> {
           }
           if (reply.cmd === 'connack') {
             if (reply.reasonCode === 0) this.activation = 'accepted';
-            const { receiveMaximum, maximumQoS } = reply.properties ?? {};
             resolve({
               cmd: 'connack',
               reasonCode: reply.reasonCode,
               sessionPresent: reply.sessionPresent,
-              properties: { receiveMaximum, maximumQoS },
+              receiveMaximum: reply.receiveMaximum,
+              maximumQoS: reply.maximumQoS,
             });
           } else resolve(reply);
         }
@@ -507,11 +496,11 @@ class PortableClient<Message extends SessionMessage> {
   }
 }
 
-export async function connectPortable<Message extends SessionMessage = IPublishPacket>(
+export async function connectPortable<Bytes extends Uint8Array = Uint8Array>(
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
-  transport: PacketTransport<Message>,
+  transport: PacketTransport<Bytes>,
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
-  options: PortableOptions<Message>,
+  options: PortableOptions<Bytes>,
 ): Promise<ClientSession> {
   const client = new PortableClient(transport, options);
   try {

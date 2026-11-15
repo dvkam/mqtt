@@ -15,7 +15,7 @@ function listener(receiveQosOne = false) {
 
 test('delivers a QoS 0 PUBLISH as a flat message with only the fields the broker sent', () => {
   const { received, listen } = listener();
-  listen(publication, 17);
+  listen(publication);
   expect(received).toStrictEqual([
     { cmd: 'publish', topic: 'typed/message', payload: Buffer.from([0, 255]), qos: 0, dup: false, retain: false },
   ]);
@@ -23,24 +23,21 @@ test('delivers a QoS 0 PUBLISH as a flat message with only the fields the broker
 
 test('delivers every PUBLISH property flat, with User Properties in wire order', () => {
   const { received, listen } = listener();
-  listen(
-    {
-      ...publication,
-      retain: true,
-      payloadFormatIndicator: 1,
-      messageExpiryInterval: 30,
-      contentType: 'text/plain',
-      responseTopic: 'reply/1',
-      correlationData: Uint8Array.of(1, 2),
-      subscriptionIdentifiers: [1, 200],
-      userProperties: [
-        ['a', '1'],
-        ['b', '2'],
-        ['a', '3'],
-      ],
-    },
-    60,
-  );
+  listen({
+    ...publication,
+    retain: true,
+    payloadFormatIndicator: 1,
+    messageExpiryInterval: 30,
+    contentType: 'text/plain',
+    responseTopic: 'reply/1',
+    correlationData: Uint8Array.of(1, 2),
+    subscriptionIdentifiers: [1, 200],
+    userProperties: [
+      ['a', '1'],
+      ['b', '2'],
+      ['a', '3'],
+    ],
+  });
   expect(received).toStrictEqual([
     {
       cmd: 'publish',
@@ -66,7 +63,7 @@ test('delivers every PUBLISH property flat, with User Properties in wire order',
 
 test('delivers a QoS 1 PUBLISH with its identifier and DUP flag when the session receives QoS 1', () => {
   const { received, listen } = listener(true);
-  listen({ ...publication, qos: 1, messageId: 9, dup: true, contentType: 'c' }, 20);
+  listen({ ...publication, qos: 1, messageId: 9, dup: true, contentType: 'c' });
   expect(received).toStrictEqual([
     {
       cmd: 'publish',
@@ -83,27 +80,44 @@ test('delivers a QoS 1 PUBLISH with its identifier and DUP flag when the session
 
 test('drops QoS 1 and QoS 2 PUBLISH when the session receives only QoS 0', () => {
   const { received, listen } = listener();
-  listen({ ...publication, qos: 1, messageId: 1 }, 19);
-  listen({ ...publication, qos: 2, messageId: 2 }, 19);
+  listen({ ...publication, qos: 1, messageId: 1 });
+  listen({ ...publication, qos: 2, messageId: 2 });
   expect(received).toEqual([]);
 });
 
 test('rejects a QoS 2 PUBLISH when the session receives QoS 1', () => {
   const { received, listen } = listener(true);
   expect(() => {
-    listen({ ...publication, qos: 2, messageId: 2 }, 19);
+    listen({ ...publication, qos: 2, messageId: 2 });
   }).toThrow('Unsupported incoming MQTT PUBLISH');
   expect(received).toEqual([]);
 });
 
-test('gives other packets the nested shape the session reads', () => {
+test('forwards the public broker packets unchanged', () => {
   const { received, listen } = listener();
-  listen({ cmd: 'pingresp' }, 0);
-  listen({ cmd: 'puback', messageId: 7, reasonCode: 0x10, reasonString: 'none', userProperties: [['k', 'v']] }, 14);
-  expect(received).toStrictEqual([
-    { cmd: 'pingresp', length: 0 },
-    { cmd: 'puback', length: 14, messageId: 7, reasonCode: 0x10, properties: { reasonString: 'none', userProperties: { k: 'v' } } },
-  ]);
+  const pingresp = { cmd: 'pingresp' } as const;
+  const puback = { cmd: 'puback', messageId: 7, reasonCode: 0x10, reasonString: 'none', userProperties: [['k', 'v']] } as const;
+  listen(pingresp);
+  listen(puback);
+  expect(received).toHaveLength(2);
+  expect(received[0]).toBe(pingresp);
+  expect(received[1]).toBe(puback);
+});
+
+test('drops PUBREC, PUBREL and PUBCOMP, which the session never handled', () => {
+  const { received, listen } = listener(true);
+  listen({ cmd: 'pubrec', messageId: 1, reasonCode: 0 });
+  listen({ cmd: 'pubrel', messageId: 1, reasonCode: 0 });
+  listen({ cmd: 'pubcomp', messageId: 1, reasonCode: 0 });
+  expect(received).toEqual([]);
+});
+
+test('rejects AUTH as a protocol error with code 0x82', () => {
+  const { received, listen } = listener();
+  expect(() => {
+    listen({ cmd: 'auth', reasonCode: 0 });
+  }).toThrow(expect.objectContaining({ message: 'Unexpected MQTT AUTH', code: 0x82 }));
+  expect(received).toEqual([]);
 });
 
 test('delivers decoded bytes as Buffer views of one packet allocation', () => {
