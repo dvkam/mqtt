@@ -31,6 +31,23 @@ const workloads: [string, Packet][] = [
     },
   ],
   [
+    // Every string here leaves the ASCII fast path: non-ASCII text, or more than 64 bytes.
+    'PUBLISH with non-ASCII and long property strings',
+    {
+      cmd: 'publish',
+      topic: 'sensor/7',
+      payload: Buffer.alloc(256, 97),
+      qos: 0,
+      dup: false,
+      retain: false,
+      properties: {
+        contentType: 'text/plain; charset=ü',
+        responseTopic: 'reply/' + 'segment/'.repeat(10),
+        userProperties: { schlüssel: 'wert-ä', description: 'd'.repeat(100) },
+      },
+    },
+  ],
+  [
     'CONNACK with every broker property',
     {
       cmd: 'connack',

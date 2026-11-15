@@ -43,6 +43,17 @@ const defects: [string, readonly number[], string][] = [
   ],
   ['U+0000 in a CONNACK property', [0x20, 7, 0, 0, 4, 0x1f, 0, 1, 0], 'Error Invalid MQTT CONNACK property UTF-8'],
   ['a PUBACK property cut short', [0x40, 6, 0, 1, 0, 2, 0x1f, 0], 'Error Truncated MQTT PUBACK property'],
+  // The Content Type claims four bytes inside a three-byte property section. It must not borrow the payload.
+  [
+    'a PUBLISH property that runs into the payload',
+    [0x30, 0x0b, 0, 1, 0x61, 3, 0x03, 0, 4, 0x61, 0x62, 0x63, 0x64],
+    'Error Truncated MQTT PUBLISH property',
+  ],
+  [
+    'a SUBACK property that runs into the reason codes',
+    [0x90, 8, 0, 1, 3, 0x1f, 0, 2, 0x61, 0],
+    'Error Truncated MQTT SUBACK property',
+  ],
   ['an UNSUBACK without a Property Length', [0xb0, 2, 0, 1], 'Error Truncated MQTT UNSUBACK property'],
   ['a DISCONNECT Property Length past the packet', [0xe0, 2, 0, 127], 'Error Invalid MQTT DISCONNECT property length'],
   ['PUBACK bytes after the properties', [0x40, 5, 0, 1, 0, 0, 0], 'Error Invalid MQTT PUBACK property length'],
@@ -149,6 +160,8 @@ const valid: [string, Packet][] = [
   ],
 ];
 
+// Both decoders share one property reader, so this checks only that the two entry points agree. The decoded field
+// values are pinned against literal packets in test/node-portable-parse.test.ts and test/portable-properties.test.ts.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture rows hold mqtt-packet input objects with mutable Buffers.
 test.each(valid)('Node and browser decoders produce the same packet for %s', (_name, packet) => {
   const bytes = Array.from(generate(packet, { protocolVersion: 5 }));

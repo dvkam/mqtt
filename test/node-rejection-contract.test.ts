@@ -202,7 +202,7 @@ const changes = [
 
 // Since the codec reads each packet once, in wire order, the first defect in byte order wins. Before, the Node decoder
 // checked every property before any other body field. Each row is a packet with two defects, or one cut short before
-// its properties.
+// its Property Length, where the old validator reported the missing property and the codec reports the missing field.
 const orderChanges = [
   {
     name: 'a CONNACK with one body byte',
@@ -220,6 +220,30 @@ const orderChanges = [
     name: 'a QoS 1 PUBLISH cut inside its packet identifier',
     bytes: [0x32, 0x4, 0x0, 0x1, 0x61, 0x0],
     before: 'Error Truncated MQTT PUBLISH property',
+    after: 'Error Truncated MQTT field',
+  },
+  {
+    name: 'a SUBACK without a body',
+    bytes: [0x90, 0x0],
+    before: 'Error Truncated MQTT SUBACK property',
+    after: 'Error Truncated MQTT field',
+  },
+  {
+    name: 'a SUBACK cut inside its packet identifier',
+    bytes: [0x90, 0x1, 0x0],
+    before: 'Error Truncated MQTT SUBACK property',
+    after: 'Error Truncated MQTT field',
+  },
+  {
+    name: 'an UNSUBACK cut inside its packet identifier',
+    bytes: [0xb0, 0x1, 0x0],
+    before: 'Error Truncated MQTT UNSUBACK property',
+    after: 'Error Truncated MQTT field',
+  },
+  {
+    name: 'a PUBACK with one body byte',
+    bytes: [0x40, 0x1, 0x0],
+    before: 'packet puback',
     after: 'Error Truncated MQTT field',
   },
   {
