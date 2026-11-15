@@ -23,11 +23,11 @@ test('encodes and parses CONNECT Receive Maximum and QoS 1 SUBSCRIBE', () => {
 test.each([
   {
     bytes: [0x10, 17, 0, 4, 77, 81, 84, 84, 5, 2, 0, 0, 3, 0x21, 0, 0, 0, 1, 97],
-    reason: 'MQTT integer out of range',
+    reason: 'Invalid zero MQTT property value',
   },
   {
     bytes: [0x10, 20, 0, 4, 77, 81, 84, 84, 5, 2, 0, 0, 6, 0x21, 0, 1, 0x21, 0, 1, 0, 1, 97],
-    reason: 'Invalid Receive Maximum property',
+    reason: 'Duplicate MQTT CONNECT property',
   },
   { bytes: [0x82, 7, 0, 1, 0, 0, 1, 97, 2], reason: 'Unsupported subscription options' },
   {

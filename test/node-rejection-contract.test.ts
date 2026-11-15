@@ -200,6 +200,110 @@ const changes = [
   },
 ] as const;
 
+// Since the codec reads each packet once, in wire order, the first defect in byte order wins. Before, the Node decoder
+// checked every property before any other body field. Each row is a packet with two defects, or one cut short before
+// its properties.
+const orderChanges = [
+  {
+    name: 'a CONNACK with one body byte',
+    bytes: [0x20, 0x1, 0x0],
+    before: 'Error Truncated MQTT CONNACK property',
+    after: 'Error Truncated MQTT field',
+  },
+  {
+    name: 'a CONNACK without a body',
+    bytes: [0x20, 0x0],
+    before: 'Error Truncated MQTT CONNACK property',
+    after: 'Error Truncated MQTT field',
+  },
+  {
+    name: 'a QoS 1 PUBLISH cut inside its packet identifier',
+    bytes: [0x32, 0x4, 0x0, 0x1, 0x61, 0x0],
+    before: 'Error Truncated MQTT PUBLISH property',
+    after: 'Error Truncated MQTT field',
+  },
+  {
+    name: 'a CONNACK with reserved flag bits and an unknown property',
+    bytes: [0x20, 0x5, 0x2, 0x0, 0x2, 0x7f, 0x0],
+    before: 'Error Invalid MQTT CONNACK property identifier',
+    after: 'Error Invalid CONNACK',
+  },
+  {
+    name: 'a CONNACK with an undefined reason code and an unknown property',
+    bytes: [0x20, 0x5, 0x0, 0x1, 0x2, 0x7f, 0x0],
+    before: 'Error Invalid MQTT CONNACK property identifier',
+    after: 'Error Invalid CONNACK',
+  },
+  {
+    name: 'a PUBACK with a reserved reason code and an unknown property',
+    bytes: [0x40, 0x6, 0x0, 0x1, 0x1, 0x2, 0x7f, 0x0],
+    before: 'Error Invalid MQTT PUBACK property identifier',
+    after: 'Error Invalid PUBACK reason code',
+  },
+  {
+    name: 'a PUBREL with a reserved reason code and an unknown property',
+    bytes: [0x62, 0x6, 0x0, 0x1, 0x1, 0x2, 0x7f, 0x0],
+    before: 'Error Invalid MQTT PUBREL property identifier',
+    after: 'Error Invalid PUBREL reason code',
+  },
+  {
+    name: 'a DISCONNECT with a reserved reason code and an unknown property',
+    bytes: [0xe0, 0x4, 0x1, 0x2, 0x7f, 0x0],
+    before: 'Error Invalid MQTT DISCONNECT property identifier',
+    after: 'Error Invalid DISCONNECT reason code',
+  },
+  {
+    name: 'a PUBACK with packet identifier 0 and an unknown property',
+    bytes: [0x40, 0x6, 0x0, 0x0, 0x0, 0x2, 0x7f, 0x0],
+    before: 'Error Invalid MQTT PUBACK property identifier',
+    after: 'ProtocolInputError 0x82 MQTT integer out of range',
+  },
+  {
+    name: 'a SUBACK with packet identifier 0 and an unknown property',
+    bytes: [0x90, 0x6, 0x0, 0x0, 0x2, 0x7f, 0x0, 0x0],
+    before: 'Error Invalid MQTT SUBACK property identifier',
+    after: 'ProtocolInputError 0x82 MQTT integer out of range',
+  },
+  {
+    name: 'a QoS 1 PUBLISH with packet identifier 0 and an unknown property',
+    bytes: [0x32, 0x8, 0x0, 0x1, 0x61, 0x0, 0x0, 0x2, 0x7f, 0x0],
+    before: 'Error Invalid MQTT PUBLISH property identifier',
+    after: 'ProtocolInputError 0x82 MQTT integer out of range',
+  },
+] as const;
+
+test.each(orderChanges)('reports the first defect in wire order for $name', ({ bytes, before, after }) => {
+  expect(outcome('before', bytes)).toBe(before);
+  expect(outcome('after', bytes)).toBe(after);
+});
+
+// The order did not change where the properties come first on the wire, or where the topic was already checked first.
+test.each([
+  [
+    'a SUBACK with a reserved reason code and an unknown property',
+    [0x90, 0x6, 0x0, 0x1, 0x2, 0x7f, 0x0, 0x3],
+    'Error Invalid MQTT SUBACK property identifier',
+  ],
+  [
+    'a PUBLISH with ill-formed topic bytes and an unknown property',
+    [0x30, 0x6, 0x0, 0x1, 0xc0, 0x2, 0x7f, 0x0],
+    'Error Invalid MQTT PUBLISH topic UTF-8',
+  ],
+  [
+    'a PUBLISH with an empty topic and an unknown property',
+    [0x30, 0x5, 0x0, 0x0, 0x2, 0x7f, 0x0],
+    'Error Invalid MQTT PUBLISH property identifier',
+  ],
+  [
+    'a PUBLISH with Topic Alias 0',
+    [0x30, 0x7, 0x0, 0x1, 0x61, 0x3, 0x23, 0x0, 0x0],
+    'ProtocolInputError 0x94 Invalid MQTT Topic Alias',
+  ],
+] as const)('keeps the outcome for %s', (_name, bytes, result) => {
+  expect(outcome('before', bytes)).toBe(result);
+  expect(outcome('after', bytes)).toBe(result);
+});
+
 test.each(changes)('records the changed outcome for $name', ({ bytes, before, after }) => {
   expect(outcome('before', bytes)).toBe(before);
   expect(outcome('after', bytes)).toBe(after);

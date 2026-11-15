@@ -200,7 +200,7 @@ test.each([
     expect(() => {
       decoder.push(input.subarray(0, split));
       decoder.push(input.subarray(split));
-    }).toThrow(/Invalid|encoded data/u);
+    }).toThrow(/Invalid|Duplicate/u);
   }
 });
 function connack(properties: readonly number[], reason = 0): number[] {
