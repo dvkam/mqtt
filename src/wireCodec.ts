@@ -86,11 +86,19 @@ export type FramedPacket =
   | { cmd: 'auth'; reasonCode: number };
 
 /** The packets only a client sends. A broker that sends one breaks the direction rule in MQTT 5 section 2.1.2. */
-export const clientOnlyCommands = ['connect', 'subscribe', 'unsubscribe', 'pingreq'] as const;
+export const clientOnlyCommands = [
+  'connect',
+  'subscribe',
+  'unsubscribe',
+  'pingreq',
+] as const satisfies readonly WirePacket['cmd'][];
+
+/** The packets only a broker sends. */
+export const brokerOnlyCommands = ['connack', 'suback', 'unsuback', 'pingresp'] as const satisfies readonly WirePacket['cmd'][];
 const clientOnly: ReadonlySet<string> = new Set(clientOnlyCommands);
 
 /** Every packet a client may write. `encodePacket` accepts each member. */
-export type ClientPacket = Exclude<WirePacket, { cmd: 'connack' | 'suback' | 'unsuback' | 'pingresp' }>;
+export type ClientPacket = Exclude<WirePacket, { cmd: (typeof brokerOnlyCommands)[number] }>;
 
 /** Every packet a broker may send inside the public codec profile. */
 export type BrokerPacket = Exclude<WirePacket, { cmd: (typeof clientOnlyCommands)[number] }>;

@@ -130,7 +130,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
                 dup: packet.dup ?? false,
                 messageId: packet.messageId,
               });
-            } else deliver?.({ ...message, qos: 0, dup: false });
+            } else deliver?.(message);
             break;
           }
           default:

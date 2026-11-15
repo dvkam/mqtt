@@ -152,6 +152,9 @@ test.each([
           subscriptionIdentifiers: [1, 128],
           topicAlias: 1,
         });
+        // A QoS 0 PUBLISH has no qos or dup field in the codec model.
+        const keys = typeof packet === 'object' && packet !== null ? Object.keys(packet) : [];
+        expect([keys.includes('qos'), keys.includes('dup')]).toEqual([qos !== 0, qos !== 0]);
         if (typeof packet !== 'object' || packet === null || !('payload' in packet) || !Buffer.isBuffer(packet.payload))
           throw new Error('Expected native publication payload');
         packet.payload[0] = 42;

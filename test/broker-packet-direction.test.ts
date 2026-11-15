@@ -21,14 +21,14 @@ const zeroIdentifier = [
   { command: 'QoS 1 PUBLISH', bytes: [0x32, 6, 0, 1, 0x61, 0, 0, 0] },
 ] as const;
 
-/** Send a valid PUBLISH, then `bytes`, then a valid PUBLISH and PINGRESP. Return the session's failure. */
-async function failureAfter(adapter: Adapter, bytes: readonly number[]) {
+/** Send a valid PUBLISH, then `bytes`, then a valid PUBLISH and PINGRESP. Return the session's failure. The QoS 1 handler is set only when asked. */
+async function failureAfter(adapter: Adapter, bytes: readonly number[], receiveQosOne = false) {
   const prefix = [0x30, 4, 0, 1, 0x61, 0];
   const suffix = [0x30, 4, 0, 1, 0x62, 0, 0xd0, 0];
   const reply = [...prefix, ...bytes, ...suffix];
   const onMessage = vi.fn<(message: Readonly<{ topic: string }>) => void>();
   const onQosOneMessage = vi.fn<(message: unknown) => void>();
-  const options = { clientId: 'packet-direction', onMessage, onQosOneMessage, timeoutMs: 1000 };
+  const options = { clientId: 'packet-direction', onMessage, ...(receiveQosOne ? { onQosOneMessage } : {}), timeoutMs: 1000 };
   const peer =
     adapter === 'tcp' ? await startTcpPacketPeer('fixed-reply', reply) : await startWebSocketPacketPeer('fixed-reply', reply);
   try {
@@ -63,7 +63,7 @@ test.each(adapters.flatMap((adapter) => wrongDirection.map((vector) => ({ adapte
 test.each(adapters.flatMap((adapter) => zeroIdentifier.map((vector) => ({ adapter, ...vector }))))(
   '$adapter answers a $command with packet identifier 0 with DISCONNECT 0x82',
   async ({ adapter, bytes }: Readonly<{ adapter: Adapter; command: string; bytes: readonly number[] }>) => {
-    const failure = await failureAfter(adapter, bytes);
+    const failure = await failureAfter(adapter, bytes, true);
     expect(failure.message).toBe('MQTT integer out of range');
   },
 );

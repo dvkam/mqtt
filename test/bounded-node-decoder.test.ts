@@ -125,10 +125,12 @@ test('waits for the complete body before native payload decoding', () => {
 });
 
 test.each(
-  broadVectors.flatMap((bytes: readonly number[]) => (['compact', 'streaming'] as const).map((assembly) => ({ bytes, assembly }))),
+  broadVectors.flatMap((bytes: readonly number[], index) =>
+    (['compact', 'streaming'] as const).map((assembly) => ({ bytes, compact: compactPackets[index], assembly })),
+  ),
 )(
   '$assembly retains native packet profile for $bytes',
-  ({ bytes, assembly }: Readonly<{ bytes: readonly number[]; assembly: 'compact' | 'streaming' }>) => {
+  ({ bytes, compact, assembly }: Readonly<{ bytes: readonly number[]; compact: unknown; assembly: 'compact' | 'streaming' }>) => {
     const expected = nativePackets(bytes);
     expect(expected).toHaveLength(1);
     for (let split = 0; split <= bytes.length; split++) {
@@ -143,11 +145,7 @@ test.each(
       decoder.push(Uint8Array.from(bytes.slice(0, split)));
       decoder.push(Uint8Array.from(bytes.slice(split)));
       decoder.finish();
-      expect(actual).toEqual(
-        assembly === 'compact'
-          ? [compactPackets[broadVectors.findIndex((vector: readonly number[]) => vector === bytes)]]
-          : expected,
-      );
+      expect(actual).toStrictEqual(assembly === 'compact' ? [compact] : expected);
     }
   },
 );
