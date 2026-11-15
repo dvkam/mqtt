@@ -25,4 +25,4 @@ An outbound event records a transport call that returned. A synchronous throw re
 
 The callback runs in the calling turn. The client ignores callback exceptions and rejected promises. The caller owns any work it starts in the observer. The connection attempt checks for retirement triggered during the active callback. Diagnostic events contain no packet contents, endpoint strings or error objects.
 
-This option is independent of a dependency's verbose debug output. The retained mqtt-packet dependency has debug namespaces that can include packet fields and payloads if enabled. [mqtt-packet generator](https://github.com/mqttjs/mqtt-packet/blob/dd17095bbe52ac28bc96c831e69b0db4371da5a5/writeToStream.js)
+The package logs nothing by itself and has no runtime dependency that logs packet fields or payloads. The example uses pino as the application's own logger. Install it in your project to run the example.
