@@ -84,9 +84,9 @@ Since #169 the codec reads each packet once, in wire order, and the first defect
 
 | Broker input | Before | After |
 | --- | --- | --- |
-| CONNACK with fewer than two body bytes, or a QoS 1 PUBLISH cut inside its packet identifier | `Truncated MQTT <KIND> property` | `Truncated MQTT field` |
+| CONNACK with fewer than two body bytes, or a SUBACK, UNSUBACK or QoS 1 PUBLISH cut inside its packet identifier | `Truncated MQTT <KIND> property` | `Truncated MQTT field` |
 | CONNACK with reserved flag bits or an undefined reason code, and a property defect | The property error | `Invalid CONNACK` |
 | PUBACK, PUBREC, PUBREL, PUBCOMP or DISCONNECT with a reserved reason code, and a property defect | The property error | `Invalid <KIND> reason code` |
 | Packet identifier 0 and a property defect | The property error, a plain `Error` | `ProtocolInputError` 0x82, so an active session sends DISCONNECT 0x82 |
 
-A packet with one defect reports what it reported before. The order did not change where the properties come first on the wire, as in SUBACK and UNSUBACK, or for a PUBLISH topic with ill-formed bytes, which was already checked first.
+A complete packet with one defect reports what it reported before. A packet cut short before its Property Length is the exception in the first row: the old validator reported the missing property, and the codec reports the missing field. Both are a plain `Error`, so the session ends the same way. The order did not change between the properties and the reason codes of a SUBACK or UNSUBACK, or for a PUBLISH topic with ill-formed bytes, which was already checked first.

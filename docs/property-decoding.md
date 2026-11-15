@@ -31,7 +31,7 @@ The Node clients reported these messages before. The browser decoder reported di
 
 ## Measurements
 
-Node 26.13.0 on Linux x64 in WSL2, AMD Ryzen 5 3600. `test/bench/node-property-decode.ts` pushes 2,000 copies of one packet through `NodePacketDecoder` per batch. It warms up for 10 batches and reports the median of 40, with a garbage collection before each. Each row lists three runs. "Before" is `main` at d83bd2b.
+Node 26.13.0 on Linux x64 in WSL2, AMD Ryzen 5 3600. `test/bench/node-property-decode.ts` pushes 2,000 copies of one packet through `NodePacketDecoder` per batch. It warms up for 10 batches and reports the median of 40, with a garbage collection before each. Each row lists three runs. "Before" is `main` at d83bd2b, measured by copying this script into a checkout of that commit and building there, because the script did not exist yet.
 
 Run `pnpm build`, then `node --expose-gc test/bench/node-property-decode.ts`.
 
@@ -39,10 +39,13 @@ Run `pnpm build`, then `node --expose-gc test/bench/node-property-decode.ts`.
 | --- | ---: | --- | --- |
 | PUBLISH without properties | 270 | 305,491, 302,551, 305,990 | 303,974, 290,309, 300,361 |
 | PUBLISH with publisher properties | 418 | 68,512, 67,803, 68,218 | 162,082, 166,998, 163,196 |
+| PUBLISH with non-ASCII and long property strings | 523 | 98,670, 95,606, 96,345 | 136,118, 145,620, 143,382 |
 | CONNACK with every broker property | 173 | 57,363, 59,567, 59,446 | 165,821, 166,356, 158,592 |
 
-The medians are 305,491 and 300,361 for the plain PUBLISH, 68,218 and 163,196 for the PUBLISH with properties, and 59,446 and 165,821 for the CONNACK. The plain PUBLISH has no property bytes to read, so it does not change beyond run-to-run variation.
+The medians are 305,491 and 300,361 for the plain PUBLISH, 68,218 and 163,196 for the PUBLISH with properties, and 59,446 and 165,821 for the CONNACK. The plain PUBLISH has no property bytes to read, so it does not change beyond run-to-run variation. In the fourth workload every string is non-ASCII or longer than 64 bytes, so each one takes the `TextDecoder` path. Its medians are 96,345 and 143,382, a gain of 1.5 times against 2.4 times for short ASCII strings.
 
-On `main` with the Node validator switched off, the same workloads ran at 310,890, 93,995 and 80,193 packets per second. So about a third of the gain on property-heavy packets comes from reading the bytes once. The rest comes from reading scalars by index, where the old reader made a `subarray` for each byte, and from the ASCII path.
+On `main` with the Node validator switched off, the same workloads ran at 310,890, 93,995 and 80,193 packets per second. So reading the bytes once accounts for about 27% of the gain on the PUBLISH with properties (25,777 of 94,978 packets per second) and about 19% on the CONNACK (20,747 of 106,375). The rest comes from reading scalars by index, where the old reader made a `subarray` for each byte, and from the ASCII path.
+
+The reader now builds strings and User Property pairs while it checks, where the old validator rejected a malformed section before the codec built anything. A malformed packet can therefore cost more work before it is rejected. The packet size limit bounds that work.
 
 These numbers exclude the socket, the session and the application callback. They measure one process on one machine, with no allocation or heap measurement. The browser decoder uses the same reader, but no browser run was recorded.
