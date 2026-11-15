@@ -172,7 +172,7 @@ class Section {
     throw new Error('Malformed MQTT ' + this.name + ' property integer');
   }
 
-  /** A view of the packet's bytes, so a Buffer input yields a Buffer. */
+  /** A view of the packet's bytes. It has the type of the input, so the Node decoder gets views of its own allocation. */
   binary(): Uint8Array {
     const size = this.uint16();
     this.need(size);
