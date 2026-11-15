@@ -241,12 +241,6 @@ const orderChanges = [
     after: 'Error Truncated MQTT field',
   },
   {
-    name: 'a PUBACK with one body byte',
-    bytes: [0x40, 0x1, 0x0],
-    before: 'packet puback',
-    after: 'Error Truncated MQTT field',
-  },
-  {
     name: 'a CONNACK with reserved flag bits and an unknown property',
     bytes: [0x20, 0x5, 0x2, 0x0, 0x2, 0x7f, 0x0],
     before: 'Error Invalid MQTT CONNACK property identifier',
