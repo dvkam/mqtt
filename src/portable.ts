@@ -14,7 +14,8 @@ import { takeNativeBudgetFailure } from './nativeWriteBudget.js';
 
 export type { ClientDiagnostic, DiagnosticObserver } from './diagnostics.js';
 export type { SessionEnd, SessionEndObserver } from './session.js';
-export type { ProtocolInputCode, ProtocolInputError } from './protocolInputError.js';
+export { ProtocolInputError } from './protocolInputError.js';
+export type { ProtocolInputCode } from './protocolInputError.js';
 export type { BrokerPacket, ClientPacket } from './wireCodec.js';
 export type { MessageProperties, PublishMessage } from './messageProperties.js';
 export type { QosOneMessage } from './session.js';
@@ -30,7 +31,7 @@ export type ReceivedPacket<Bytes extends Uint8Array = Uint8Array> =
 export interface PacketTransport<Bytes extends Uint8Array = Uint8Array> {
   /** Whether this adapter can encode shared filters. Broker capabilities are separate. */
   readonly supportsSharedSubscriptions?: boolean;
-  /** Encode `packet` itself. The session matches a write-budget refusal to this object, so do not send a copy. */
+  /** Write `packet`. The built-in adapters record a write-budget refusal against this same object. */
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
   send(packet: ClientPacket): Promise<void>;
   listen(

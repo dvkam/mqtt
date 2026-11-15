@@ -277,7 +277,7 @@ test('broker Maximum QoS zero rejects QoS 1 before sending and permits QoS 0', a
   expect(broker.published()).toEqual([]);
   await broker.client.publish('a', 'x');
   // A QoS 0 PUBLISH carries no qos field in the codec model.
-  expect(broker.published().map((packet: Readonly<{ cmd: string }>) => 'qos' in packet)).toEqual([false]);
+  expect(broker.published()).toStrictEqual([{ cmd: 'publish', topic: 'a', payload: new TextEncoder().encode('x'), retain: false }]);
   await broker.client.disconnect();
 });
 

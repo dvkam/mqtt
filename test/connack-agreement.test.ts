@@ -324,7 +324,14 @@ test.each(adapters)('%s retires active AUTH before ping and publication suffixes
           : createWebSocketClient({ ...peer, ...options });
     const client = await factory.connect();
     const failure = await client.ping().catch((reason: unknown) => reason);
-    expect(failure).toBeInstanceOf(Error);
+    // Node rejects AUTH in its listener and sends DISCONNECT 0x82. The browser decoder rejects the AUTH header with a
+    // plain error and sends no DISCONNECT, as it did before.
+    expect(failure).toMatchObject(
+      adapter === 'browser'
+        ? { message: 'Unsupported MQTT packet or invalid fixed-header flags' }
+        : { message: 'Unexpected MQTT AUTH', code: 0x82 },
+    );
+    await expect.poll(() => peer.disconnectReasons).toEqual(adapter === 'browser' ? [] : [0x82]);
     await expect(client.ping()).rejects.toBe(failure);
     await expect.poll(peer.connections).toBe(0);
     expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
