@@ -31,7 +31,7 @@ test.each([
   { bytes: [0xb2, 0], reason: 'invalid fixed-header flags' },
   { bytes: [0xa2, 3, 0, 0, 0], reason: 'MQTT integer out of range' },
   { bytes: [0xa2, 3, 0, 1, 0], reason: 'Empty UNSUBSCRIBE' },
-  { bytes: [0xb0, 2, 0, 1], reason: 'Truncated MQTT field' },
+  { bytes: [0xb0, 2, 0, 1], reason: 'Truncated MQTT UNSUBACK property' },
   { bytes: [0xb0, 3, 0, 1, 0], reason: 'Invalid UNSUBACK' },
   { bytes: [0xb0, 4, 0, 1, 0, 1], reason: 'Invalid UNSUBACK' },
 ])(

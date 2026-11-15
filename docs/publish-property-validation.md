@@ -2,6 +2,8 @@
 
 The shared native decoder checks PUBLISH property strings before the portable codec converts their original bytes. The TCP and Node WebSocket clients reject ill-formed UTF-8 and U+0000 in User Property keys and values, Content Type and Response Topic.
 
+Update, 16 November 2026: since #169 one property reader in `src/wireProperties.ts` applies these checks while it decodes, for the Node and the browser decoders. The Node decoder no longer walks the bytes first. The rules and the error messages on this page are unchanged. See [property decoding](property-decoding.md).
+
 Independent failing User Property frames include:
 
     30 0b 00 01 61 07 26 00 01 c0 00 01 76

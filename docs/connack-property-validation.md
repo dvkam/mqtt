@@ -2,6 +2,8 @@
 
 The supported TCP and Node WebSocket clients validate CONNACK property bytes before the portable codec converts strings. They share the private NodePacketDecoder. No public option or export changes.
 
+Update, 16 November 2026: since #169 one property reader in `src/wireProperties.ts` applies these checks while it decodes, for the Node and the browser decoders. The Node decoder no longer walks the bytes first. The rules and the error messages on this page are unchanged. See [property decoding](property-decoding.md).
+
 The recorded failing frames are:
 
     20 0a 00 00 07 26 00 01 c0 00 01 78

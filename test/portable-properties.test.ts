@@ -76,14 +76,14 @@ test.each([
 
 test.each([
   ['an undefined DISCONNECT reason code', [0xe0, 1, 0x01], 'Invalid DISCONNECT reason code'],
-  ['a publisher property in CONNACK', [0x20, 7, 0, 0, 4, 0x03, 0, 1, 0x61], 'Invalid MQTT CONNACK property 3'],
-  ['a broker property in PUBLISH', [0x30, 7, 0, 1, 0x74, 3, 0x13, 0, 60], 'Invalid MQTT PUBLISH property 19'],
-  ['a repeated Server Keep Alive', [0x20, 9, 0, 0, 6, 0x13, 0, 60, 0x13, 0, 60], 'Invalid MQTT CONNACK property 19'],
+  ['a publisher property in CONNACK', [0x20, 7, 0, 0, 4, 0x03, 0, 1, 0x61], 'Invalid MQTT CONNACK property identifier'],
+  ['a broker property in PUBLISH', [0x30, 7, 0, 1, 0x74, 3, 0x13, 0, 60], 'Invalid MQTT PUBLISH property identifier'],
+  ['a repeated Server Keep Alive', [0x20, 9, 0, 0, 6, 0x13, 0, 60, 0x13, 0, 60], 'Duplicate MQTT CONNACK property'],
   ['a Retain Available value above one', [0x20, 5, 0, 0, 2, 0x25, 2], 'Invalid MQTT property value'],
-  ['a zero Maximum Packet Size', [0x20, 8, 0, 0, 5, 0x27, 0, 0, 0, 0], 'MQTT integer out of range'],
-  ['a zero Subscription Identifier', [0x30, 6, 0, 1, 0x74, 2, 0x0b, 0], 'MQTT integer out of range'],
-  ['a Subscription Identifier in DISCONNECT', [0xe0, 4, 0, 2, 0x0b, 1], 'Invalid MQTT DISCONNECT property 11'],
-  ['an unassigned property identifier', [0x20, 5, 0, 0, 2, 0x7f, 0], 'Unsupported MQTT property 127'],
+  ['a zero Maximum Packet Size', [0x20, 8, 0, 0, 5, 0x27, 0, 0, 0, 0], 'Invalid zero MQTT property value'],
+  ['a zero Subscription Identifier', [0x30, 6, 0, 1, 0x74, 2, 0x0b, 0], 'Invalid zero MQTT property value'],
+  ['a Subscription Identifier in DISCONNECT', [0xe0, 4, 0, 2, 0x0b, 1], 'Invalid MQTT DISCONNECT property identifier'],
+  ['an unassigned property identifier', [0x20, 5, 0, 0, 2, 0x7f, 0], 'Invalid MQTT CONNACK property identifier'],
 ] as const)('rejects %s', (_name, bytes, message) => {
   expect(() => decode(bytes)).toThrow(message);
 });

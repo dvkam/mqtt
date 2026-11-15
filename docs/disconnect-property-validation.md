@@ -2,6 +2,8 @@
 
 The shared native decoder validates DISCONNECT properties before interpreting the broker's reason. It checks Reason String, Server Reference and both User Property strings for ill-formed UTF-8 and U+0000.
 
+Update, 16 November 2026: since #169 one property reader in `src/wireProperties.ts` applies these checks while it decodes, for the Node and the browser decoders. The Node decoder no longer walks the bytes first. The rules and the error messages on this page are unchanged. See [property decoding](property-decoding.md).
+
 The recorded malformed frames are:
 
     e0 06 00 04 1f 00 01 c0

@@ -234,7 +234,9 @@ test.each([
   { kind: 'suback', property: [0x1f, 0, 0] },
   { kind: 'unsuback', property: [0x1f, 0, 0] },
 ] as const)('portable $kind continues to reject a repeated supported singleton', ({ kind, property }) => {
-  expect(() => new PacketDecoder().push(Uint8Array.from(frame(kind, [...property, ...property])))).toThrow(/Invalid .* property/);
+  expect(() => new PacketDecoder().push(Uint8Array.from(frame(kind, [...property, ...property])))).toThrow(
+    'Duplicate MQTT ' + kind.toUpperCase() + ' property',
+  );
 });
 
 test.each(['tcp', 'node-websocket'] as const)('%s rejects an invalid flag before connection acceptance', async (adapter) => {
@@ -301,10 +303,10 @@ test('does not introduce payload UTF-8 validation for Payload Format Indicator 1
 });
 
 test.each([
-  { kind: 'connack', properties: [0x21, 0, 0] },
-  { kind: 'connack', properties: [0x24, 2] },
-] as const)('portable $kind retains scalar validation for $properties', ({ kind, properties }) => {
-  expect(() => new PacketDecoder().push(Uint8Array.from(frame(kind, properties)))).toThrow('MQTT integer out of range');
+  { kind: 'connack', properties: [0x21, 0, 0], message: 'Invalid zero MQTT property value' },
+  { kind: 'connack', properties: [0x24, 2], message: 'Invalid MQTT property value' },
+] as const)('portable $kind retains scalar validation for $properties', ({ kind, properties, message }) => {
+  expect(() => new PacketDecoder().push(Uint8Array.from(frame(kind, properties)))).toThrow(message);
 });
 
 test.each(['tcp', 'node-websocket'] as const)(

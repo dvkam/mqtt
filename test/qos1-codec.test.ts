@@ -66,8 +66,10 @@ test('preserves CONNACK Maximum QoS and rejects invalid or duplicate values', ()
     expect(encodePacket(packet)).toEqual(bytes);
     expect(new PacketDecoder().push(bytes)).toEqual([packet]);
   }
-  expect(() => new PacketDecoder().push(Uint8Array.of(0x20, 5, 0, 0, 2, 0x24, 2))).toThrow('MQTT integer out of range');
-  expect(() => new PacketDecoder().push(Uint8Array.of(0x20, 7, 0, 0, 4, 0x24, 0, 0x24, 1))).toThrow('Invalid Maximum QoS property');
+  expect(() => new PacketDecoder().push(Uint8Array.of(0x20, 5, 0, 0, 2, 0x24, 2))).toThrow('Invalid MQTT property value');
+  expect(() => new PacketDecoder().push(Uint8Array.of(0x20, 7, 0, 0, 4, 0x24, 0, 0x24, 1))).toThrow(
+    'Duplicate MQTT CONNACK property',
+  );
 });
 
 test.each([
@@ -78,9 +80,9 @@ test.each([
   { bytes: [0x41, 0], message: 'invalid fixed-header flags' },
   { bytes: [0x40, 2, 0, 0], message: 'MQTT integer out of range' },
   { bytes: [0x40, 3, 0, 1, 0x81], message: 'Invalid PUBACK reason code' },
-  { bytes: [0x40, 4, 0, 1, 0, 1], message: 'Truncated MQTT field' },
-  { bytes: [0x40, 5, 0, 1, 0, 0, 0], message: 'Trailing MQTT bytes' },
-  { bytes: [0x40, 10, 0, 1, 0, 6, 0x1f, 0, 0, 0x1f, 0, 0], message: 'Invalid Reason String property' },
+  { bytes: [0x40, 4, 0, 1, 0, 1], message: 'Invalid MQTT PUBACK property length' },
+  { bytes: [0x40, 5, 0, 1, 0, 0, 0], message: 'Invalid MQTT PUBACK property length' },
+  { bytes: [0x40, 10, 0, 1, 0, 6, 0x1f, 0, 0, 0x1f, 0, 0], message: 'Duplicate MQTT PUBACK property' },
 ])(
   'rejects malformed QoS 1 bytes $bytes and poisons the decoder',
   ({ bytes, message }: Readonly<{ bytes: readonly number[]; message: string }>) => {

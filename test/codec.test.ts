@@ -76,10 +76,10 @@ test.each<[readonly number[], string]>([
   [[0xd0, 1, 0], 'Trailing MQTT bytes'],
   [[0xd0, 0x80, 0], 'Non-canonical MQTT variable integer'],
   [[0x30, 0xff, 0xff, 0xff, 0x80], 'Malformed MQTT Remaining Length'],
-  [[0x30, 4, 0, 1, 0, 0], 'Invalid MQTT UTF-8 string'],
-  [[0x30, 5, 0, 2, 0xc0, 0x80, 0], 'The encoded data was not valid for encoding utf-8'],
-  [[0x30, 4, 0, 2, 97, 0], 'Invalid MQTT UTF-8 string'],
-  [[0x30, 6, 0, 1, 97, 2, 0x26, 0], 'Truncated MQTT field'],
+  [[0x30, 4, 0, 1, 0, 0], 'Invalid MQTT PUBLISH topic UTF-8'],
+  [[0x30, 5, 0, 2, 0xc0, 0x80, 0], 'Invalid MQTT PUBLISH topic UTF-8'],
+  [[0x30, 4, 0, 2, 97, 0], 'Invalid MQTT PUBLISH topic UTF-8'],
+  [[0x30, 6, 0, 1, 97, 2, 0x26, 0], 'Truncated MQTT PUBLISH property'],
   [[0x20, 3, 2, 0, 0], 'Invalid CONNACK'],
   [[0x20, 3, 1, 0x80, 0], 'Invalid CONNACK'],
   [[0x90, 4, 0, 0, 0, 0], 'MQTT integer out of range'],
@@ -90,9 +90,9 @@ test.each<[readonly number[], string]>([
 
 test('rejects duplicate or invalid singleton CONNACK properties', () => {
   expect(() => new PacketDecoder().push(Uint8Array.of(0x20, 9, 0, 0, 6, 0x21, 0, 1, 0x21, 0, 2))).toThrow(
-    'Invalid Receive Maximum property',
+    'Duplicate MQTT CONNACK property',
   );
-  expect(() => new PacketDecoder().push(Uint8Array.of(0x20, 6, 0, 0, 3, 0x21, 0, 0))).toThrow('MQTT integer out of range');
+  expect(() => new PacketDecoder().push(Uint8Array.of(0x20, 6, 0, 0, 3, 0x21, 0, 0))).toThrow('Invalid zero MQTT property value');
 });
 
 test.each(['a\u0000b', '\ud800'])('rejects strings that cannot be represented as MQTT UTF-8 %j', (clientId) => {
@@ -104,7 +104,7 @@ test('rejects invalid identifiers, topics, budgets and unsupported packet profil
   expect(() => encodePacket({ cmd: 'publish', topic: 'a/#', payload: new Uint8Array() })).toThrow('Invalid MQTT topic');
   expect(() => new PacketDecoder({ maxPacketBytes: 0 })).toThrow('MQTT integer out of range');
   expect(() => new PacketDecoder().push(Uint8Array.of(0x34, 0))).toThrow('Unsupported');
-  expect(() => new PacketDecoder().push(Uint8Array.of(0x20, 4, 0, 0, 1, 0x7f))).toThrow('Unsupported');
+  expect(() => new PacketDecoder().push(Uint8Array.of(0x20, 4, 0, 0, 1, 0x7f))).toThrow('Invalid MQTT CONNACK property identifier');
 });
 
 test('matches pinned mqtt-packet for the MQTT 5 preview operations', () => {

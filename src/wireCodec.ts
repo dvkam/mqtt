@@ -2,8 +2,16 @@ import { validateInboundTopic } from './inboundTopic.js';
 import { ProtocolInputError } from './protocolInputError.js';
 import { isSubscriptionReason } from './subscriptionReason.js';
 import { isPubackReason } from './pubackReason.js';
+import {
+  decodeUtf8,
+  readProperties,
+  responseTopic,
+  type DecodedProperties,
+  type PropertyKind,
+  type UserProperty,
+} from './wireProperties.js';
 
-export type UserProperty = readonly [key: string, value: string];
+export type { UserProperty } from './wireProperties.js';
 interface Properties {
   userProperties?: readonly UserProperty[];
 }
@@ -114,7 +122,6 @@ export function isClientOnlyPacket<Packet extends Readonly<{ cmd: string }>>(
 }
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const connackCodes = new Set([
   0, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 140, 144, 149, 151, 153, 154, 155, 156, 157, 159,
 ]);
@@ -191,11 +198,6 @@ function uint32(value: number, minimum = 0): Uint8Array<ArrayBuffer> {
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
 function binary(value: Readonly<Uint8Array>): Uint8Array<ArrayBuffer> {
   return join([uint16(value.byteLength), value]);
-}
-
-function responseTopic(value: string): string {
-  if (value.length === 0 || /[+#]/u.test(value)) throw new ProtocolInputError('Invalid MQTT Response Topic', 0x82);
-  return value;
 }
 
 function variable(value: number): Uint8Array<ArrayBuffer> {
@@ -425,18 +427,14 @@ class Reader {
     return value;
   }
   byte(): number {
-    return this.take(1)[0]!;
+    if (this.offset >= this.bytes.length) throw new Error('Truncated MQTT field');
+    return this.bytes[this.offset++]!;
   }
   uint16(): number {
     return this.byte() * 256 + this.byte();
   }
   uint32(): number {
     return this.uint16() * 65_536 + this.uint16();
-  }
-  flag(): boolean {
-    const value = this.byte();
-    if (value > 1) throw new Error('Invalid MQTT property value');
-    return value === 1;
   }
   variable(): number {
     let value = 0;
@@ -451,181 +449,32 @@ class Reader {
     throw new Error('Malformed MQTT variable integer');
   }
   string(): string {
-    const value = decoder.decode(this.take(this.uint16()));
-    if (value.includes('\u0000')) throw new Error('Invalid MQTT UTF-8 string');
+    const size = this.uint16();
+    if (size > this.remaining) throw new Error('Truncated MQTT field');
+    const value = decodeUtf8(this.bytes, this.offset, this.offset + size);
+    if (value === undefined) throw new Error('Invalid MQTT UTF-8 string');
+    this.offset += size;
     return value;
+  }
+  /** The PUBLISH Topic Name, with the messages the Node decoder has always reported for it. */
+  publishTopic(): string {
+    if (this.remaining < 2) throw new Error('Truncated MQTT PUBLISH topic');
+    const size = this.uint16();
+    if (size > this.remaining) throw new Error('Truncated MQTT PUBLISH topic');
+    const value = decodeUtf8(this.bytes, this.offset, this.offset + size);
+    if (value === undefined) throw new Error('Invalid MQTT PUBLISH topic UTF-8');
+    this.offset += size;
+    return value;
+  }
+  /** Read the property section at the current offset. See readProperties for the checks. */
+  properties(kind: PropertyKind): DecodedProperties {
+    const section = readProperties(this.bytes, this.offset, kind);
+    this.offset = section.end;
+    return section.properties;
   }
   end(): void {
     if (this.remaining !== 0) throw new Error('Trailing MQTT bytes');
   }
-}
-
-interface DecodedProperties extends Properties {
-  assignedClientIdentifier?: string;
-  topicAlias?: number;
-  receiveMaximum?: number;
-  maximumQoS?: number;
-  topicAliasMaximum?: number;
-  reasonString?: string;
-  payloadFormatIndicator?: 0 | 1;
-  messageExpiryInterval?: number;
-  contentType?: string;
-  responseTopic?: string;
-  correlationData?: Uint8Array;
-  subscriptionIdentifiers?: number[];
-  sessionExpiryInterval?: number;
-  serverKeepAlive?: number;
-  authenticationMethod?: string;
-  authenticationData?: Uint8Array;
-  responseInformation?: string;
-  serverReference?: string;
-  retainAvailable?: boolean;
-  maximumPacketSize?: number;
-  wildcardSubscriptionAvailable?: boolean;
-  subscriptionIdentifiersAvailable?: boolean;
-  sharedSubscriptionAvailable?: boolean;
-}
-
-const propertyNames: Readonly<Record<number, keyof DecodedProperties>> = {
-  0x01: 'payloadFormatIndicator',
-  0x02: 'messageExpiryInterval',
-  0x03: 'contentType',
-  0x08: 'responseTopic',
-  0x09: 'correlationData',
-  0x11: 'sessionExpiryInterval',
-  0x13: 'serverKeepAlive',
-  0x15: 'authenticationMethod',
-  0x16: 'authenticationData',
-  0x1a: 'responseInformation',
-  0x1c: 'serverReference',
-  0x25: 'retainAvailable',
-  0x27: 'maximumPacketSize',
-  0x28: 'wildcardSubscriptionAvailable',
-  0x29: 'subscriptionIdentifiersAvailable',
-  0x2a: 'sharedSubscriptionAvailable',
-};
-const publishOnly = new Set([0x01, 0x02, 0x03, 0x08, 0x09]);
-const connackOnly = new Set([0x11, 0x13, 0x15, 0x16, 0x1a, 0x25, 0x27, 0x28, 0x29, 0x2a]);
-
-function readProperties(reader: Readonly<Reader>, cmd: string): DecodedProperties {
-  const fields = new Reader(reader.take(reader.variable()));
-  const result: DecodedProperties = {};
-  const userProperties: UserProperty[] = [];
-  while (fields.remaining > 0) {
-    const id = fields.variable();
-    const name = propertyNames[id];
-    if (name !== undefined) {
-      const allowed = publishOnly.has(id)
-        ? cmd === 'publish'
-        : connackOnly.has(id)
-          ? cmd === 'connack'
-          : cmd === 'connack' || cmd === 'disconnect';
-      if (!allowed || result[name] !== undefined) throw new Error('Invalid MQTT ' + cmd.toUpperCase() + ' property ' + id);
-    }
-    switch (id) {
-      case 0x01: {
-        const indicator = fields.byte();
-        if (indicator > 1) throw new Error('Invalid MQTT property value');
-        result.payloadFormatIndicator = indicator === 1 ? 1 : 0;
-        break;
-      }
-      case 0x02:
-        result.messageExpiryInterval = fields.uint32();
-        break;
-      case 0x03:
-        result.contentType = fields.string();
-        break;
-      case 0x08:
-        result.responseTopic = responseTopic(fields.string());
-        break;
-      case 0x09:
-        result.correlationData = fields.take(fields.uint16());
-        break;
-      case 0x0b: {
-        if (cmd !== 'publish') throw new Error('Invalid MQTT ' + cmd.toUpperCase() + ' property ' + id);
-        (result.subscriptionIdentifiers ??= []).push(integer(fields.variable(), 268_435_455, 1));
-        break;
-      }
-      case 0x11:
-        result.sessionExpiryInterval = fields.uint32();
-        break;
-      case 0x13:
-        result.serverKeepAlive = fields.uint16();
-        break;
-      case 0x15:
-        result.authenticationMethod = fields.string();
-        break;
-      case 0x16:
-        result.authenticationData = fields.take(fields.uint16());
-        break;
-      case 0x1a:
-        result.responseInformation = fields.string();
-        break;
-      case 0x1c:
-        result.serverReference = fields.string();
-        break;
-      case 0x25:
-        result.retainAvailable = fields.flag();
-        break;
-      case 0x27:
-        result.maximumPacketSize = integer(fields.uint32(), 4_294_967_295, 1);
-        break;
-      case 0x28:
-        result.wildcardSubscriptionAvailable = fields.flag();
-        break;
-      case 0x29:
-        result.subscriptionIdentifiersAvailable = fields.flag();
-        break;
-      case 0x2a:
-        result.sharedSubscriptionAvailable = fields.flag();
-        break;
-      case 0x12:
-        if (cmd !== 'connack' || result.assignedClientIdentifier !== undefined)
-          throw new Error('Invalid Assigned Client Identifier property');
-        result.assignedClientIdentifier = fields.string();
-        break;
-      case 0x26:
-        userProperties.push([fields.string(), fields.string()]);
-        break;
-      case 0x21:
-        if ((cmd !== 'connect' && cmd !== 'connack') || result.receiveMaximum !== undefined)
-          throw new Error('Invalid Receive Maximum property');
-        result.receiveMaximum = integer(fields.uint16(), 65_535, 1);
-        break;
-      case 0x22:
-        if (cmd !== 'connack' || result.topicAliasMaximum !== undefined) throw new Error('Invalid Topic Alias Maximum property');
-        result.topicAliasMaximum = fields.uint16();
-        break;
-      case 0x23:
-        if (cmd !== 'publish' || result.topicAlias !== undefined)
-          throw new ProtocolInputError('Invalid MQTT Topic Alias property', 0x82);
-        result.topicAlias = fields.uint16();
-        break;
-      case 0x24:
-        if (cmd !== 'connack' || result.maximumQoS !== undefined) throw new Error('Invalid Maximum QoS property');
-        result.maximumQoS = integer(fields.byte(), 1);
-        break;
-      case 0x1f:
-        if (
-          (cmd !== 'suback' &&
-            cmd !== 'unsuback' &&
-            cmd !== 'puback' &&
-            cmd !== 'pubrec' &&
-            cmd !== 'pubrel' &&
-            cmd !== 'pubcomp' &&
-            cmd !== 'connack' &&
-            cmd !== 'disconnect') ||
-          result.reasonString !== undefined
-        )
-          throw new Error('Invalid Reason String property');
-        result.reasonString = fields.string();
-        break;
-      default:
-        throw new Error('Unsupported MQTT property ' + id);
-    }
-  }
-  if (userProperties.length > 0) result.userProperties = userProperties;
-  return result;
 }
 
 function validateHeader(header: number): void {
@@ -678,7 +527,7 @@ function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic:
       const flags = reader.byte();
       if ((flags & ~0xc2) !== 0) throw new Error('Unsupported CONNECT flags');
       const keepAlive = reader.uint16();
-      const props = readProperties(reader, 'connect');
+      const props = reader.properties('connect');
       packet = {
         cmd: 'connect',
         clientId: reader.string(),
@@ -698,7 +547,7 @@ function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic:
         cmd: 'connack',
         sessionPresent: flags === 1,
         reasonCode,
-        ...readProperties(reader, 'connack'),
+        ...reader.properties('connack'),
       };
       break;
     }
@@ -712,11 +561,11 @@ function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic:
     case 0x35:
     case 0x3c:
     case 0x3d: {
-      const name = reader.string();
+      const name = reader.publishTopic();
       const messageId = (header & 6) === 0 ? undefined : packetIdentifier(reader);
-      const { topicAlias, ...publishProperties } = readProperties(reader, 'publish');
-      if (checkInboundTopic) validateInboundTopic(name, topicAlias !== undefined);
-      const props = checkInboundTopic || topicAlias === undefined ? publishProperties : { ...publishProperties, topicAlias };
+      const props = reader.properties('publish');
+      // The public decoder rejects any Topic Alias here. The framed decode leaves that policy to its caller.
+      if (checkInboundTopic) validateInboundTopic(name, props.topicAlias !== undefined);
       const fields = {
         cmd: 'publish' as const,
         topic: name,
@@ -732,7 +581,7 @@ function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic:
       const messageId = packetIdentifier(reader);
       const reasonCode = reader.remaining === 0 ? 0 : reader.byte();
       if (!isPubackReason(reasonCode)) throw new Error('Invalid PUBACK reason code');
-      const props = reader.remaining === 0 ? {} : readProperties(reader, 'puback');
+      const props = reader.remaining === 0 ? {} : reader.properties('puback');
       packet = { cmd: 'puback', messageId, reasonCode, ...props };
       break;
     }
@@ -740,7 +589,7 @@ function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic:
     case 0xa2: {
       const cmd = header === 0x82 ? 'subscribe' : 'unsubscribe';
       const messageId = packetIdentifier(reader);
-      const props = readProperties(reader, cmd);
+      const props = reader.properties(cmd);
       const topics = [];
       let qos: 0 | 1 | undefined;
       while (reader.remaining > 0) {
@@ -762,7 +611,7 @@ function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic:
     case 0xb0: {
       const cmd = header === 0x90 ? 'suback' : 'unsuback';
       const messageId = packetIdentifier(reader);
-      const props = readProperties(reader, cmd);
+      const props = reader.properties(cmd);
       const granted = Array.from(reader.take(reader.remaining));
       if (granted.length === 0) throw new ProtocolInputError('Invalid ' + cmd.toUpperCase(), 0x81);
       if (granted.some((code) => !isSubscriptionReason(cmd, code)))
@@ -784,7 +633,7 @@ function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic:
       const reasonCode = reader.remaining === 0 ? 0 : reader.byte();
       if (cmd === 'pubrec' ? !isPubackReason(reasonCode) : reasonCode !== 0 && reasonCode !== 0x92)
         throw new Error('Invalid ' + cmd.toUpperCase() + ' reason code');
-      const props = reader.remaining === 0 ? {} : readProperties(reader, cmd);
+      const props = reader.remaining === 0 ? {} : reader.properties(cmd);
       packet = { cmd, messageId, reasonCode, ...props };
       break;
     }
@@ -798,7 +647,7 @@ function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic:
     case 0xe0: {
       const reasonCode = reader.remaining > 0 ? reader.byte() : 0;
       if (reasonCode !== 0 && !disconnectReasons.has(reasonCode)) throw new Error('Invalid DISCONNECT reason code');
-      const props = reader.remaining > 0 ? readProperties(reader, 'disconnect') : {};
+      const props = reader.remaining > 0 ? reader.properties('disconnect') : {};
       packet = reasonCode === 0 ? { cmd: 'disconnect', ...props } : { cmd: 'disconnect', reasonCode, ...props };
       break;
     }

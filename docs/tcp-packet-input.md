@@ -77,3 +77,16 @@ The TCP and Node WebSocket adapters parse frames with the portable codec since #
 | A five-byte Remaining Length | `Invalid variable byte integer` | `Malformed MQTT Remaining Length` |
 
 Each new rejection follows the MQTT 5 rule for that field, and the browser codec already applied it. A zero packet identifier is a `ProtocolInputError` 0x82 on Node and in the browser, so an active session answers it with DISCONNECT 0x82. A broker CONNECT or SUBSCRIBE outside the client profile still ends the session with DISCONNECT 0x82, not a codec error.
+
+## Order of checks since the single property read
+
+Since #169 the codec reads each packet once, in wire order, and the first defect in byte order wins. Before, the Node decoder checked every property before any other body field. This changes the outcome for a packet with two defects, and for a packet cut short before its properties. `test/node-rejection-contract.test.ts` pins each row.
+
+| Broker input | Before | After |
+| --- | --- | --- |
+| CONNACK with fewer than two body bytes, or a SUBACK, UNSUBACK or QoS 1 PUBLISH cut inside its packet identifier | `Truncated MQTT <KIND> property` | `Truncated MQTT field` |
+| CONNACK with reserved flag bits or an undefined reason code, and a property defect | The property error | `Invalid CONNACK` |
+| PUBACK, PUBREC, PUBREL, PUBCOMP or DISCONNECT with a reserved reason code, and a property defect | The property error | `Invalid <KIND> reason code` |
+| Packet identifier 0 and a property defect | The property error, a plain `Error` | `ProtocolInputError` 0x82, so an active session sends DISCONNECT 0x82 |
+
+A complete packet with one defect reports what it reported before. A packet cut short before its Property Length is the exception in the first row: the old validator reported the missing property, and the codec reports the missing field. Both are a plain `Error`, so the session ends the same way. The order did not change between the properties and the reason codes of a SUBACK or UNSUBACK, or for a PUBLISH topic with ill-formed bytes, which was already checked first.
