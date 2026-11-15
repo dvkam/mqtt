@@ -69,7 +69,8 @@ export type WirePacket =
       reasonString?: string;
     })
   | (Properties & { cmd: 'disconnect'; reasonCode?: number; reasonString?: string; serverReference?: string })
-  | { cmd: 'pingreq' | 'pingresp' };
+  | { cmd: 'pingreq' }
+  | { cmd: 'pingresp' };
 
 type QosZeroFields = { qos?: 0; messageId?: never; dup?: never };
 
@@ -83,6 +84,20 @@ export type FramedPacket =
   | (PublishFields & { topicAlias?: number; qos: 2; messageId: number; dup?: boolean })
   | (Properties & { cmd: 'pubrec' | 'pubrel' | 'pubcomp'; messageId: number; reasonCode: number; reasonString?: string })
   | { cmd: 'auth'; reasonCode: number };
+
+/** The packets only a client sends. A broker that sends one breaks the direction rule in MQTT 5 section 2.1.2. */
+export const clientOnlyCommands = ['connect', 'subscribe', 'unsubscribe', 'pingreq'] as const;
+const clientOnly: ReadonlySet<string> = new Set(clientOnlyCommands);
+
+/** Every packet a client may write. `encodePacket` accepts each member. */
+export type ClientPacket = Exclude<WirePacket, { cmd: 'connack' | 'suback' | 'unsuback' | 'pingresp' }>;
+
+/** Every packet a broker may send inside the public codec profile. */
+export type BrokerPacket = Exclude<WirePacket, { cmd: (typeof clientOnlyCommands)[number] }>;
+
+export function isClientOnlyCommand(command: string): command is (typeof clientOnlyCommands)[number] {
+  return clientOnly.has(command);
+}
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });

@@ -1,10 +1,11 @@
 import type { IPublishPacket, Packet } from 'mqtt-packet';
 import type { FramedPacket, UserProperty } from './wireCodec.ts';
 import { brokerPacketDirectionError } from './protocolInputError.ts';
+import { nodeBytes } from './nodeMessage.ts';
 
 type UserPropertyMap = Record<string, string | string[]>;
 
-export function userPropertyMap(tuples: readonly UserProperty[] | undefined): UserPropertyMap | undefined {
+function userPropertyMap(tuples: readonly UserProperty[] | undefined): UserPropertyMap | undefined {
   if (tuples === undefined || tuples.length === 0) return undefined;
   const grouped = new Map<string, string | string[]>();
   for (const [key, value] of tuples) {
@@ -16,16 +17,11 @@ export function userPropertyMap(tuples: readonly UserProperty[] | undefined): Us
   return Object.fromEntries(grouped);
 }
 
-export function defined<Fields extends Record<string, unknown>>(fields: Fields): Fields | undefined {
+function defined<Fields extends Record<string, unknown>>(fields: Fields): Fields | undefined {
   const entries = Object.entries(fields).filter((entry: Readonly<[string, unknown]>) => entry[1] !== undefined);
   if (entries.length === 0) return undefined;
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Removing undefined members keeps every remaining key and value of Fields.
   return Object.fromEntries(entries) as Fields;
-}
-
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers.
-export function nodeBytes(bytes: Uint8Array): Buffer {
-  return Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 }
 
 /** Give a decoded packet other than PUBLISH the shape the shared session reads. `length` is the MQTT Remaining Length. */

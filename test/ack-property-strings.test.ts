@@ -1,6 +1,6 @@
 import { getEventListeners } from 'node:events';
 import { expect, test, vi } from 'vitest';
-import { NodePacketDecoder } from './experiments/session-packet-decoder.js';
+import { NodePacketDecoder } from './experiments/node-packet-decoder.js';
 import { NodePacketInput } from '../src/nodePacketInput.js';
 import { PacketDecoder } from '../src/codec.js';
 import { createTcpClient, createWebSocketClient } from '../src/index.js';
@@ -122,7 +122,11 @@ test.each(
       expect(received.mock.calls[0]?.[0]).toMatchObject({
         cmd: packet.command,
         messageId: 1,
-        properties: { reasonString: expected, userProperties: { [expected]: ['v', 'v'] } },
+        reasonString: expected,
+        userProperties: [
+          [expected, 'v'],
+          [expected, 'v'],
+        ],
       });
     }
   },
@@ -292,7 +296,7 @@ test.each([acknowledgments[0], acknowledgments[4]])('$command preserves long pro
     expect(received.mock.calls[0]?.[0]).toMatchObject({
       cmd: packet.command,
       messageId: 1,
-      properties: { reasonString: text },
+      reasonString: text,
     });
   }
   expect(new PacketDecoder().push(frame)).toHaveLength(1);

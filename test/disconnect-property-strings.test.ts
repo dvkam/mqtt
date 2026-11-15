@@ -1,6 +1,6 @@
 import { getEventListeners } from 'node:events';
 import { expect, test, vi } from 'vitest';
-import { NodePacketDecoder } from './experiments/session-packet-decoder.js';
+import { NodePacketDecoder } from './experiments/node-packet-decoder.js';
 import { NodePacketInput } from '../src/nodePacketInput.js';
 import { createTcpClient, createWebSocketClient } from '../src/index.js';
 import { createBrowserClient } from '../src/browser.js';
@@ -89,7 +89,12 @@ test.each([
       expect(received.mock.calls[0]?.[0]).toMatchObject({
         cmd: 'disconnect',
         reasonCode: 0x8e,
-        properties: { reasonString: expected, serverReference: expected, userProperties: { [expected]: ['v', 'v'] } },
+        reasonString: expected,
+        serverReference: expected,
+        userProperties: [
+          [expected, 'v'],
+          [expected, 'v'],
+        ],
       });
     }
   },
@@ -104,7 +109,9 @@ test.each([
   const received = vi.fn<(packet: unknown) => void>();
   const decoder = new NodePacketDecoder({ onPacket: received });
   decoder.push(Uint8Array.from(bytes));
-  expect(received).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ cmd: 'disconnect', reasonCode: bytes[2] ?? 0 }));
+  // The codec model leaves out a normal (0x00) reason code.
+  const reasonCode = bytes[2] ?? 0;
+  expect(received).toHaveBeenCalledExactlyOnceWith(reasonCode === 0 ? { cmd: 'disconnect' } : { cmd: 'disconnect', reasonCode });
 });
 
 test.each([
@@ -133,7 +140,7 @@ test('preserves a long Reason String at every split', () => {
     decoder.push(frame.subarray(0, split));
     decoder.push(frame.subarray(split));
     expect(received).toHaveBeenCalledTimes(1);
-    expect(received.mock.calls[0]?.[0]).toMatchObject({ properties: { reasonString: text } });
+    expect(received.mock.calls[0]?.[0]).toMatchObject({ reasonString: text });
   }
 });
 
