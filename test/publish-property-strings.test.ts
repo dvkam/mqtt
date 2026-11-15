@@ -1,6 +1,6 @@
 import { getEventListeners } from 'node:events';
 import { expect, test, vi } from 'vitest';
-import { NodePacketDecoder } from './experiments/session-packet-decoder.js';
+import { NodePacketDecoder } from './experiments/node-packet-decoder.js';
 import { NodePacketInput } from '../src/nodePacketInput.js';
 import { PacketDecoder } from '../src/codec.js';
 import { createTcpClient, createWebSocketClient } from '../src/index.js';
@@ -140,17 +140,21 @@ test.each([
         expect(received).toHaveBeenCalledTimes(1);
         const packet = received.mock.calls[0]?.[0];
         expect(packet).toMatchObject({
-          qos,
+          // A QoS 0 PUBLISH has no qos field in the codec model.
+          ...(qos === 0 ? {} : { qos }),
           payload: Buffer.from(payload),
-          properties: {
-            contentType: expected,
-            responseTopic: 'r',
-            userProperties: { [expected]: 'v' },
-            correlationData: Buffer.from([0xc0, 0, 0x26]),
-            subscriptionIdentifier: [1, 128],
-            topicAlias: 1,
-          },
+          payloadFormatIndicator: 0,
+          messageExpiryInterval: 0x26,
+          contentType: expected,
+          responseTopic: 'r',
+          userProperties: [[expected, 'v']],
+          correlationData: Buffer.from([0xc0, 0, 0x26]),
+          subscriptionIdentifiers: [1, 128],
+          topicAlias: 1,
         });
+        // A QoS 0 PUBLISH has no qos or dup field in the codec model.
+        const keys = typeof packet === 'object' && packet !== null ? Object.keys(packet) : [];
+        expect([keys.includes('qos'), keys.includes('dup')]).toEqual([qos !== 0, qos !== 0]);
         if (typeof packet !== 'object' || packet === null || !('payload' in packet) || !Buffer.isBuffer(packet.payload))
           throw new Error('Expected native publication payload');
         packet.payload[0] = 42;
@@ -237,7 +241,7 @@ test('accepts two-byte frame and property lengths at every split', () => {
     expect(received.mock.calls[0]?.[0]).toMatchObject({
       messageId: 17,
       payload: Buffer.from(payload),
-      properties: { userProperties: { ['a'.repeat(128)]: 'v' } },
+      userProperties: [['a'.repeat(128), 'v']],
     });
   }
   expect(new PacketDecoder().push(frame)).toHaveLength(1);

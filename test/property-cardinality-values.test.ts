@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { NodePacketDecoder } from './experiments/session-packet-decoder.js';
+import { NodePacketDecoder } from './experiments/node-packet-decoder.js';
 import { PacketDecoder } from '../src/codec.js';
 import { createTcpClient, createWebSocketClient } from '../src/index.js';
 import { createBrowserClient } from '../src/browser.js';
@@ -125,7 +125,7 @@ const flags = [
   { kind: 'connack', identifier: 0x28, name: 'wildcardSubscriptionAvailable', numeric: false },
   { kind: 'connack', identifier: 0x29, name: 'subscriptionIdentifiersAvailable', numeric: false },
   { kind: 'connack', identifier: 0x2a, name: 'sharedSubscriptionAvailable', numeric: false },
-  { kind: 'publish', identifier: 0x01, name: 'payloadFormatIndicator', numeric: false },
+  { kind: 'publish', identifier: 0x01, name: 'payloadFormatIndicator', numeric: true },
 ] as const;
 
 test.each(flags.flatMap((item) => [2, 255].map((value) => ({ ...item, value }))))(
@@ -148,14 +148,14 @@ test.each(flags.flatMap((item) => [0, 1].map((value) => ({ ...item, value }))))(
     const result = decode(frame(kind, [identifier, value]));
     expect(result.failure).toBeUndefined();
     expect(result.packets).toHaveLength(1);
-    expect(result.packets[0]).toMatchObject({ properties: { [name]: numeric ? value : value === 1 } });
+    expect(result.packets[0]).toMatchObject({ [name]: numeric ? value : value === 1 });
   },
 );
 
 const nonzero = [
   { kind: 'connack', identifier: 0x21, width: 2, name: 'receiveMaximum', maximum: 65_535 },
   { kind: 'connack', identifier: 0x27, width: 4, name: 'maximumPacketSize', maximum: 4_294_967_295 },
-  { kind: 'publish', identifier: 0x0b, width: 0, name: 'subscriptionIdentifier', maximum: 268_435_455 },
+  { kind: 'publish', identifier: 0x0b, width: 0, name: 'subscriptionIdentifiers', maximum: 268_435_455 },
 ] as const;
 test.each(nonzero)('$kind rejects zero $name', ({ kind, identifier, width }) => {
   const result = decode(frame(kind, scalar(identifier, width, 0)));
@@ -173,7 +173,7 @@ test.each(nonzero.flatMap((item) => [1, item.maximum].map((value) => ({ ...item,
   }: Readonly<{ kind: Kind; identifier: number; width: number; name: string; value: number }>) => {
     const result = decode(frame(kind, scalar(identifier, width, value)));
     expect(result.failure).toBeUndefined();
-    expect(result.packets[0]).toMatchObject({ properties: { [name]: value } });
+    expect(result.packets[0]).toMatchObject({ [name]: name === 'subscriptionIdentifiers' ? [value] : value });
   },
 );
 
@@ -185,7 +185,7 @@ test.each([
 ] as const)('$kind permits zero $name', ({ kind, identifier, width, name }) => {
   const result = decode(frame(kind, scalar(identifier, width, 0)));
   expect(result.failure).toBeUndefined();
-  expect(result.packets[0]).toMatchObject({ properties: { [name]: 0 } });
+  expect(result.packets[0]).toMatchObject({ [name]: 0 });
 });
 
 test.each([[], [0x2b], [0x23], [0x61, 0x2f, 0x2b], [0x61, 0x2f, 0x23]])(
@@ -200,7 +200,7 @@ test.each([[0x2f], [0xef, 0xbb, 0xbf, 0xc3, 0xa9]])('preserves a valid Response 
   const result = decode(frame('publish', stringField(0x08, bytes)));
   expect(result.failure).toBeUndefined();
   expect(result.packets[0]).toMatchObject({
-    properties: { responseTopic: new TextDecoder('utf-8', { ignoreBOM: true }).decode(Uint8Array.from(bytes)) },
+    responseTopic: new TextDecoder('utf-8', { ignoreBOM: true }).decode(Uint8Array.from(bytes)),
   });
 });
 
@@ -211,13 +211,19 @@ test('preserves the zero-alias 0x94 and duplicate-alias 0x82 classifications', (
 test.each([1, 65_535])('keeps a positive raw alias %i syntactically valid', (value) => {
   const result = decode(frame('publish', scalar(0x23, 2, value)));
   expect(result.failure).toBeUndefined();
-  expect(result.packets[0]).toMatchObject({ properties: { topicAlias: value } });
+  expect(result.packets[0]).toMatchObject({ topicAlias: value });
 });
 test('allows repeated equal Subscription Identifiers and ordered User Properties', () => {
   const pairs = [0x26, 0, 1, 0x6b, 0, 1, 0x76, 0x26, 0, 1, 0x6b, 0, 1, 0x77];
   const result = decode(frame('publish', [0x0b, 1, ...pairs, 0x0b, 1]));
   expect(result.failure).toBeUndefined();
-  expect(result.packets[0]).toMatchObject({ properties: { subscriptionIdentifier: [1, 1], userProperties: { k: ['v', 'w'] } } });
+  expect(result.packets[0]).toMatchObject({
+    subscriptionIdentifiers: [1, 1],
+    userProperties: [
+      ['k', 'v'],
+      ['k', 'w'],
+    ],
+  });
 });
 
 test.each([
@@ -281,8 +287,8 @@ test('resets singleton tracking for each packet and leaves non-topic strings unr
   const result = decode([...bytes, ...bytes]);
   expect(result.failure).toBeUndefined();
   expect(result.packets).toHaveLength(2);
-  expect(result.packets[0]).toMatchObject({ properties: { contentType: '+#', userProperties: { '+': '#' } } });
-  expect(result.packets[1]).toMatchObject({ properties: { contentType: '+#', userProperties: { '+': '#' } } });
+  expect(result.packets[0]).toMatchObject({ contentType: '+#', userProperties: [['+', '#']] });
+  expect(result.packets[1]).toMatchObject({ contentType: '+#', userProperties: [['+', '#']] });
 });
 
 test('does not introduce payload UTF-8 validation for Payload Format Indicator 1', () => {
@@ -291,7 +297,7 @@ test('does not introduce payload UTF-8 validation for Payload Format Indicator 1
   bytes.push(0xc0);
   const result = decode(bytes);
   expect(result.failure).toBeUndefined();
-  expect(result.packets[0]).toMatchObject({ properties: { payloadFormatIndicator: true }, payload: Buffer.of(0xc0) });
+  expect(result.packets[0]).toMatchObject({ payloadFormatIndicator: 1, payload: Buffer.of(0xc0) });
 });
 
 test.each([

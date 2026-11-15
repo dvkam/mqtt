@@ -1,7 +1,7 @@
 import { parser } from 'mqtt-packet';
 import { expect, test, vi } from 'vitest';
 import { StreamingNodeDecoder } from './experiments/streaming-node-decoder.js';
-import { NodePacketDecoder } from './experiments/session-packet-decoder.js';
+import { NodePacketDecoder } from './experiments/node-packet-decoder.js';
 
 const publication = Uint8Array.of(0x30, 6, 0, 1, 97, 0, 104, 105);
 const broadVectors = [
@@ -14,15 +14,16 @@ const broadVectors = [
   [0x40, 2, 0, 7],
 ];
 
-// The supported decoder does not build mqtt-packet's Packet object, so packets other than PUBLISH lack that class's unset publish fields.
-function sessionFields(packet: unknown): unknown {
-  if (typeof packet !== 'object' || packet === null || !('cmd' in packet) || packet.cmd === 'publish') return packet;
-  return Object.fromEntries(
-    Object.entries(packet).filter(
-      (entry: Readonly<[string, unknown]>) => !['retain', 'qos', 'dup', 'topic', 'payload'].includes(entry[0]),
-    ),
-  );
-}
+// The packets the supported decoder must produce for broadVectors, in the same order.
+const compactPackets = [
+  { cmd: 'publish', topic: 'a', payload: Buffer.from('h'), retain: false, contentType: 'x' },
+  { cmd: 'publish', topic: 'a', payload: Buffer.from('h'), retain: false, qos: 1, messageId: 7, dup: false },
+  { cmd: 'connack', sessionPresent: false, reasonCode: 0, maximumPacketSize: 4096 },
+  { cmd: 'auth', reasonCode: 0 },
+  { cmd: 'disconnect', reasonCode: 0x80 },
+  { cmd: 'unsuback', messageId: 7, granted: [0] },
+  { cmd: 'puback', messageId: 7, reasonCode: 0 },
+];
 
 function nativePackets(bytes: readonly number[]): unknown[] {
   const packets: unknown[] = [];
@@ -124,10 +125,12 @@ test('waits for the complete body before native payload decoding', () => {
 });
 
 test.each(
-  broadVectors.flatMap((bytes: readonly number[]) => (['compact', 'streaming'] as const).map((assembly) => ({ bytes, assembly }))),
+  broadVectors.flatMap((bytes: readonly number[], index) =>
+    (['compact', 'streaming'] as const).map((assembly) => ({ bytes, compact: compactPackets[index], assembly })),
+  ),
 )(
   '$assembly retains native packet profile for $bytes',
-  ({ bytes, assembly }: Readonly<{ bytes: readonly number[]; assembly: 'compact' | 'streaming' }>) => {
+  ({ bytes, compact, assembly }: Readonly<{ bytes: readonly number[]; compact: unknown; assembly: 'compact' | 'streaming' }>) => {
     const expected = nativePackets(bytes);
     expect(expected).toHaveLength(1);
     for (let split = 0; split <= bytes.length; split++) {
@@ -142,7 +145,7 @@ test.each(
       decoder.push(Uint8Array.from(bytes.slice(0, split)));
       decoder.push(Uint8Array.from(bytes.slice(split)));
       decoder.finish();
-      expect(actual).toEqual(assembly === 'compact' ? expected.map(sessionFields) : expected);
+      expect(actual).toStrictEqual(assembly === 'compact' ? [compact] : expected);
     }
   },
 );
@@ -448,7 +451,11 @@ function captureFailure(operation: () => void): unknown {
   }
 }
 
-type CandidateOptions = ConstructorParameters<typeof StreamingNodeDecoder>[0] & Readonly<{ assembly?: 'compact' | 'streaming' }>;
+type CandidateOptions = Readonly<{
+  maxPacketBytes?: number;
+  assembly?: 'compact' | 'streaming';
+  onPacket: (packet: unknown) => void;
+}>;
 
 function createCandidateDecoder(options: CandidateOptions) {
   return options.assembly === 'streaming' ? new StreamingNodeDecoder(options) : new NodePacketDecoder(options);

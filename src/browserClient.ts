@@ -1,8 +1,8 @@
 import type { DiagnosticObserver } from './diagnostics.js';
-import { brokerPacketDirectionError, isClientOnlyCommand, ProtocolInputError } from './protocolInputError.js';
+import { brokerPacketDirectionError, ProtocolInputError } from './protocolInputError.js';
 import { openBrowserTransport } from './browserTransport.js';
-import { encodePacket, PacketDecoder } from './codec.js';
-import { messageProperties, type MessageProperties } from './messageProperties.js';
+import { encodePacket, isClientOnlyCommand, PacketDecoder } from './wireCodec.js';
+import { publishMessage, type PublishMessage } from './messageProperties.js';
 import { toWirePacket } from './wirePacket.js';
 import { connectPortable, type PacketTransport } from './portable.js';
 import type { ClientFactory, ClientSession, QosOneMessage, SessionEndObserver } from './session.js';
@@ -15,14 +15,7 @@ import {
   type NativeWriteLimits,
 } from './nativeWriteBudget.js';
 
-export interface BrowserMessage extends MessageProperties {
-  cmd: 'publish';
-  topic: string;
-  payload: Uint8Array;
-  qos: 0;
-  dup: false;
-  retain: boolean;
-}
+export type BrowserMessage = PublishMessage;
 
 export type BrowserQosOneMessage = QosOneMessage<BrowserMessage>;
 
@@ -128,13 +121,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
             deliver?.({ cmd: 'disconnect', reasonCode: packet.reasonCode ?? 0 });
             break;
           case 'publish': {
-            const message = {
-              cmd: 'publish' as const,
-              topic: packet.topic,
-              payload: packet.payload,
-              retain: packet.retain ?? false,
-              ...messageProperties(packet, browserBytes),
-            };
+            const message = publishMessage(packet, browserBytes);
             if (packet.qos === 1) {
               if (!onQosOneMessage) throw new Error('Unsupported incoming MQTT QoS 1');
               deliver?.({
@@ -143,7 +130,7 @@ async function openClient(options: BrowserClientOptions): Promise<BrowserSession
                 dup: packet.dup ?? false,
                 messageId: packet.messageId,
               });
-            } else deliver?.({ ...message, qos: 0, dup: false });
+            } else deliver?.(message);
             break;
           }
           default:

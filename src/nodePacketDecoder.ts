@@ -1,5 +1,5 @@
 import { isUtf8 } from 'node:buffer';
-import { decodeFramedPacket, type FramedPacket } from './wireCodec.ts';
+import { decodeFramedPacket, isClientOnlyCommand, type FramedPacket } from './wireCodec.ts';
 import { brokerPacketDirectionError, ProtocolInputError } from './protocolInputError.ts';
 
 type PropertyShape = 'byte' | 'two' | 'four' | 'variable' | 'string' | 'pair' | 'binary';
@@ -96,7 +96,8 @@ function validateFixedHeader(header: number): void {
   if (((header >>> 1) & 3) === 3) throw new Error('Packet must not have both QoS bits set to 1');
   // MQTT-3.3.1-2: a QoS 0 PUBLISH has DUP 0. Before the portable parse, mqtt-packet delivered it.
   if (type === 3 && (header & 0x0e) === 0x08) throw new ProtocolInputError('Invalid MQTT PUBLISH DUP flag for QoS 0', 0x81);
-  if (type === 1 || type === 8 || type === 10 || type === 12) throw brokerPacketDirectionError(packetNames[type]);
+  const name = packetNames[type] ?? 'reserved';
+  if (isClientOnlyCommand(name)) throw brokerPacketDirectionError(name);
 }
 
 type DecoderOptions = Readonly<{

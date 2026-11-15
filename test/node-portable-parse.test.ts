@@ -1,12 +1,21 @@
 import { readFileSync } from 'node:fs';
 import { generate, type Packet } from 'mqtt-packet';
 import { expect, test } from 'vitest';
-import { NodePacketDecoder } from './experiments/session-packet-decoder.js';
+import { NodePacketDecoder as SupportedDecoder } from '../src/nodePacketDecoder.js';
+import { toSessionPacket } from '../src/sessionPacket.js';
+import { NodePacketDecoder } from './experiments/node-packet-decoder.js';
 import { MqttPacketCompactDecoder } from './experiments/mqtt-packet-compact-decoder.js';
 
 const userProperties = { region: 'eu', tag: ['a', 'b'] };
+// mqtt-packet writes the object's keys in order and each array value in order.
+const userPropertyPairs = [
+  ['region', 'eu'],
+  ['tag', 'a'],
+  ['tag', 'b'],
+];
 
-const brokerPackets: [string, Packet][] = [
+// Each row is a broker packet that mqtt-packet encodes independently, and the codec packet the decoder must produce.
+const brokerPackets: [string, Packet, unknown][] = [
   [
     'CONNACK with every broker property',
     {
@@ -31,9 +40,37 @@ const brokerPackets: [string, Packet][] = [
         serverReference: 'other',
       },
     },
+    {
+      cmd: 'connack',
+      sessionPresent: false,
+      reasonCode: 0,
+      sessionExpiryInterval: 3600,
+      receiveMaximum: 20,
+      maximumQoS: 1,
+      retainAvailable: false,
+      maximumPacketSize: 4096,
+      assignedClientIdentifier: 'assigned',
+      topicAliasMaximum: 10,
+      reasonString: 'ok',
+      userProperties: userPropertyPairs,
+      wildcardSubscriptionAvailable: true,
+      subscriptionIdentifiersAvailable: false,
+      sharedSubscriptionAvailable: true,
+      serverKeepAlive: 60,
+      responseInformation: 'reply',
+      serverReference: 'other',
+    },
   ],
-  ['refused CONNACK', { cmd: 'connack', sessionPresent: false, reasonCode: 0x87 }],
-  ['QoS 0 PUBLISH', { cmd: 'publish', topic: 'a/b', payload: Buffer.from([0, 255]), qos: 0, dup: false, retain: true }],
+  [
+    'refused CONNACK',
+    { cmd: 'connack', sessionPresent: false, reasonCode: 0x87 },
+    { cmd: 'connack', sessionPresent: false, reasonCode: 0x87 },
+  ],
+  [
+    'QoS 0 PUBLISH',
+    { cmd: 'publish', topic: 'a/b', payload: Buffer.from([0, 255]), qos: 0, dup: false, retain: true },
+    { cmd: 'publish', topic: 'a/b', payload: Buffer.from([0, 255]), retain: true },
+  ],
   [
     'QoS 1 PUBLISH with every publisher property',
     {
@@ -54,6 +91,22 @@ const brokerPackets: [string, Packet][] = [
         userProperties,
       },
     },
+    {
+      cmd: 'publish',
+      topic: 'a/b',
+      payload: Buffer.from('p'),
+      qos: 1,
+      messageId: 7,
+      dup: true,
+      retain: false,
+      payloadFormatIndicator: 1,
+      messageExpiryInterval: 30,
+      contentType: 'text/plain',
+      responseTopic: 'reply/1',
+      correlationData: Buffer.from([1, 2]),
+      subscriptionIdentifiers: [1, 200],
+      userProperties: userPropertyPairs,
+    },
   ],
   [
     'QoS 0 PUBLISH with a Topic Alias and one Subscription Identifier',
@@ -66,44 +119,56 @@ const brokerPackets: [string, Packet][] = [
       retain: false,
       properties: { topicAlias: 3, subscriptionIdentifier: 9 },
     },
+    { cmd: 'publish', topic: 'a', payload: Buffer.alloc(0), retain: false, topicAlias: 3, subscriptionIdentifiers: [9] },
   ],
-  ['QoS 2 PUBLISH', { cmd: 'publish', topic: 'a', payload: Buffer.from('x'), qos: 2, messageId: 8, dup: false, retain: false }],
-  ['PUBACK', { cmd: 'puback', messageId: 7, reasonCode: 0 }],
+  [
+    'QoS 2 PUBLISH',
+    { cmd: 'publish', topic: 'a', payload: Buffer.from('x'), qos: 2, messageId: 8, dup: false, retain: false },
+    { cmd: 'publish', topic: 'a', payload: Buffer.from('x'), qos: 2, messageId: 8, dup: false, retain: false },
+  ],
+  ['PUBACK', { cmd: 'puback', messageId: 7, reasonCode: 0 }, { cmd: 'puback', messageId: 7, reasonCode: 0 }],
   [
     'PUBACK with a reason and properties',
     { cmd: 'puback', messageId: 7, reasonCode: 0x10, properties: { reasonString: 'none', userProperties } },
+    { cmd: 'puback', messageId: 7, reasonCode: 0x10, reasonString: 'none', userProperties: userPropertyPairs },
   ],
-  ['PUBREC with a reason string', { cmd: 'pubrec', messageId: 8, reasonCode: 0, properties: { reasonString: 'r' } }],
-  ['PUBREL', { cmd: 'pubrel', messageId: 8, reasonCode: 0 }],
-  ['PUBCOMP', { cmd: 'pubcomp', messageId: 8, reasonCode: 0 }],
-  ['SUBACK', { cmd: 'suback', messageId: 9, granted: [0, 1, 0x80], properties: { reasonString: 'partly' } }],
-  ['UNSUBACK', { cmd: 'unsuback', messageId: 10, granted: [0, 17] }],
-  ['PINGRESP', { cmd: 'pingresp' }],
-  ['DISCONNECT', { cmd: 'disconnect', reasonCode: 0 }],
+  [
+    'PUBREC with a reason string',
+    { cmd: 'pubrec', messageId: 8, reasonCode: 0, properties: { reasonString: 'r' } },
+    { cmd: 'pubrec', messageId: 8, reasonCode: 0, reasonString: 'r' },
+  ],
+  ['PUBREL', { cmd: 'pubrel', messageId: 8, reasonCode: 0 }, { cmd: 'pubrel', messageId: 8, reasonCode: 0 }],
+  ['PUBCOMP', { cmd: 'pubcomp', messageId: 8, reasonCode: 0 }, { cmd: 'pubcomp', messageId: 8, reasonCode: 0 }],
+  [
+    'SUBACK',
+    { cmd: 'suback', messageId: 9, granted: [0, 1, 0x80], properties: { reasonString: 'partly' } },
+    { cmd: 'suback', messageId: 9, granted: [0, 1, 0x80], reasonString: 'partly' },
+  ],
+  ['UNSUBACK', { cmd: 'unsuback', messageId: 10, granted: [0, 17] }, { cmd: 'unsuback', messageId: 10, granted: [0, 17] }],
+  ['PINGRESP', { cmd: 'pingresp' }, { cmd: 'pingresp' }],
+  // The codec model leaves out a normal (0x00) DISCONNECT reason code.
+  ['DISCONNECT', { cmd: 'disconnect', reasonCode: 0 }, { cmd: 'disconnect' }],
   [
     'DISCONNECT with properties',
     { cmd: 'disconnect', reasonCode: 0x8e, properties: { reasonString: 'taken over', serverReference: 'other', userProperties } },
+    {
+      cmd: 'disconnect',
+      reasonCode: 0x8e,
+      reasonString: 'taken over',
+      serverReference: 'other',
+      userProperties: userPropertyPairs,
+    },
   ],
-  ['AUTH', { cmd: 'auth', reasonCode: 0 }],
+  ['AUTH', { cmd: 'auth', reasonCode: 0 }, { cmd: 'auth', reasonCode: 0 }],
 ];
 
-const publishOnly = ['retain', 'qos', 'dup', 'topic', 'payload'];
-
-function comparable(packet: unknown): unknown {
-  if (typeof packet !== 'object' || packet === null || !('cmd' in packet)) throw new Error('Expected a decoded packet');
-  if (packet.cmd === 'publish') return packet;
-  // mqtt-packet's Packet object carries unset publish fields on every packet type.
-  return Object.fromEntries(Object.entries(packet).filter((entry: Readonly<[string, unknown]>) => !publishOnly.includes(entry[0])));
-}
-
-function decodeWith(kind: 'portable' | 'reference', bytes: readonly number[], split: number) {
+function decode(bytes: readonly number[], split: number) {
   const packets: unknown[] = [];
-  const options = {
+  const decoder = new NodePacketDecoder({
     onPacket: (packet: unknown) => {
-      packets.push(comparable(packet));
+      packets.push(packet);
     },
-  };
-  const decoder = kind === 'portable' ? new NodePacketDecoder(options) : new MqttPacketCompactDecoder(options);
+  });
   decoder.push(Uint8Array.from(bytes.slice(0, split)));
   decoder.push(Uint8Array.from(bytes.slice(split)));
   decoder.finish();
@@ -111,12 +176,43 @@ function decodeWith(kind: 'portable' | 'reference', bytes: readonly number[], sp
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-test.each(brokerPackets)('decodes %s to the packet mqtt-packet produced, at every split', (_name, packet) => {
+test.each(brokerPackets)('decodes %s from mqtt-packet bytes at every split', (_name, packet, expected) => {
   const bytes = Array.from(generate(packet, { protocolVersion: 5 }));
-  const reference = decodeWith('reference', bytes, 0);
-  expect(reference).toHaveLength(1);
-  for (let split = 0; split <= bytes.length; split++) expect(decodeWith('portable', bytes, split)).toEqual(reference);
+  for (let split = 0; split <= bytes.length; split++) expect(decode(bytes, split)).toStrictEqual([expected]);
 });
+
+const publishOnly = new Set(['retain', 'qos', 'dup', 'topic', 'payload']);
+
+// mqtt-packet's Packet object carries unset publish fields on every packet type.
+function withoutPublishFields(packet: unknown): unknown {
+  if (typeof packet !== 'object' || packet === null) throw new Error('Expected a decoded packet');
+  return Object.fromEntries(Object.entries(packet).filter((entry: Readonly<[string, unknown]>) => !publishOnly.has(entry[0])));
+}
+
+// Until the session reads the codec model, Node gives every packet other than PUBLISH mqtt-packet's nested shape.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+test.each(brokerPackets.filter((row) => row[1].cmd !== 'publish'))(
+  'translates %s to the session shape mqtt-packet produced',
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture rows hold mqtt-packet input objects with mutable Buffers.
+  (_name, packet) => {
+    const bytes = Uint8Array.from(generate(packet, { protocolVersion: 5 }));
+    const reference: unknown[] = [];
+    new MqttPacketCompactDecoder({
+      onPacket: (decoded: unknown) => {
+        reference.push(withoutPublishFields(decoded));
+      },
+    }).push(bytes);
+    const translated: unknown[] = [];
+    new SupportedDecoder({
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Decoded packets carry mutable byte views.
+      onPacket: (decoded, length) => {
+        if (decoded.cmd !== 'publish') translated.push(toSessionPacket(decoded, length));
+      },
+    }).push(bytes);
+    expect(reference).toHaveLength(1);
+    expect(translated).toEqual(reference);
+  },
+);
 
 test('delivers a PUBLISH payload as a Buffer view of the packet allocation', () => {
   const payloads: unknown[] = [];
@@ -135,6 +231,11 @@ test.each([
   ['a reserved packet type', [0x00, 0], 'Not supported'],
   ['CONNACK header flags', [0x21], 'Invalid header flag bits, must be 0x0 for connack packet'],
   ['PUBREL header flags', [0x60], 'Invalid header flag bits, must be 0x2 for pubrel packet'],
+  // The flag check runs before the broker-direction check, so these keep their flag messages.
+  ['CONNECT header flags', [0x11], 'Invalid header flag bits, must be 0x0 for connect packet'],
+  ['SUBSCRIBE header flags', [0x80], 'Invalid header flag bits, must be 0x2 for subscribe packet'],
+  ['UNSUBSCRIBE header flags', [0xa0], 'Invalid header flag bits, must be 0x2 for unsubscribe packet'],
+  ['PINGREQ header flags', [0xc1], 'Invalid header flag bits, must be 0x0 for pingreq packet'],
   ['both PUBLISH QoS bits', [0x36], 'Packet must not have both QoS bits set to 1'],
   ['a five-byte Remaining Length', [0xd0, 0x80, 0x80, 0x80, 0x80], 'Malformed MQTT Remaining Length'],
 ] as const)('rejects %s', (_name, bytes, message) => {

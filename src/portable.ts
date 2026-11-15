@@ -15,10 +15,10 @@ export type { ClientDiagnostic, DiagnosticObserver } from './diagnostics.js';
 export type { SessionEnd, SessionEndObserver } from './session.js';
 export type { ProtocolInputCode, ProtocolInputError } from './protocolInputError.js';
 
-type PublishMessage = Omit<IPublishPacket, 'payload'> & { payload: unknown };
-type IncomingPacket<Message extends PublishMessage> = Exclude<Packet, IPublishPacket> | Message | QosOneMessage<Message>;
+type SessionMessage = Omit<IPublishPacket, 'payload'> & { payload: unknown };
+type IncomingPacket<Message extends SessionMessage> = Exclude<Packet, IPublishPacket> | Message | QosOneMessage<Message>;
 
-export interface PacketTransport<Message extends PublishMessage = IPublishPacket> {
+export interface PacketTransport<Message extends SessionMessage = IPublishPacket> {
   /** Whether this adapter can encode shared filters. Broker capabilities are separate. */
   readonly supportsSharedSubscriptions?: boolean;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
@@ -35,7 +35,7 @@ export interface PacketTransport<Message extends PublishMessage = IPublishPacket
   close(force?: boolean): Promise<void>;
 }
 
-export interface PortableOptions<Message extends PublishMessage = IPublishPacket> extends PublicationLimits, SubscriptionLimits {
+export interface PortableOptions<Message extends SessionMessage = IPublishPacket> extends PublicationLimits, SubscriptionLimits {
   clientId: string;
   username?: IConnectPacket['username'];
   password?: IConnectPacket['password'];
@@ -57,7 +57,7 @@ type Acknowledgment =
     >
   | Readonly<Extract<Packet, { cmd: 'pingresp' }>>;
 
-class PortableClient<Message extends PublishMessage> {
+class PortableClient<Message extends SessionMessage> {
   private readonly transport: PacketTransport<Message>;
   private readonly sendPacket: PacketTransport<Message>['send'];
   private readonly onDiagnostic: DiagnosticObserver | undefined;
@@ -507,7 +507,7 @@ class PortableClient<Message extends PublishMessage> {
   }
 }
 
-export async function connectPortable<Message extends PublishMessage = IPublishPacket>(
+export async function connectPortable<Message extends SessionMessage = IPublishPacket>(
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
   transport: PacketTransport<Message>,
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
