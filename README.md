@@ -112,7 +112,7 @@ The [native write reserve](docs/native-write-reserve.md) checks observed queued 
 | `mqtt/portable`  | Packet-transport session tracer for adapter work                  |
 | `mqtt/websocket` | Experimental native WebSocket transport probe                     |
 
-The browser path uses the in-repository portable codec. The Node adapters encode and parse with the same codec. `mqtt-packet` still supplies the packet types the session uses and serves the legacy `connect()` path. Their convergence and the remaining protocol profile are tracked in [#8](https://github.com/dvkam/mqtt/issues/8) and [#37](https://github.com/dvkam/mqtt/issues/37).
+The browser client, the Node adapters and the shared session all use the in-repository portable codec and its packet types. `mqtt-packet` serves only the legacy `connect()` path. Their convergence and the remaining protocol profile are tracked in [#8](https://github.com/dvkam/mqtt/issues/8) and [#37](https://github.com/dvkam/mqtt/issues/37).
 
 The [public type guide](docs/public-types.md) lists named options, factories, sessions and platform message types.
 
