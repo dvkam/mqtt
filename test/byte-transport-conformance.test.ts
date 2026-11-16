@@ -211,14 +211,20 @@ describe.each([
 
   test('ends the session with the reason the transport gives when the peer ends', async () => {
     const peer = makePeer();
+    const controller = new AbortController();
     const { ended, onSessionEnd } = sessionEnd();
-    const client = await createByteClient(peer.transport, { clientId: 'conformance', onSessionEnd }).connect();
+    const client = await createByteClient(peer.transport, {
+      clientId: 'conformance',
+      signal: controller.signal,
+      onSessionEnd,
+    }).connect();
     peer.end();
     const error = endError(await ended);
     expect(error.message).toMatch(/ended$/u);
     await expect(client.ping()).rejects.toBe(error);
     expect(peer.closes).toContain(true);
     expect(onSessionEnd).toHaveBeenCalledTimes(1);
+    expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
   });
 
   test('ends the session with the transport failure', async () => {
@@ -300,6 +306,89 @@ describe('the core over a transport that controls its write budget', () => {
     writer.frameOverhead = () => 0;
     await client.publish('t', 'x');
     expect(peer.received).toEqual(['connect', 'publish']);
+  });
+});
+
+describe('the core over a transport it closes', () => {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The script answers with mutable mqtt-packet packets.
+  const refusing: Script = (packet, peer) => {
+    if (packet.cmd === 'connect') peer.send({ cmd: 'connack', reasonCode: 0x87, sessionPresent: false });
+  };
+
+  test('force-closes the transport and releases the abort listener when the broker refuses the connection', async () => {
+    const { peer } = memoryPeer(refusing);
+    const controller = new AbortController();
+    await expect(
+      createByteClient(peer.transport, { clientId: 'refused', signal: controller.signal }).connect(),
+    ).rejects.toMatchObject({
+      message: 'MQTT acknowledgment refused',
+      code: 0x87,
+    });
+    expect(peer.closes).toContain(true);
+    expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
+  });
+
+  test('releases the abort listener when the session force-closes after a protocol error', async () => {
+    const { peer } = memoryPeer();
+    const controller = new AbortController();
+    const { ended, onSessionEnd } = sessionEnd();
+    await createByteClient(peer.transport, { clientId: 'auth', signal: controller.signal, onSessionEnd }).connect();
+    peer.send({ cmd: 'auth', reasonCode: 0x18 });
+    await ended;
+    await vi.waitFor(() => {
+      expect(peer.closes).toEqual([true]);
+    });
+    expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
+  });
+
+  test('rejects the connect when the caller aborts as the session becomes active', async () => {
+    const { peer } = memoryPeer();
+    const controller = new AbortController();
+    const reason = new Error('aborted on CONNACK');
+    const connecting = createByteClient(peer.transport, {
+      clientId: 'late-abort',
+      signal: controller.signal,
+      onDiagnostic(event) {
+        if (event.kind === 'connection' && event.state === 'active') controller.abort(reason);
+      },
+    }).connect();
+    await expect(connecting).rejects.toBe(reason);
+    expect(peer.closes).toContain(true);
+  });
+
+  test('rejects a publication with the error of a failed write', async () => {
+    const { peer, writer } = memoryPeer();
+    const client = await createByteClient(peer.transport, { clientId: 'write-failure' }).connect();
+    const failure = new Error('write failed');
+    // oxlint-disable-next-line typescript/require-await -- The writer fails as an async function would, by rejecting.
+    writer.write = async () => {
+      throw failure;
+    };
+    await expect(client.publish('t', 'x')).rejects.toBe(failure);
+  });
+
+  test('keeps a synchronous throw from the writer close inside the core', async () => {
+    const { peer, writer } = memoryPeer();
+    const { ended, onSessionEnd } = sessionEnd();
+    await createByteClient(peer.transport, { clientId: 'close-throws', onSessionEnd }).connect();
+    writer.close = () => {
+      throw new Error('close threw');
+    };
+    expect(() => {
+      peer.end();
+    }).not.toThrow();
+    expect(endError(await ended).message).toBe('Memory ended');
+  });
+
+  test('does not force-close after a graceful close when the peer then ends', async () => {
+    const { peer } = memoryPeer();
+    const controller = new AbortController();
+    const client = await createByteClient(peer.transport, { clientId: 'graceful', signal: controller.signal }).connect();
+    await client.disconnect();
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(1);
+    peer.end();
+    expect(peer.closes).toEqual([false]);
+    expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
   });
 });
 
@@ -396,6 +485,19 @@ describe('the core while it opens a transport', () => {
     await expect(createByteClient(transport, { clientId: 'open' }).connect()).rejects.toThrow('ended while opening');
     expect(close).toHaveBeenCalledWith(true);
     expect(write).not.toHaveBeenCalled();
+  });
+
+  test('rejects with invalid input the transport delivered while it opened', async () => {
+    const close = vi.fn<(force: boolean) => Promise<void>>(async () => {});
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- The opener keeps the inbound object by identity and settles at once.
+    const { transport } = scriptedTransport(async (inbound) => {
+      inbound.bytes(Uint8Array.of(0x21));
+      return { bufferedBytes: 0, write: async () => {}, close };
+    });
+    await expect(createByteClient(transport, { clientId: 'open' }).connect()).rejects.toThrow(
+      'Invalid header flag bits, must be 0x0 for connack packet',
+    );
+    expect(close).toHaveBeenCalledWith(true);
   });
 
   test('opens once however often the factory connects', async () => {

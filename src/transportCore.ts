@@ -60,9 +60,20 @@ async function connectOverBytes(transport: Readonly<ByteTransport>, options: Rea
   const release = () => {
     signal?.removeEventListener('abort', abort);
   };
+  // Between the open resolving and `writer` being set, neither branch reaches the transport. The session's `listen` then
+  // reports the recorded failure at once, and the core closes the writer when `connectPortable` rejects.
   const teardown = (reason: Readonly<Error>) => {
-    if (writer) writer.close(true).catch(() => {});
-    else opening.abort(reason);
+    if (!writer) {
+      opening.abort(reason);
+      return;
+    }
+    // The input already holds the outcome, so a failing close has nothing left to report. Catch a synchronous throw
+    // too, because it would otherwise escape from the transport's event handler.
+    try {
+      writer.close(true).catch(() => {});
+    } catch {
+      // See above.
+    }
   };
   const finish = (reason: Readonly<Error> | undefined) => {
     release();
@@ -107,7 +118,7 @@ async function connectOverBytes(transport: Readonly<ByteTransport>, options: Rea
     }
     const opened = writer;
     const packets: PacketTransport<Buffer> = {
-      // oxlint-disable-next-line typescript/promise-function-async, typescript/prefer-readonly-parameter-types -- Forward the writer's promise without adding an async wrapper. The session hands over mutable packets.
+      // oxlint-disable-next-line typescript/promise-function-async, typescript/prefer-readonly-parameter-types -- The executor turns a throw from encoding or from the writer into a rejection, and the budget refusal rejects before any write; an async function would add a second await. The session hands over mutable packets.
       send(packet) {
         return new Promise((resolve, reject) => {
           const bytes = encodePacket(packet, { sharedSubscriptions: true });

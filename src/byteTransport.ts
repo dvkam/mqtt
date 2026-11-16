@@ -1,7 +1,9 @@
 /**
  * The byte-level transport contract. The core opens a transport once per connection attempt. It creates the read side
- * first and hands it to the opener, so the transport can deliver bytes from the moment it exists. The opener returns a
- * write-only object. No object both receives and writes.
+ * first and hands it to the opener, so an end, a failure or fatal input during the open is recorded and reported once the
+ * session listens. A valid packet that arrives before the session listens is dropped. A broker sends nothing before
+ * CONNECT, which the session writes after it listens. The opener returns a write-only object. No object both receives
+ * and writes.
  */
 
 /**
@@ -37,12 +39,18 @@ export interface ByteWriter {
    */
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The native layer keeps the encoded bytes by identity.
   write(chunk: Uint8Array): Promise<void>;
-  /** Close gracefully when `force` is false and promptly when it is true. Allow repeated calls. Settle once closed. */
+  /**
+   * Close gracefully when `force` is false. When it is true, release the connection promptly and settle every pending
+   * `write`. Allow repeated calls. Settle once closed. The core sets no close deadline of its own.
+   */
   close(force: boolean): Promise<void>;
 }
 
 export interface ByteTransport {
-  /** Prefixes the core's own messages, such as `TCP write budget exceeded`. The core needs it before a writer exists. */
+  /**
+   * Prefixes the core's own messages: `<name> write budget exceeded`, `<name> connection aborted` when the abort reason
+   * is not an Error, and `<name> connection closed` when `end` gets no reason. The core needs it before a writer exists.
+   */
   readonly name: string;
   /**
    * Open one connection. Settle only once the connection is usable, or once it is released. When the open rejects, the
