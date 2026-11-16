@@ -2,7 +2,7 @@
 
 Use this fork's [issues](https://github.com/dvkam/mqtt/issues) to report bugs and discuss changes. State the runtime, transport, broker, package commit and reproduction steps. Remove credentials and private payloads from reports and traces.
 
-The preview profile is described in the [README](../README.md), [browser guide](../docs/browser-client.md) and [codec guide](../docs/codec.md). Link the owning issue before broadening a public contract.
+The preview profile is described in the [README](../README.md), [browser guide](../docs/browser-client.md) and [codec guide](../docs/codec.md). Link the owning issue before broadening a public contract. Record a decision that changes the public API or the package layout at the top of [design-decisions.md](../docs/design-decisions.md).
 
 ## Setup and checks
 
