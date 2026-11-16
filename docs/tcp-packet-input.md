@@ -18,7 +18,7 @@ This introduces a default limit where the supported TCP adapter previously had n
 
 ## Input and operation outcomes
 
-The decoder checks the first byte itself and reports the early flag and QoS errors that mqtt-packet reported. It collects at most four length bytes, rejects a non-minimal Remaining Length before frame allocation, checks total wire size and copies the admitted remainder into compact owned storage. A declaration above the budget fails without waiting for its body, including a fragmented declaration. The adapter destroys the connection and reports a RangeError with message `MQTT packet allocation limit exceeded`.
+The decoder checks the first byte itself and reports the early flag and QoS errors that mqtt-packet reported. It collects at most four length bytes, rejects a non-minimal Remaining Length before frame allocation, checks total wire size and copies the admitted remainder into compact owned storage. A declaration above the budget fails without waiting for its body, including a fragmented declaration. The transport core force-closes the connection and reports a RangeError with message `MQTT packet allocation limit exceeded`.
 
 Several complete packets can arrive in one chunk. Completed application publications are delivered synchronously before a later packet in that chunk fails. A still-pending connect, subscribe or ping operation fails on fatal input, even when a valid acknowledgment appeared earlier in the same callback. Tests cover CONNACK, SUBACK and PINGRESP prefixes. No artificial microtask delay selects the outcome. Operations already settled in an earlier turn keep their result.
 
@@ -32,14 +32,16 @@ A payload view can be transferred without detaching the chunk that still contain
 
 ```mermaid
 flowchart LR
-  Socket[Node TCP socket] --> Input[NodePacketInput]
+  Socket[Node TCP socket] --> Opener[TCP opener]
+  Opener -->|ByteInbound| Transport[Transport core]
+  Transport --> Input[NodePacketInput]
   Input --> Decoder[NodePacketDecoder]
   Decoder --> Native[portable codec]
   Native --> Core[Portable session]
   Core -->|unlisten| Input
 ```
 
-The private input helper owns decoding and terminal notification. It has no socket capability. The adapter interprets native events and performs teardown. One connection attempt installs one core registration; a new attempt needs a new factory.
+The private input helper owns decoding and terminal notification. It has no socket capability. The TCP opener turns native events into calls on the [byte transport](byte-transport.md) and returns a write-only writer. The transport core owns teardown: it force-closes the writer after a remote end, a native error, rejected input or an abort. One connection attempt installs one core registration; a new attempt needs a new factory.
 
 A decoder error, native error or abort records the real reason before notifying the core. Stopping during an application callback prevents further body allocation in a coalesced suffix. A failure recorded before core registration is replayed synchronously when listening begins. Cleanup returned after that notification remains valid and idempotent.
 
@@ -47,7 +49,7 @@ Core unlisten clears the packet and failure bridges, marks core ownership and st
 
 Readable `end` completes incoming MQTT input. Partial header, length or body reports truncation. Completion at a packet boundary retains the ordinary remote-close reason. Physical `close` is a guarded fallback and cannot repeat completion. Earlier error, abort or core-owned retirement prevents a later EOF from replacing the outcome. The readable-end handler also rejects a blocked outgoing write without waiting for native close to drain it.
 
-Native close always releases the signal listener and settles the close promise, including after decoder failure. Terminal input paths can release cancellation earlier, before their rejected operation resumes. Core-owned graceful shutdown retains native cancellation until closure. This is cleanup ownership, not a wall-clock guarantee or a network backpressure policy.
+The core releases the caller's signal listener on every remote end, native error and rejected input, and the TCP opener settles its close promise on native close, including after decoder failure. Terminal input paths can release cancellation before their rejected operation resumes. Core-owned graceful shutdown keeps the listener until the connection ends, and a remote end after it no longer force-closes the socket. This is cleanup ownership, not a wall-clock guarantee or a network backpressure policy.
 
 ## Evidence and remaining work
 
