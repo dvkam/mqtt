@@ -61,3 +61,116 @@ test('the framer source uses no Node API, so the browser can bundle it', () => {
   const source = readFileSync(new URL('../src/packetFramer.ts', import.meta.url), 'utf8');
   expect(source).not.toMatch(/\bBuffer\b|node:/u);
 });
+
+test('the framer allocates as soon as the Remaining Length is complete, before the body arrives', () => {
+  const sizes: number[] = [];
+  const received = vi.fn<(packet: unknown) => void>();
+  const framer = new PacketFramer({
+    allocate(size) {
+      sizes.push(size);
+      return new Uint8Array(size);
+    },
+    onPacket: received,
+  });
+  framer.push(publication.subarray(0, 1));
+  expect(sizes).toEqual([]);
+  framer.push(publication.subarray(1, 2));
+  expect(sizes).toEqual([publication.length - 1]);
+  framer.push(publication.subarray(2, 7));
+  expect(received).not.toHaveBeenCalled();
+  framer.push(publication.subarray(7));
+  expect(received).toHaveBeenCalledTimes(1);
+  framer.finish();
+});
+
+test('the default framer keeps the first failure and rejects later input', () => {
+  const framer = new PacketFramer({ onPacket() {} });
+  expect(() => {
+    framer.push(Uint8Array.of(0x21));
+  }).toThrow('Invalid header flag bits, must be 0x0 for connack packet');
+  expect(() => {
+    framer.push(Uint8Array.of(0xd0, 0));
+  }).toThrow('Invalid header flag bits, must be 0x0 for connack packet');
+  expect(() => {
+    framer.finish();
+  }).toThrow('Invalid header flag bits, must be 0x0 for connack packet');
+});
+
+test('the default framer reports a packet cut short at the end of input', () => {
+  const framer = new PacketFramer({ onPacket() {} });
+  framer.push(publication.subarray(0, 5));
+  expect(() => {
+    framer.finish();
+  }).toThrow('Truncated MQTT packet at end of input');
+});
+
+test('an allocator that throws fails the framer with its error', () => {
+  const failure = new Error('out of memory');
+  const framer = new PacketFramer({
+    allocate() {
+      throw failure;
+    },
+    onPacket() {},
+  });
+  expect(() => {
+    framer.push(publication);
+  }).toThrow(failure);
+  expect(() => {
+    framer.push(Uint8Array.of(0xd0, 0));
+  }).toThrow(failure);
+});
+
+test.each([
+  ['shorter', -1],
+  ['longer', 1],
+])('an allocator that returns a %s region fails the framer instead of mis-framing', (_name, difference) => {
+  const received = vi.fn<(packet: unknown) => void>();
+  const framer = new PacketFramer({ allocate: (size) => new Uint8Array(size + difference), onPacket: received });
+  expect(() => {
+    framer.push(Uint8Array.of(...publication, 0xd0, 0));
+  }).toThrow('MQTT packet allocator returned the wrong size');
+  expect(received).not.toHaveBeenCalled();
+});
+
+test('the Node decoder reads options by name, including inherited ones', () => {
+  expect(() => {
+    Reflect.construct(NodePacketDecoder, [undefined]);
+  }).toThrow(TypeError);
+  const received = vi.fn<(packet: unknown) => void>();
+  const inherited: unknown = Object.create({ maxPacketBytes: 4, onPacket: received });
+  const decoder: unknown = Reflect.construct(NodePacketDecoder, [inherited]);
+  if (!(decoder instanceof NodePacketDecoder)) throw new Error('Expected a decoder');
+  expect(() => {
+    decoder.push(publication);
+  }).toThrow('MQTT packet allocation limit exceeded');
+});
+
+test('an allocator that stops the framer fails the push with the stop reason instead of looping', () => {
+  const reason = new Error('stopped by allocator');
+  const received = vi.fn<(packet: unknown) => void>();
+  const framer: PacketFramer = new PacketFramer({
+    allocate(size) {
+      framer.stop(reason);
+      return new Uint8Array(size);
+    },
+    onPacket: received,
+  });
+  expect(() => {
+    framer.push(Uint8Array.of(...publication, 0xd0, 0));
+  }).toThrow(reason);
+  expect(received).not.toHaveBeenCalled();
+  expect(() => {
+    framer.finish();
+  }).toThrow(reason);
+});
+
+test('the Node decoder ignores an allocator a JavaScript caller passes', () => {
+  const allocate = vi.fn<(size: number) => Uint8Array<ArrayBuffer>>((size) => new Uint8Array(size));
+  const { payload } = decodeWith((onPacket) => {
+    const decoder: unknown = Reflect.construct(NodePacketDecoder, [{ allocate, onPacket }]);
+    if (!(decoder instanceof NodePacketDecoder)) throw new Error('Expected a decoder');
+    return decoder;
+  });
+  expect(allocate).not.toHaveBeenCalled();
+  expect(Buffer.isBuffer(payload)).toBe(true);
+});

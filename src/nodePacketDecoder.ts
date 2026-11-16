@@ -7,6 +7,7 @@ function nodeAllocation(size: number): Buffer<ArrayBuffer> {
 /** The framer on Node: each packet lives in one unpooled Buffer, so payloads and byte properties are Buffer views of it. */
 export class NodePacketDecoder extends PacketFramer {
   constructor(options: Omit<FramerOptions, 'allocate'>) {
-    super({ ...options, allocate: nodeAllocation });
+    // Read each option by name, as the decoder did before it had a base class.
+    super({ maxPacketBytes: options.maxPacketBytes, onPacket: options.onPacket, allocate: nodeAllocation });
   }
 }

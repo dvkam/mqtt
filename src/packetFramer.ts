@@ -36,7 +36,12 @@ function validateFixedHeader(header: number): void {
   if (isClientOnlyCommand(name)) throw brokerPacketDirectionError(name);
 }
 
-/** Allocate one packet region. Payloads and byte properties are views of it, so they share its type. */
+/**
+ * Allocate one packet region of exactly `size` bytes. The framer fills it and decodes it, and the payload and byte
+ * properties it delivers are views of it. Return fresh memory that the allocator never hands out again: a pooled or
+ * shared region would let a later packet overwrite a payload already delivered. If the allocator stops the framer, the
+ * framer discards the region and fails with the stop reason.
+ */
 export type PacketAllocator = (size: number) => Uint8Array<ArrayBuffer>;
 
 export type FramerOptions = Readonly<{
@@ -117,7 +122,11 @@ export class PacketFramer {
         }
         const size = 1 + this.lengthBytes.length + remainingLength;
         if (size > this.maxPacketBytes) throw new RangeError('MQTT packet allocation limit exceeded');
-        this.remainder = this.allocate(size - 1);
+        const region = this.allocate(size - 1);
+        // The allocator is caller code and can stop the framer.
+        this.assertOpen();
+        if (region.length !== size - 1) throw new RangeError('MQTT packet allocator returned the wrong size');
+        this.remainder = region;
         this.remainder.set(this.lengthBytes);
         this.offset = this.lengthBytes.length;
         this.flush();
