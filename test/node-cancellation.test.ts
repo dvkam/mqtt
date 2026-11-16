@@ -1,6 +1,7 @@
 import { getEventListeners } from 'node:events';
 import { expect, test } from 'vitest';
-import { createTcpClient, createWebSocketClient } from '../src/index.js';
+import { createTcpClient } from '../src/index.js';
+import { createWebSocketClient } from '../src/ws.js';
 import { startCancellationPeer } from './experiments/node-cancellation-peer.js';
 
 test.each(['tcp', 'websocket'] as const)(

@@ -1,4 +1,5 @@
-import { createTcpClient, createWebSocketClient } from '../../dist/index.js';
+import { createTcpClient } from '../../dist/index.js';
+import { createWebSocketClient, type WebSocketClientOptions } from '../../dist/ws.js';
 import type {
   ClientFactory,
   ClientSession,
@@ -7,7 +8,6 @@ import type {
   NodeQosOneMessage,
   TcpClientOptions,
   UserProperty,
-  WebSocketClientOptions,
 } from '../../dist/index.js';
 
 type RequireTrue<Value extends true> = Value;

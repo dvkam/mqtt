@@ -1,7 +1,7 @@
 import { expect, test, vi } from 'vitest';
 import { getEventListeners } from 'node:events';
 import WebSocket from 'ws';
-import { createWebSocketClient } from '../src/index.js';
+import { createWebSocketClient } from '../src/ws.js';
 import { NodePacketDecoder } from '../src/nodePacketDecoder.js';
 import { startWebSocketPacketPeer } from './experiments/websocket-packet-peer.js';
 

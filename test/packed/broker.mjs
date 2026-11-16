@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Agent } from 'node:https';
-import { createTcpClient, createWebSocketClient } from 'mqtt';
+import { createTcpClient } from 'mqtt';
+import { createWebSocketClient } from 'mqtt/ws';
 
 /** @typedef {{readonly topic: string, readonly qos: 0, readonly payload: {readonly toString: () => string}}} EchoPacket */
 /** @type {((packet: EchoPacket | undefined) => void) | undefined} */

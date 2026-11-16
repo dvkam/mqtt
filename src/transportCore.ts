@@ -105,7 +105,8 @@ async function connectOverBytes(transport: Readonly<ByteTransport>, options: Rea
       try {
         input.retire('error', error);
       } finally {
-        finish(input.reason);
+        // A broken transport is closed even when a graceful close already owns the input.
+        finish(input.reason ?? error);
       }
     },
   };

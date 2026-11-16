@@ -1,20 +1,12 @@
 import type { Agent } from 'node:http';
 import type { SecureContextOptions } from 'node:tls';
 import WebSocket from 'ws';
-import { encodePacket } from './codec.js';
-import { connectPortable, type PacketTransport, type PortableOptions } from './portable.js';
+import type { ByteInbound, ByteWriter, OpenContext } from './byteTransport.js';
+import type { NativeWriteLimits } from './nativeWriteBudget.js';
+import type { PortableOptions } from './portable.js';
 import type { ClientFactory } from './session.js';
-import { NodePacketInput } from './nodePacketInput.js';
+import { createByteClient } from './transportCore.js';
 import { resolveWebSocketMessageLimit } from './websocketLimits.js';
-import { resolveTimeout } from './timeout.js';
-import { resolveSubscriptionLimits } from './subscriptionExchanges.js';
-import { resolvePublicationLimits } from './publicationAdmission.js';
-import {
-  allowsNativeWrite,
-  recordNativeBudgetFailure,
-  resolveNativeWriteLimits,
-  type NativeWriteLimits,
-} from './nativeWriteBudget.js';
 
 export interface WebSocketClientOptions
   extends PortableOptions<Buffer>, NativeWriteLimits, Pick<SecureContextOptions, 'ca' | 'cert' | 'key'> {
@@ -28,32 +20,32 @@ export interface WebSocketClientOptions
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
 export function createWebSocketClient(options: Readonly<WebSocketClientOptions>): ClientFactory {
-  let connection: ReturnType<typeof connectPortable> | undefined;
-  return {
-    // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
-    connect() {
-      connection ??= openClient(options);
-      return connection;
+  return createByteClient(
+    {
+      name: 'WebSocket',
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The opener keeps the inbound object and the native abort signal by identity.
+      async open(inbound, context) {
+        return openSocket(options, inbound, context);
+      },
     },
-  };
+    options,
+  );
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
-async function openClient(options: Readonly<WebSocketClientOptions>) {
-  const { onDiagnostic, onSessionEnd, onQosOneMessage, signal, timeoutMs = 3000, agent, ca, cert, key, headers } = options;
-  const isAborted = (): boolean => signal?.aborted === true;
-  const abortReason = () => {
-    const reason: unknown = signal?.reason;
-    return reason instanceof Error ? reason : Object.assign(new Error('MQTT WebSocket aborted'), { name: 'AbortError' });
-  };
-  if (isAborted()) throw abortReason();
-  const writeLimits = resolveNativeWriteLimits(options);
-  resolveTimeout(timeoutMs);
-  const publicationLimits = resolvePublicationLimits(options);
-  const subscriptionLimits = resolveSubscriptionLimits(options);
-  const maxWebSocketMessageBytes = resolveWebSocketMessageLimit(options.maxWebSocketMessageBytes);
-  const input = new NodePacketInput(options.maxPacketBytes);
+type Options = Readonly<WebSocketClientOptions>;
 
+/** Client frames are masked and compression is disabled, so a frame adds 6, 8 or 14 bytes. */
+function frameOverhead(length: number): number {
+  if (length < 126) return 6;
+  return length < 65_536 ? 8 : 14;
+}
+
+/** Open a `ws` WebSocket with the `mqtt` subprotocol and adapt it to the byte transport contract. */
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
+async function openSocket(options: Options, inbound: ByteInbound, context: OpenContext): Promise<ByteWriter> {
+  const { agent, ca, cert, key, headers } = options;
+  const { timeoutMs } = context;
+  const maxWebSocketMessageBytes = resolveWebSocketMessageLimit(options.maxWebSocketMessageBytes);
   const socket = new WebSocket(options.url, 'mqtt', {
     agent,
     ca,
@@ -68,65 +60,43 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
   const closed = new Promise<void>((resolve) => {
     socket.once('close', () => {
       try {
-        input.remoteEnd(new Error('MQTT WebSocket closed'));
+        inbound.end(new Error('MQTT WebSocket closed'));
       } finally {
-        signal?.removeEventListener('abort', abort);
         resolve();
       }
     });
   });
   socket.on('error', (error: Readonly<Error>) => {
-    terminate(error);
+    inbound.fail(error);
   });
-  const terminate = (error: Readonly<Error>) => {
-    input.retire('error', error);
-    signal?.removeEventListener('abort', abort);
-    socket.terminate();
-  };
-  const abort = () => {
-    input.retire('abort', input.reason ?? abortReason());
-    socket.terminate();
-  };
-  signal?.addEventListener('abort', abort, { once: true });
-  if (isAborted()) abort();
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
   socket.on('message', (data, binary) => {
     if (!binary || !Buffer.isBuffer(data)) {
-      terminate(new Error('MQTT WebSocket requires binary messages'));
+      inbound.fail(new Error('MQTT WebSocket requires binary messages'));
       return;
     }
-    const reason = input.push(data);
-    if (reason) terminate(reason);
+    inbound.bytes(data);
   });
 
-  const transport: PacketTransport<Buffer> = {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
-    async send(packet) {
-      if (socket.readyState !== WebSocket.OPEN) throw input.reason ?? new Error('MQTT WebSocket closed');
-      const bytes = encodePacket(packet, { sharedSubscriptions: true });
-      // Client frames are masked and compression is disabled.
-      const frameBytes = bytes.byteLength + (bytes.byteLength < 126 ? 6 : bytes.byteLength < 65_536 ? 8 : 14);
-      if (
-        !allowsNativeWrite(writeLimits, socket.bufferedAmount, frameBytes, packet.cmd === 'publish' ? 'publication' : 'control')
-      ) {
-        throw recordNativeBudgetFailure(packet, new Error('WebSocket write budget exceeded'));
-      }
-      await new Promise<void>((resolve, reject) => {
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
-        socket.send(bytes, (error) => {
+  const writer: ByteWriter = {
+    get bufferedBytes() {
+      return socket.bufferedAmount;
+    },
+    frameOverhead,
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The socket keeps the encoded bytes by identity.
+    async write(bytes) {
+      if (socket.readyState !== WebSocket.OPEN) throw new Error('MQTT WebSocket closed');
+      return new Promise((resolve, reject) => {
+        socket.send(bytes, (error?: Readonly<Error> | null) => {
           error ? reject(error) : resolve();
         });
       });
     },
-    listen(onPacket, onClose, onProtocolError) {
-      return input.listen(onPacket, onClose, onQosOneMessage !== undefined, onProtocolError);
-    },
     async close(force) {
-      input.detachCore();
-      if (force === true) signal?.removeEventListener('abort', abort);
       if (socket.readyState === WebSocket.CLOSED) return;
-      if (force === true) socket.terminate();
+      if (force) socket.terminate();
       else socket.close();
+      // A peer that does not answer the closing handshake is cut off after the operation timeout.
       const deadline = setTimeout(() => {
         socket.terminate();
       }, timeoutMs);
@@ -138,6 +108,10 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
     },
   };
 
+  const cancel = () => {
+    socket.terminate();
+  };
+  context.signal.addEventListener('abort', cancel, { once: true });
   try {
     await new Promise<void>((resolve, reject) => {
       const opened = () => {
@@ -146,29 +120,14 @@ async function openClient(options: Readonly<WebSocketClientOptions>) {
       };
       const failed = () => {
         socket.off('open', opened);
-        reject(input.reason ?? new Error('MQTT WebSocket closed before opening'));
+        reject(new Error('MQTT WebSocket closed before opening'));
       };
       socket.once('open', opened);
       socket.once('close', failed);
     });
-    if (socket.protocol !== 'mqtt') throw new Error('MQTT WebSocket subprotocol was not negotiated');
-    const client = await connectPortable(transport, {
-      clientId: options.clientId,
-      username: options.username,
-      password: options.password,
-      onMessage: options.onMessage,
-      onDiagnostic,
-      onSessionEnd,
-      ...publicationLimits,
-      ...subscriptionLimits,
-      timeoutMs,
-      onQosOneMessage,
-    });
-    if (isAborted()) throw abortReason();
-    return client;
-  } catch (error) {
-    await transport.close(true);
-    if (isAborted()) throw abortReason();
-    throw error;
+  } finally {
+    context.signal.removeEventListener('abort', cancel);
   }
+  // ws refuses a handshake response without the requested subprotocol, so an open socket speaks mqtt.
+  return writer;
 }

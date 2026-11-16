@@ -62,6 +62,10 @@
     "./websocket": {
       "types": "./dist/websocket.d.ts",
       "import": "./dist/websocket.js"
+    },
+    "./ws": {
+      "types": "./dist/ws.d.ts",
+      "import": "./dist/ws.js"
     }
   },
   "scripts": {
@@ -72,9 +76,6 @@
     "lint:policy": "node lint/typePolicy.ts",
     "format": "oxfmt -c oxfmt.config.mjs src test sample lint verification vitest.config.ts oxlint.config.mjs oxfmt.config.mjs",
     "format:check": "oxfmt -c oxfmt.config.mjs --check src test sample lint verification vitest.config.ts oxlint.config.mjs oxfmt.config.mjs"
-  },
-  "dependencies": {
-    "ws": "8.22.1"
   },
   "devDependencies": {
     "@types/node": "26.6.6",
@@ -87,7 +88,16 @@
     "typescript": "7.1.0-beta",
     "typescript-stable": "npm:typescript@7.0.2",
     "vite": "8.3.6",
-    "vitest": "5.1.0"
+    "vitest": "5.1.0",
+    "ws": "8.22.1"
   },
-  "packageManager": "pnpm@12.16.1"
+  "packageManager": "pnpm@12.16.1",
+  "peerDependencies": {
+    "ws": "^8.22.1"
+  },
+  "peerDependenciesMeta": {
+    "ws": {
+      "optional": true
+    }
+  }
 }

@@ -45,7 +45,7 @@ For authenticated TCP, pass a `tls` object with optional CA and client identity 
 
 TCP now defaults to a 1 MiB incoming packet limit. The [packet-input guide](docs/tcp-packet-input.md) defines configuration, compact Buffer ownership, EOF and failure behavior. Larger incoming packets need an explicit limit.
 
-For Node WS/WSS, use `createWebSocketClient` from `mqtt` with a broker URL. This adapter uses `ws` and accepts CA, client certificate and caller-supplied agent options. See the [transport comparison](docs/websocket-comparison.md) for TLS, proxy, backpressure and close behavior, including limitations of the experimental native Node WebSocket probe.
+For Node WS/WSS, use `createWebSocketClient` from `mqtt/ws` with a broker URL. It needs the `ws` package, an optional peer dependency that you install yourself (`pnpm add ws`). Without `ws`, importing `mqtt/ws` fails with a module-not-found error, and every other entry works. The client accepts CA, client certificate and caller-supplied agent options. See the [transport comparison](docs/websocket-comparison.md) for TLS, proxy, backpressure and close behavior, including limitations of the experimental native Node WebSocket probe.
 
 Node WS/WSS also defaults to a 1 MiB incoming MQTT packet limit. Set `maxPacketBytes` independently of the WebSocket-message limit. The [packet-input guide](docs/websocket-packet-input.md) covers fragmented input, compact Buffer ownership and failure outcomes.
 
@@ -106,13 +106,14 @@ The [native write reserve](docs/native-write-reserve.md) checks observed queued 
 
 | Import           | Purpose                                                           |
 | ---------------- | ----------------------------------------------------------------- |
-| `mqtt`           | Node TCP and WS/WSS client factories                              |
+| `mqtt`           | Node TCP client factory                                           |
+| `mqtt/ws`        | Node WS/WSS client factory, which needs the optional peer `ws`    |
 | `mqtt/browser`   | Browser MQTT client and native browser byte transport             |
 | `mqtt/codec`     | Portable `Uint8Array` encoder and incremental decoder             |
 | `mqtt/portable`  | Packet-transport session tracer for adapter work                  |
 | `mqtt/websocket` | Experimental native WebSocket transport probe                     |
 
-The browser client, the Node adapters and the shared session all use the in-repository portable codec and its packet types. The package has one runtime dependency, `ws`, for the Node WebSocket client. `mqtt-packet` is a development dependency that the tests use as an independent reference. The remaining protocol profile is tracked in [#8](https://github.com/dvkam/mqtt/issues/8) and [#37](https://github.com/dvkam/mqtt/issues/37).
+The browser client, the Node adapters and the shared session all use the in-repository portable codec and its packet types. The package has no runtime dependency. The Node WebSocket client in `mqtt/ws` needs `ws` as an optional peer dependency. `mqtt-packet` is a development dependency that the tests use as an independent reference. The remaining protocol profile is tracked in [#8](https://github.com/dvkam/mqtt/issues/8) and [#37](https://github.com/dvkam/mqtt/issues/37).
 
 The [public type guide](docs/public-types.md) lists named options, factories, sessions and platform message types.
 

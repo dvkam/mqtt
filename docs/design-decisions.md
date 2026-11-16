@@ -55,6 +55,8 @@ Consequences, added by the author of this file:
 
 What follows: step 3 adds the entry and a packed check that a TCP-only consumer never loads `ws`. Changes to `package.json` exports also fall under [#5](https://github.com/dvkam/mqtt/issues/5).
 
+Update, 16 November 2026: step 3 added `mqtt/ws` and made `ws` an optional peer dependency with the range `^8.22.1`, the tested version. The package has no runtime dependency left. A packed check installs the tarball without `ws` and confirms that every other entry loads and that `mqtt/ws` fails with the module-not-found error naming `ws`. No clearer message was added.
+
 ## One byte-level transport replaces the packet-level seams
 
 Decided on 16 November 2026 (UTC), for [#171](https://github.com/dvkam/mqtt/issues/171). Status: step 5 of the #171 plan, not merged when this entry was written.

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createWebSocketClient } from 'mqtt';
+import { createWebSocketClient } from 'mqtt/ws';
 import { startWebSocketPacketPeer } from '../experiments/websocket-packet-peer.ts';
 
 for (const mode of ['limit-connect', 'prefix-connect', 'tiny-messages', 'fragmented-limit', 'prefix-subscribe', 'eof-body']) {

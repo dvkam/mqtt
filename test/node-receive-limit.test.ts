@@ -1,6 +1,6 @@
 import WebSocket from 'ws';
 import { expect, test, vi } from 'vitest';
-import { createWebSocketClient } from '../src/index.js';
+import { createWebSocketClient } from '../src/ws.js';
 import { startReceivePeer } from './experiments/receive-peer.js';
 
 test.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2_147_483_648, 4_294_967_296])(
