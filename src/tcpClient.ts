@@ -1,15 +1,19 @@
 import { createConnection, isIP } from 'node:net';
 import tls, { type ConnectionOptions } from 'node:tls';
 import type { ByteInbound, ByteWriter, OpenContext } from './byteTransport.js';
+import type { NativeWriteLimits } from './nativeWriteBudget.js';
+import type { PortableOptions } from './portable.js';
 import type { ClientFactory } from './session.js';
-import { createByteClient, type ByteClientOptions } from './transportCore.js';
+import { createByteClient } from './transportCore.js';
 
 export type TcpTlsOptions = Pick<ConnectionOptions, 'ca' | 'cert' | 'key' | 'servername'>;
 
-export interface TcpClientOptions extends ByteClientOptions {
+export interface TcpClientOptions extends PortableOptions<Buffer>, NativeWriteLimits {
   host: string;
   port?: number;
   tls?: TcpTlsOptions;
+  signal?: AbortSignal;
+  maxPacketBytes?: number;
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
@@ -17,8 +21,10 @@ export function createTcpClient(options: Readonly<TcpClientOptions>): ClientFact
   return createByteClient(
     {
       name: 'TCP',
-      // oxlint-disable-next-line typescript/promise-function-async, typescript/prefer-readonly-parameter-types -- The opener returns the socket promise without an async wrapper. It keeps the inbound object and the native abort signal by identity.
-      open: (inbound, context) => openTcpSocket(options, inbound, context),
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The opener keeps the inbound object and the native abort signal by identity.
+      async open(inbound, context) {
+        return openTcpSocket(options, inbound, context);
+      },
     },
     options,
   );
@@ -67,11 +73,10 @@ async function openTcpSocket(options: Readonly<TcpClientOptions>, inbound: ByteI
     get bufferedBytes() {
       return socket.writableLength;
     },
-    // oxlint-disable-next-line typescript/promise-function-async, typescript/prefer-readonly-parameter-types -- Wrap the native write callback without an async wrapper. The socket keeps the encoded bytes.
-    write(bytes) {
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The socket keeps the encoded bytes by identity.
+    async write(bytes) {
       return new Promise((resolve, reject) => {
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
-        socket.write(bytes, (error) => {
+        socket.write(bytes, (error?: Readonly<Error> | null) => {
           error ? reject(error) : resolve();
         });
       });

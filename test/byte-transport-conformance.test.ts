@@ -21,6 +21,8 @@ type Peer = {
   end(): void;
   /** Break the transport. */
   fail(error: Readonly<Error>): void;
+  /** Close the connection without an end or an error first. */
+  close(): void;
   /** The force flag of each close the core requested. */
   closes: boolean[];
 };
@@ -78,6 +80,9 @@ function memoryPeer(script: Script = broker) {
     fail(error) {
       inbound?.fail(error);
     },
+    close() {
+      inbound?.end();
+    },
     closes: [],
   };
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- mqtt-packet emits mutable packets.
@@ -102,7 +107,10 @@ function adaptDuplex(stream: Duplex, inbound: ByteInbound, closes: boolean[]): B
     inbound.fail(error);
   });
   const closed = new Promise<void>((resolve) => {
-    stream.once('close', resolve);
+    stream.once('close', () => {
+      inbound.end(new Error('Duplex closed'));
+      resolve();
+    });
   });
   return {
     get bufferedBytes() {
@@ -150,6 +158,9 @@ function duplexPeer(script: Script = broker) {
     },
     fail(error) {
       client.destroy(error);
+    },
+    close() {
+      client.destroy();
     },
     closes: [],
   };
@@ -225,6 +236,16 @@ describe.each([
     expect(peer.closes).toContain(true);
     expect(onSessionEnd).toHaveBeenCalledTimes(1);
     expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
+  });
+
+  test('ends the session when the connection closes without an end or an error', async () => {
+    const peer = makePeer();
+    const { ended, onSessionEnd } = sessionEnd();
+    const client = await createByteClient(peer.transport, { clientId: 'conformance', onSessionEnd }).connect();
+    peer.close();
+    const error = endError(await ended);
+    expect(error.message).toMatch(/closed$/u);
+    await expect(client.ping()).rejects.toBe(error);
   });
 
   test('ends the session with the transport failure', async () => {
@@ -354,6 +375,15 @@ describe('the core over a transport it closes', () => {
     }).connect();
     await expect(connecting).rejects.toBe(reason);
     expect(peer.closes).toContain(true);
+  });
+
+  test('writes nothing once the transport ended', async () => {
+    const { peer, writer } = memoryPeer();
+    const client = await createByteClient(peer.transport, { clientId: 'ended' }).connect();
+    const write = vi.spyOn(writer, 'write');
+    peer.end();
+    await expect(client.publish('t', 'x')).rejects.toThrow('Memory ended');
+    expect(write).not.toHaveBeenCalled();
   });
 
   test('rejects a publication with the error of a failed write', async () => {

@@ -118,18 +118,15 @@ async function connectOverBytes(transport: Readonly<ByteTransport>, options: Rea
     }
     const opened = writer;
     const packets: PacketTransport<Buffer> = {
-      // oxlint-disable-next-line typescript/promise-function-async, typescript/prefer-readonly-parameter-types -- The executor turns a throw from encoding or from the writer into a rejection, and the budget refusal rejects before any write; an async function would add a second await. The session hands over mutable packets.
-      send(packet) {
-        return new Promise((resolve, reject) => {
-          const bytes = encodePacket(packet, { sharedSubscriptions: true });
-          const wireBytes = bytes.length + (opened.frameOverhead?.(bytes.length) ?? 0);
-          const traffic = packet.cmd === 'publish' ? 'publication' : 'control';
-          if (!allowsNativeWrite(writeLimits, opened.bufferedBytes, wireBytes, traffic)) {
-            reject(recordNativeBudgetFailure(packet, new Error(name + ' write budget exceeded')));
-            return;
-          }
-          opened.write(bytes).then(resolve, reject);
-        });
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The session hands over mutable packets.
+      async send(packet) {
+        const bytes = encodePacket(packet, { sharedSubscriptions: true });
+        const wireBytes = bytes.length + (opened.frameOverhead?.(bytes.length) ?? 0);
+        const traffic = packet.cmd === 'publish' ? 'publication' : 'control';
+        if (!allowsNativeWrite(writeLimits, opened.bufferedBytes, wireBytes, traffic)) {
+          throw recordNativeBudgetFailure(packet, new Error(name + ' write budget exceeded'));
+        }
+        await opened.write(bytes);
       },
       listen(onPacket, onClose, onProtocolError) {
         return input.listen(onPacket, onClose, onQosOneMessage !== undefined, onProtocolError);

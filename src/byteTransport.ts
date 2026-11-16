@@ -21,7 +21,10 @@ export interface ByteInbound {
 }
 
 export interface OpenContext {
-  /** Aborted when the core gives up on this attempt. The opener then releases what it holds and rejects. */
+  /**
+   * Aborted when the core gives up on this attempt. The opener then releases what it holds and rejects. An opener that
+   * awaits before it listens must check `aborted` after each await, because an abort that already happened fires no event.
+   */
   readonly signal: AbortSignal;
   /** The opener's own deadline for establishing the connection. */
   readonly timeoutMs: number;
@@ -41,7 +44,8 @@ export interface ByteWriter {
   write(chunk: Uint8Array): Promise<void>;
   /**
    * Close gracefully when `force` is false. When it is true, release the connection promptly and settle every pending
-   * `write`. Allow repeated calls. Settle once closed. The core sets no close deadline of its own.
+   * `write`, and reject a `write` that follows. Allow repeated calls. Settle once closed. The core sets no close deadline of
+   * its own.
    */
   close(force: boolean): Promise<void>;
 }
