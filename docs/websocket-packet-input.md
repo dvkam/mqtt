@@ -1,9 +1,9 @@
 # Node WebSocket packet input
 
-`createWebSocketClient` uses the same private bounded decoder and input helper as TCP. It parses each frame with the portable codec and keeps mutable Buffer payloads. The browser client continues to use the portable codec; accepted packet profiles have not converged.
+`createWebSocketClient` from `mqtt/ws` runs on the same [byte transport core](byte-transport.md) as TCP, with the same private bounded decoder and input helper. It parses each frame with the portable codec and keeps mutable Buffer payloads. The browser client continues to use the portable codec; accepted packet profiles have not converged.
 
 ```ts
-import { createWebSocketClient } from 'mqtt';
+import { createWebSocketClient } from 'mqtt/ws';
 
 const factory = createWebSocketClient({
   url: 'wss://broker.example/mqtt',
@@ -29,7 +29,7 @@ These are local receive limits, not negotiated Maximum Packet Size, outgoing lim
 
 The [TCP guide](tcp-packet-input.md) defines the shared compact copying and terminal provenance. Each admitted packet has owned remainder storage. Delivered payloads remain mutable Buffer views into that compact storage. Transferring a payload's backing ArrayBuffer cannot detach the coalesced message that still contains protocol replies. The transfer regression uses in-process structuredClone, not a worker deployment test.
 
-The adapter records decoder errors, native errors, text rejection and abort before requesting termination. Pending operations and immediate later operations see the established cause. A native message-limit error keeps its native error code, including when earlier MQTT input was partial. Callback abort stops another coalesced body allocation. Core unlisten stops decoding while keeping its private cleanup Error hidden.
+The core records decoder errors, native errors, text rejection and abort before it closes the socket. The opener reports native errors and text messages to the core. Pending operations and immediate later operations see the established cause. A native message-limit error keeps its native error code, including when earlier MQTT input was partial. Callback abort stops another coalesced body allocation. Core unlisten stops decoding while keeping its private cleanup Error hidden.
 
 The exposed remote-completion event is WebSocket close. If input is still open, close completes MQTT decoding and reports truncation for a partial packet. An earlier error, abort or core-owned timeout/disconnect prevents reclassification. This does not inherit TCP's readable-end guarantee for blocked writes. No private ws receiver hook is used. Native-close cleanup releases the signal and settles the close promise in a finally block.
 
