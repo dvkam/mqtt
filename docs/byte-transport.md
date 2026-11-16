@@ -10,7 +10,11 @@ The supported TCP client runs on a byte-level transport contract and a shared tr
 - `context.signal` aborts when the core gives up on the attempt. The opener then releases its connection and rejects. `context.timeoutMs` is the opener's own deadline for establishing the connection.
 - `open` resolves with a write-only `ByteWriter`: `bufferedBytes`, an optional `frameOverhead(length)`, `write(chunk)` and `close(force)`. `write` hands the chunk to the native layer before it returns, so writes keep their order.
 
-The core needs the name before a writer exists, because an abort during the open reports `<name> connection aborted` when the signal's reason is not an Error. That is why `name` sits on the transport and not on the writer, unlike the first sketch in #171.
+The core builds three messages from the name: `<name> write budget exceeded`, `<name> connection aborted` when the abort reason is not an Error, and `<name> connection closed` when `end` gets no reason. It needs the name before a writer exists, because an abort can land during the open. That is why `name` sits on the transport and not on the writer, unlike the first sketch in #171. The `ws` and browser clients word these messages differently today, for example `MQTT WebSocket aborted`. Step 3 decides whether they keep their wording, which needs a way for the transport to supply it.
+
+Only an end, a failure or fatal input during the open is kept for the session. A valid packet that arrives before the session listens is dropped. A broker sends nothing before CONNECT, and the session writes CONNECT after it listens.
+
+`close(true)` must release the connection promptly and settle pending writes. The core sets no close deadline of its own. The TCP socket closes at once, but the `ws` and browser adapters escalate a slow close today, so step 3 decides whether that deadline moves into the core.
 
 ## What the core owns
 
@@ -26,6 +30,6 @@ The TCP opener in `src/tcpClient.ts` creates the socket, maps its `data`, `end`,
 
 ## Conformance suite
 
-`test/byte-transport-conformance.test.ts` runs the same cases over an in-memory transport and over a Node `Duplex` adapted in about 30 lines. The cases cover a publication split into single bytes, a graceful disconnect, a remote end, a transport failure, AUTH answered with DISCONNECT 0x82, the packet limit and an abort. Cases that need control of the writer run over the in-memory transport: the write budget, frame overhead, aborts and failures during the open, a writer that arrives after the transport ended, and the factory opening once.
+`test/byte-transport-conformance.test.ts` runs the same cases over an in-memory transport and over a Node `Duplex` adapted in about 30 lines. The shared cases cover a publication split into single bytes, a graceful disconnect, a remote end, a transport failure, AUTH answered with DISCONNECT 0x82, the packet limit and an abort. Cases that need control of the writer or the open run over the in-memory transport: the write budget, frame overhead, a refused connection, a forced close after a protocol error, a failed write, a close that throws, a graceful close followed by a remote end, aborts, failures and invalid input during the open, a writer that arrives after the transport ended, and the factory opening once.
 
 The core still uses the Node framer and delivers Buffer payloads. Generalizing the payload type is part of the browser step.
