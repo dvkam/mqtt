@@ -94,12 +94,10 @@ describe('changes from the ws client on main', () => {
   test('a write over the budget on a closing socket reports the budget refusal', async () => {
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer drives native ws sockets and requests.
     const server = await peer((socket, request) => {
+      // Send the close frame right behind CONNACK, then stop reading so the client stays in the closing handshake.
       socket.send(connack);
-      setTimeout(() => {
-        socket.close(1000);
-        // Stop reading so the client stays in the closing handshake.
-        request.socket.pause();
-      }, 20);
+      socket.close(1000);
+      request.socket.pause();
     });
     try {
       const client = await createWebSocketClient({
