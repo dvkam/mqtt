@@ -28,10 +28,12 @@ if (mode === undefined) {
   assert.ok(typeof globalThis.gc === 'function', 'Run with --expose-gc');
   const source = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryRoot, encoding: 'utf8' }).trim();
   const manifest: unknown = JSON.parse(readFileSync(packageUrl, 'utf8'));
-  assert.ok(typeof manifest === 'object' && manifest !== null && 'dependencies' in manifest);
-  const dependencies = manifest.dependencies;
-  assert.ok(typeof dependencies === 'object' && dependencies !== null && 'ws' in dependencies && 'mqtt-packet' in dependencies);
-  assert.ok(typeof dependencies.ws === 'string' && typeof dependencies['mqtt-packet'] === 'string');
+  assert.ok(typeof manifest === 'object' && manifest !== null && 'dependencies' in manifest && 'devDependencies' in manifest);
+  const { dependencies, devDependencies } = manifest;
+  assert.ok(typeof dependencies === 'object' && dependencies !== null && 'ws' in dependencies);
+  // The scripted peer encodes and parses with mqtt-packet, which is a development dependency.
+  assert.ok(typeof devDependencies === 'object' && devDependencies !== null && 'mqtt-packet' in devDependencies);
+  assert.ok(typeof dependencies.ws === 'string' && typeof devDependencies['mqtt-packet'] === 'string');
   const environment = {
     source,
     runtime: process.version,
@@ -41,7 +43,7 @@ if (mode === undefined) {
     cpu: cpus()[0]?.model,
     parallelism: availableParallelism(),
     ws: dependencies.ws,
-    mqttPacket: dependencies['mqtt-packet'],
+    mqttPacket: devDependencies['mqtt-packet'],
   };
   if (mode === 'gc-calibration') {
     const observation = observeProbe(0);
