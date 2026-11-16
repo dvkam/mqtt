@@ -2,7 +2,7 @@
 
 Use this fork's [issues](https://github.com/dvkam/mqtt/issues) to report bugs and discuss changes. State the runtime, transport, broker, package commit and reproduction steps. Remove credentials and private payloads from reports and traces.
 
-The preview profile is described in the [README](../README.md), [browser guide](../docs/browser-client.md) and [codec guide](../docs/codec.md). Link the owning issue before broadening a public contract. The retained legacy API does not define the target architecture.
+The preview profile is described in the [README](../README.md), [browser guide](../docs/browser-client.md) and [codec guide](../docs/codec.md). Link the owning issue before broadening a public contract.
 
 ## Setup and checks
 

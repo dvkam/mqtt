@@ -204,9 +204,6 @@ const models: readonly VerificationCase[] = [
   ['TcpTlsHandshake', 'TcpTlsHandshakeEarly', 'MqttRequiresAuthentication'],
   ['TcpTlsHandshake', 'TcpTlsHandshakeReplace', 'FirstFailureWins'],
   ['TcpTlsHandshake', 'TcpTlsHandshakeLeak', 'SettledFailureReleasesResources'],
-  ['LegacyTlsError', 'LegacyTlsError'],
-  ['LegacyTlsError', 'LegacyTlsErrorReemit', 'OneEmission'],
-  ['LegacyTlsError', 'LegacyTlsErrorNoDestroy', 'DestroyBeforeObservation'],
 ];
 
 for (const [model, configuration, expectedInvariant] of models) {

@@ -39,7 +39,7 @@ try {
 }
 ```
 
-The runnable [TypeScript sample](sample/sample.ts) also receives an echoed message and bounds its wait. See its [broker instructions](docs/legacy-fixture-migration.md#run-the-example).
+The runnable [TypeScript sample](sample/sample.ts) also receives an echoed message and bounds its wait. See its [broker instructions](docs/running-the-sample.md).
 
 For authenticated TCP, pass a `tls` object with optional CA and client identity settings. The [TCP TLS guide](docs/tcp-tls.md) covers handshake ownership, certificate checks and mutual TLS.
 
@@ -100,19 +100,19 @@ The [native write reserve](docs/native-write-reserve.md) checks observed queued 
 - Publishing rejects empty topic names, wildcards, null characters, unpaired surrogates and names exceeding 65,535 UTF-8 bytes before sending. Rejection leaves an active session usable. Topic aliases are not supported by this publishing API.
 - The browser transport has a write budget and the browser codec has a separate packet allocation limit. These are not a bound on every retained application object or an offline message queue.
 - QoS 2, reconnect, durable sessions, automatic keepalive scheduling, full authentication and the complete MQTT 5 property set remain planned work. The [codec profile](docs/codec.md) lists accepted packets and properties.
-- The legacy `connect()` export remains for baseline comparisons. Its [retained option types](docs/legacy-options.md) do not imply implementation of all historical MQTT.js features.
+- The package has no `connect()` export. Create a client with `createTcpClient`, `createWebSocketClient` or `createBrowserClient`. The MQTT.js-style client that earlier previews kept for baseline comparisons was removed in #170.
 
 ## Entry points
 
 | Import           | Purpose                                                           |
 | ---------------- | ----------------------------------------------------------------- |
-| `mqtt`           | Node TCP and WS/WSS client factories; retained legacy `connect()` |
+| `mqtt`           | Node TCP and WS/WSS client factories                              |
 | `mqtt/browser`   | Browser MQTT client and native browser byte transport             |
 | `mqtt/codec`     | Portable `Uint8Array` encoder and incremental decoder             |
 | `mqtt/portable`  | Packet-transport session tracer for adapter work                  |
 | `mqtt/websocket` | Experimental native WebSocket transport probe                     |
 
-The browser client, the Node adapters and the shared session all use the in-repository portable codec and its packet types. `mqtt-packet` serves only the legacy `connect()` path. Their convergence and the remaining protocol profile are tracked in [#8](https://github.com/dvkam/mqtt/issues/8) and [#37](https://github.com/dvkam/mqtt/issues/37).
+The browser client, the Node adapters and the shared session all use the in-repository portable codec and its packet types. The package has one runtime dependency, `ws`, for the Node WebSocket client. `mqtt-packet` is a development dependency that the tests use as an independent reference. The remaining protocol profile is tracked in [#8](https://github.com/dvkam/mqtt/issues/8) and [#37](https://github.com/dvkam/mqtt/issues/37).
 
 The [public type guide](docs/public-types.md) lists named options, factories, sessions and platform message types.
 
