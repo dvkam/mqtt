@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { cpSync, mkdirSync } from 'node:fs';
+import { cpSync, mkdirSync, realpathSync, symlinkSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { resolve } from 'node:path';
@@ -55,6 +55,14 @@ const code = await bundleBrowser('browser.mjs');
 assert.doesNotMatch(code, /Application message queue capacity exceeded/);
 console.log(JSON.stringify({ browserBytes: Buffer.byteLength(code), gzipBytes: gzipSync(code).length }));
 cpSync(new URL('../experiments', import.meta.url), resolve(root, 'experiments'), { recursive: true });
+// The scripted peers parse with mqtt-packet, a development dependency the packed consumer does not install. Link it
+// below the copied peers only, so the installed package still cannot resolve it.
+mkdirSync(resolve(root, 'experiments/node_modules'), { recursive: true });
+symlinkSync(
+  realpathSync(fileURLToPath(new URL('../../node_modules/mqtt-packet', import.meta.url))),
+  resolve(root, 'experiments/node_modules/mqtt-packet'),
+  'junction',
+);
 mkdirSync(resolve(root, 'packed'), { recursive: true });
 cpSync(new URL('./stream-comparison.ts', import.meta.url), resolve(root, 'packed/stream-comparison.ts'));
 cpSync(new URL('./sustained-client.ts', import.meta.url), resolve(root, 'packed/sustained-client.ts'));
