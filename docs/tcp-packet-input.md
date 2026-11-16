@@ -32,14 +32,16 @@ A payload view can be transferred without detaching the chunk that still contain
 
 ```mermaid
 flowchart LR
-  Socket[Node TCP socket] --> Input[NodePacketInput]
+  Socket[Node TCP socket] --> Opener[TCP opener]
+  Opener -->|ByteInbound| Transport[Transport core]
+  Transport --> Input[NodePacketInput]
   Input --> Decoder[NodePacketDecoder]
   Decoder --> Native[portable codec]
   Native --> Core[Portable session]
   Core -->|unlisten| Input
 ```
 
-The private input helper owns decoding and terminal notification. It has no socket capability. The adapter interprets native events and performs teardown. One connection attempt installs one core registration; a new attempt needs a new factory.
+The private input helper owns decoding and terminal notification. It has no socket capability. The TCP opener turns native events into calls on the [byte transport](byte-transport.md) and returns a write-only writer. The transport core owns teardown: it force-closes the writer after a remote end, a native error, rejected input or an abort. One connection attempt installs one core registration; a new attempt needs a new factory.
 
 A decoder error, native error or abort records the real reason before notifying the core. Stopping during an application callback prevents further body allocation in a coalesced suffix. A failure recorded before core registration is replayed synchronously when listening begins. Cleanup returned after that notification remains valid and idempotent.
 
