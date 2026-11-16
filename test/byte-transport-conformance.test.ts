@@ -426,6 +426,14 @@ describe('the core over a transport it closes', () => {
     expect(endError(await ended).message).toBe('Memory ended');
   });
 
+  test('force-closes the transport when it fails after a graceful close started', async () => {
+    const { peer } = memoryPeer();
+    const client = await createByteClient(peer.transport, { clientId: 'graceful-failure' }).connect();
+    await client.disconnect();
+    peer.fail(new Error('broke while closing'));
+    expect(peer.closes).toEqual([false, true]);
+  });
+
   test('does not force-close after a graceful close when the peer then ends', async () => {
     const { peer } = memoryPeer();
     const controller = new AbortController();

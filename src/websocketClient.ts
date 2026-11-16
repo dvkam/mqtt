@@ -57,12 +57,10 @@ async function openSocket(options: Options, inbound: ByteInbound, context: OpenC
     maxPayload: maxWebSocketMessageBytes,
   });
   socket.binaryType = 'nodebuffer';
-  // Set when the open refuses the socket itself, so the close that follows does not replace the refusal.
-  let refused = false;
   const closed = new Promise<void>((resolve) => {
     socket.once('close', () => {
       try {
-        if (!refused) inbound.end(new Error('MQTT WebSocket closed'));
+        inbound.end(new Error('MQTT WebSocket closed'));
       } finally {
         resolve();
       }
@@ -130,11 +128,6 @@ async function openSocket(options: Options, inbound: ByteInbound, context: OpenC
   } finally {
     context.signal.removeEventListener('abort', cancel);
   }
-  if (socket.protocol !== 'mqtt') {
-    refused = true;
-    socket.terminate();
-    await closed;
-    throw new Error('MQTT WebSocket subprotocol was not negotiated');
-  }
+  // ws refuses a handshake response without the requested subprotocol, so an open socket speaks mqtt.
   return writer;
 }
