@@ -1,12 +1,7 @@
-import {
-  createTcpClient,
-  createWebSocketClient,
-  type ClientDiagnostic,
-  type DiagnosticObserver,
-  type NodeQosOneMessage,
-  type SessionEnd,
-} from 'mqtt';
-export type { ClientFactory, ClientSession, NodeMessage, PublishOptions, TcpClientOptions, WebSocketClientOptions } from 'mqtt';
+import { createTcpClient, type ClientDiagnostic, type DiagnosticObserver, type NodeQosOneMessage, type SessionEnd } from 'mqtt';
+import { createWebSocketClient } from 'mqtt/ws';
+export type { ClientFactory, ClientSession, NodeMessage, PublishOptions, TcpClientOptions } from 'mqtt';
+export type { WebSocketClientOptions } from 'mqtt/ws';
 export type { BrowserClientOptions, ClientFactory as BrowserFactory, ClientSession as BrowserClientSession } from 'mqtt/browser';
 import { connectPortable, type PacketTransport, type ProtocolInputCode, type ProtocolInputError } from 'mqtt/portable';
 
@@ -14,7 +9,7 @@ type RequireTrue<Value extends true> = Value;
 type RequireFalse<Value extends false> = Value;
 type IsAny<Value> = 0 extends 1 & Value ? true : false;
 type EndNotice = Parameters<NonNullable<import('mqtt').TcpClientOptions['onSessionEnd']>>[0];
-type WebSocketEndNotice = Parameters<NonNullable<import('mqtt').WebSocketClientOptions['onSessionEnd']>>[0];
+type WebSocketEndNotice = Parameters<NonNullable<import('mqtt/ws').WebSocketClientOptions['onSessionEnd']>>[0];
 export type TcpEndNoticeIsSpecific = RequireFalse<IsAny<EndNotice>>;
 export type WebSocketEndNoticeIsSpecific = RequireFalse<IsAny<WebSocketEndNotice>>;
 export type TcpEndNoticeUsesNamedType = RequireTrue<EndNotice extends SessionEnd ? true : false>;

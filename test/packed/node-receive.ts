@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createWebSocketClient } from 'mqtt';
+import { createWebSocketClient } from 'mqtt/ws';
 
 const endpoint = process.argv[2];
 assert.ok(endpoint !== undefined, 'Expected receive-test endpoint');

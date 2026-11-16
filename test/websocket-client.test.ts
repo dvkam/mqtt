@@ -3,7 +3,7 @@ import { Socket } from 'node:net';
 import { generate, parser, type Packet } from 'mqtt-packet';
 import { expect, test, vi } from 'vitest';
 import { WebSocket, WebSocketServer } from 'ws';
-import { createWebSocketClient } from '../src/index.js';
+import { createWebSocketClient } from '../src/ws.js';
 
 async function peer(earlyPublish = false, subscriptionReply?: readonly number[]) {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });

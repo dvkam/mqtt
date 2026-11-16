@@ -1,6 +1,7 @@
 import { expect, test, vi } from 'vitest';
 import { createBrowserClient } from '../src/browser.js';
-import { createTcpClient, createWebSocketClient } from '../src/index.js';
+import { createTcpClient } from '../src/index.js';
+import { createWebSocketClient } from '../src/ws.js';
 import { startTcpPacketPeer } from './experiments/tcp-packet-peer.js';
 import { startWebSocketPacketPeer } from './experiments/websocket-packet-peer.js';
 

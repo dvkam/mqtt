@@ -6,9 +6,7 @@
  */
 
 export { createTcpClient } from './tcpClient.js';
-export { createWebSocketClient } from './websocketClient.js';
 export type { TcpClientOptions, TcpTlsOptions } from './tcpClient.js';
-export type { WebSocketClientOptions } from './websocketClient.js';
 export type {
   ClientFactory,
   ClientSession,
