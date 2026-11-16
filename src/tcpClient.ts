@@ -1,57 +1,32 @@
 import { createConnection, isIP } from 'node:net';
 import tls, { type ConnectionOptions } from 'node:tls';
-import { encodePacket } from './codec.js';
-import { connectPortable, type PacketTransport, type PortableOptions } from './portable.js';
+import type { ByteInbound, ByteWriter, OpenContext } from './byteTransport.js';
 import type { ClientFactory } from './session.js';
-import { NodePacketInput } from './nodePacketInput.js';
-import { resolveSubscriptionLimits } from './subscriptionExchanges.js';
-import { resolveTimeout } from './timeout.js';
-import { resolvePublicationLimits } from './publicationAdmission.js';
-import {
-  allowsNativeWrite,
-  recordNativeBudgetFailure,
-  resolveNativeWriteLimits,
-  type NativeWriteLimits,
-} from './nativeWriteBudget.js';
+import { createByteClient, type ByteClientOptions } from './transportCore.js';
 
 export type TcpTlsOptions = Pick<ConnectionOptions, 'ca' | 'cert' | 'key' | 'servername'>;
 
-export interface TcpClientOptions extends PortableOptions<Buffer>, NativeWriteLimits {
+export interface TcpClientOptions extends ByteClientOptions {
   host: string;
   port?: number;
   tls?: TcpTlsOptions;
-  signal?: AbortSignal;
-  maxPacketBytes?: number;
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
 export function createTcpClient(options: Readonly<TcpClientOptions>): ClientFactory {
-  let connection: ReturnType<typeof connectPortable> | undefined;
-  return {
-    // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
-    connect() {
-      connection ??= openTcpClient(options);
-      return connection;
+  return createByteClient(
+    {
+      name: 'TCP',
+      // oxlint-disable-next-line typescript/promise-function-async, typescript/prefer-readonly-parameter-types -- The opener returns the socket promise without an async wrapper. It keeps the inbound object and the native abort signal by identity.
+      open: (inbound, context) => openTcpSocket(options, inbound, context),
     },
-  };
+    options,
+  );
 }
 
+/** Open a TCP or TLS socket and adapt it to the byte transport contract. */
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
-async function openTcpClient(options: Readonly<TcpClientOptions>) {
-  const { onDiagnostic, onSessionEnd, onQosOneMessage, signal } = options;
-  const isAborted = (): boolean => signal?.aborted === true;
-  const abortReason = () => {
-    const reason: unknown = signal?.reason;
-    return reason instanceof Error ? reason : Object.assign(new Error('TCP connection aborted'), { name: 'AbortError' });
-  };
-  if (isAborted()) throw abortReason();
-
-  const timeoutMs = resolveTimeout(options.timeoutMs);
-  const publicationLimits = resolvePublicationLimits(options);
-  const subscriptionLimits = resolveSubscriptionLimits(options);
-  const writeLimits = resolveNativeWriteLimits(options);
-
-  const input = new NodePacketInput(options.maxPacketBytes);
+async function openTcpSocket(options: Readonly<TcpClientOptions>, inbound: ByteInbound, context: OpenContext): Promise<ByteWriter> {
   const tlsOptions = options.tls;
   const connectionLabel = tlsOptions === undefined ? 'TCP' : 'TLS';
   const connectionEvent = tlsOptions === undefined ? 'connect' : 'secureConnect';
@@ -69,105 +44,71 @@ async function openTcpClient(options: Readonly<TcpClientOptions>) {
         });
   socket.setNoDelay(true);
   socket.on('error', (error: Readonly<Error>) => {
-    input.retire('error', error);
-    signal?.removeEventListener('abort', abort);
+    inbound.fail(error);
   });
   const closed = new Promise<void>((resolve) => {
     socket.once('close', () => {
       try {
-        input.remoteEnd(new Error(connectionLabel + ' socket closed'));
+        inbound.end(new Error(connectionLabel + ' socket closed'));
       } finally {
-        signal?.removeEventListener('abort', abort);
         resolve();
       }
     });
   });
   socket.once('end', () => {
-    signal?.removeEventListener('abort', abort);
-    const reason = input.remoteEnd(new Error(connectionLabel + ' socket closed'));
-    socket.destroy(reason);
+    inbound.end(new Error(connectionLabel + ' socket closed'));
   });
-  const abort = () => {
-    input.retire('abort', input.reason ?? abortReason());
-    socket.destroy(input.reason);
-  };
-  signal?.addEventListener('abort', abort, { once: true });
-  if (isAborted()) abort();
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
   socket.on('data', (chunk) => {
-    const reason = input.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
-    if (reason) {
-      signal?.removeEventListener('abort', abort);
-      socket.destroy(reason);
-    }
+    inbound.bytes(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
   });
 
-  const transport: PacketTransport<Buffer> = {
-    // oxlint-disable-next-line typescript/promise-function-async, typescript/prefer-readonly-parameter-types -- Forward the existing promise without adding an async wrapper. The TCP adapter uses native signals, sockets and shared packet buffers.
-    send(packet) {
+  const writer: ByteWriter = {
+    get bufferedBytes() {
+      return socket.writableLength;
+    },
+    // oxlint-disable-next-line typescript/promise-function-async, typescript/prefer-readonly-parameter-types -- Wrap the native write callback without an async wrapper. The socket keeps the encoded bytes.
+    write(bytes) {
       return new Promise((resolve, reject) => {
-        const bytes = encodePacket(packet, { sharedSubscriptions: true });
-        if (
-          !allowsNativeWrite(writeLimits, socket.writableLength, bytes.length, packet.cmd === 'publish' ? 'publication' : 'control')
-        ) {
-          reject(recordNativeBudgetFailure(packet, new Error('TCP write budget exceeded')));
-          return;
-        }
         // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
         socket.write(bytes, (error) => {
           error ? reject(error) : resolve();
         });
       });
     },
-    listen(onPacket, onClose, onProtocolError) {
-      return input.listen(onPacket, onClose, onQosOneMessage !== undefined, onProtocolError);
-    },
     async close(force) {
-      input.detachCore();
-      if (force === true) signal?.removeEventListener('abort', abort);
       if (!socket.destroyed) {
-        if (force === true) socket.destroy();
+        if (force) socket.destroy();
         else socket.destroySoon();
       }
       await closed;
     },
   };
 
+  const cancel = () => {
+    const reason: unknown = context.signal.reason;
+    socket.destroy(reason instanceof Error ? reason : undefined);
+  };
+  context.signal.addEventListener('abort', cancel, { once: true });
   const timer = setTimeout(() => {
     socket.destroy(new Error(connectionLabel + ' connection timed out'));
-  }, timeoutMs);
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const connected = () => {
-        socket.off('close', failed);
-        resolve();
-      };
-      const failed = () => {
-        socket.off(connectionEvent, connected);
-        reject(input.reason ?? new Error(connectionLabel + ' socket closed before connecting'));
-      };
-      socket.once(connectionEvent, connected);
-      socket.once('close', failed);
-    });
-    clearTimeout(timer);
-    const client = await connectPortable(transport, {
-      clientId: options.clientId,
-      username: options.username,
-      password: options.password,
-      onMessage: options.onMessage,
-      onDiagnostic,
-      onSessionEnd,
-      ...publicationLimits,
-      ...subscriptionLimits,
-      timeoutMs,
-      onQosOneMessage,
-    });
-    if (isAborted()) throw abortReason();
-    return client;
-  } catch (error) {
-    await transport.close(true);
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
+  }, context.timeoutMs);
+  return new Promise<ByteWriter>((resolve, reject) => {
+    const settle = () => {
+      clearTimeout(timer);
+      context.signal.removeEventListener('abort', cancel);
+    };
+    const connected = () => {
+      socket.off('close', failed);
+      settle();
+      resolve(writer);
+    };
+    const failed = () => {
+      socket.off(connectionEvent, connected);
+      settle();
+      reject(new Error(connectionLabel + ' socket closed before connecting'));
+    };
+    socket.once(connectionEvent, connected);
+    socket.once('close', failed);
+  });
 }
