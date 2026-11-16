@@ -17,7 +17,7 @@ Step 3 moved the `ws` client onto the core and kept the core's rules where they 
 - An abort whose reason is not an Error rejects with `WebSocket connection aborted`. It was `MQTT WebSocket aborted`.
 - The core validates the timeout, the publication and subscription limits, the write limits and then the packet limit. The opener validates the WebSocket message limit after them. The `ws` client used to validate the write limits first and the message limit before the packet limit. This matters only when two options are invalid at once.
 - When an attempt fails, the core reports the input's first failure or the session's error. The `ws` client used to report the abort reason instead whenever the caller had aborted. This differs only when the caller aborts after another failure was recorded.
-- The core applies the write budget before the writer checks the socket state. On a socket that is already closing, a write over the budget now reports the budget refusal instead of `MQTT WebSocket closed`.
+- The core encodes the packet and applies the write budget before the writer checks the socket state. On a socket that is already closing, a write over the budget now reports the budget refusal instead of `MQTT WebSocket closed`, and an encoding failure would report itself. No test reaches the encoding case through the session, which reports its recorded failure first.
 
 Only an end, a failure or fatal input during the open is kept for the session. A valid packet that arrives before the session listens is dropped. A broker sends nothing before CONNECT, and the session writes CONNECT after it listens.
 

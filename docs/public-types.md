@@ -138,7 +138,7 @@ This is a breaking change to the experimental `mqtt/portable` contract. Before, 
 
 ## Packed verification
 
-Build and pack the package. Install the tarball and the pinned Node types into a clean ESM consumer. Copy the Node fixture and its tsconfig from `test/packed`. The packed browser launcher copies the DOM-only fixture and uses the locked `typescript-stable` alias to check both projects. The normal build, Node packed step and browser launcher use the 7.1 beta compiler. The fixtures check contextual callbacks, mutable platform payloads, QoS discriminants and invalid publish options. The browser tsconfig uses an empty `types` list.
+Build and pack the package. Install the tarball and the pinned Node types into a clean ESM consumer. Run `test/packed/tcp-only-check.mjs` there before anything else, because it needs a consumer without `ws`. Then install `ws` at the version in `devDependencies`: the Node fixtures import `mqtt/ws`. Copy the Node fixture and its tsconfig from `test/packed`. The packed browser launcher copies the DOM-only fixture and uses the locked `typescript-stable` alias to check both projects. The normal build, Node packed step and browser launcher use the 7.1 beta compiler. The fixtures check contextual callbacks, mutable platform payloads, QoS discriminants and invalid publish options. The browser tsconfig uses an empty `types` list.
 
 Run Publint 0.3.25 and Are the Types Wrong 0.18.5 against the tarball. Use the latter's `esm-only` profile for the package's ESM and bundler resolution modes. The profile excludes Node 10 and CommonJS resolution modes.
 
