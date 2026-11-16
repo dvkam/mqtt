@@ -116,7 +116,7 @@ The browser client, the Node adapters and the shared session all use the in-repo
 
 The [public type guide](docs/public-types.md) lists named options, factories, sessions and platform message types.
 
-The [design decision record](docs/design-decisions.md) lists the choices that changed the public API or the package layout, the options weighed and the reason for each.
+The [design decision record](docs/design-decisions.md) records decisions about the public API and the package layout, with the options weighed and the reason given for each.
 
 ## Development and evidence
 
