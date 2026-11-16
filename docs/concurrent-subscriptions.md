@@ -19,7 +19,7 @@ try {
 }
 ```
 
-Import `createTcpClient` from `mqtt`. Use the same limits with `createWebSocketClient`, `createBrowserClient` or `connectPortable`. The browser entry is `mqtt/browser`.
+Import `createTcpClient` from `mqtt`. Use the same limits with `createWebSocketClient` from `mqtt/ws`, `createBrowserClient` from `mqtt/browser` or `connectPortable` from `mqtt/portable`.
 
 ## Limits
 
