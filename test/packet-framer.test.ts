@@ -145,6 +145,16 @@ test('the Node decoder reads options by name, including inherited ones', () => {
   }).toThrow('MQTT packet allocation limit exceeded');
 });
 
+// Counts reads and gives up after 1,000, so a framer that stops making progress fails the test instead of hanging it.
+class BoundedBytes extends Uint8Array {
+  reads = 0;
+  override subarray(begin?: number, end?: number): Uint8Array<ArrayBuffer> {
+    this.reads += 1;
+    if (this.reads > 1000) throw new Error('The framer stopped making progress');
+    return super.subarray(begin, end);
+  }
+}
+
 test('an allocator that stops the framer fails the push with the stop reason instead of looping', () => {
   const reason = new Error('stopped by allocator');
   const received = vi.fn<(packet: unknown) => void>();
@@ -155,9 +165,11 @@ test('an allocator that stops the framer fails the push with the stop reason ins
     },
     onPacket: received,
   });
+  const bytes = new BoundedBytes([...publication, 0xd0, 0]);
   expect(() => {
-    framer.push(Uint8Array.of(...publication, 0xd0, 0));
+    framer.push(bytes);
   }).toThrow(reason);
+  expect(bytes.reads).toBeLessThan(10);
   expect(received).not.toHaveBeenCalled();
   expect(() => {
     framer.finish();
