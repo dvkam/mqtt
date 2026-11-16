@@ -108,19 +108,21 @@ function adaptDuplex(stream: Duplex, inbound: ByteInbound, closes: boolean[]): B
   });
   const closed = new Promise<void>((resolve) => {
     stream.once('close', () => {
-      inbound.end(new Error('Duplex closed'));
-      resolve();
+      try {
+        inbound.end(new Error('Duplex closed'));
+      } finally {
+        resolve();
+      }
     });
   });
   return {
     get bufferedBytes() {
       return stream.writableLength;
     },
-    // oxlint-disable-next-line typescript/promise-function-async, typescript/prefer-readonly-parameter-types -- Wrap the native write callback. The stream keeps the encoded bytes.
-    write(chunk) {
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The stream keeps the encoded bytes by identity.
+    async write(chunk) {
       return new Promise((resolve, reject) => {
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The native callback passes a mutable error.
-        stream.write(chunk, (error) => {
+        stream.write(chunk, (error?: Readonly<Error> | null) => {
           error ? reject(error) : resolve();
         });
       });
@@ -250,11 +252,14 @@ describe.each([
 
   test('ends the session with the transport failure', async () => {
     const peer = makePeer();
+    const controller = new AbortController();
     const { ended, onSessionEnd } = sessionEnd();
-    await createByteClient(peer.transport, { clientId: 'conformance', onSessionEnd }).connect();
+    await createByteClient(peer.transport, { clientId: 'conformance', signal: controller.signal, onSessionEnd }).connect();
     const failure = new Error('transport broke');
     peer.fail(failure);
     expect(endError(await ended)).toBe(failure);
+    expect(peer.closes).toContain(true);
+    expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
   });
 
   test('answers AUTH with DISCONNECT 0x82 and closes the transport', async () => {
@@ -349,6 +354,17 @@ describe('the core over a transport it closes', () => {
     expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
   });
 
+  test('keeps the refusal as the outcome when the writer close rejects', async () => {
+    const { peer, writer } = memoryPeer(refusing);
+    // oxlint-disable-next-line typescript/require-await -- The close fails as an async function would, by rejecting.
+    writer.close = async () => {
+      throw new Error('close rejected');
+    };
+    await expect(createByteClient(peer.transport, { clientId: 'refused' }).connect()).rejects.toMatchObject({
+      message: 'MQTT acknowledgment refused',
+    });
+  });
+
   test('releases the abort listener when the session force-closes after a protocol error', async () => {
     const { peer } = memoryPeer();
     const controller = new AbortController();
@@ -428,8 +444,8 @@ describe('the core while it opens a transport', () => {
     const calls: OpenContext[] = [];
     const transport: ByteTransport = {
       name: 'Scripted',
-      // oxlint-disable-next-line typescript/promise-function-async, typescript/prefer-readonly-parameter-types -- Forward the scripted promise. The opener keeps the inbound object and the native abort signal by identity.
-      open(inbound, context) {
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The opener keeps the inbound object and the native abort signal by identity.
+      async open(inbound, context) {
         calls.push(context);
         return open(inbound, context);
       },
@@ -520,13 +536,14 @@ describe('the core while it opens a transport', () => {
   test('rejects with invalid input the transport delivered while it opened', async () => {
     const close = vi.fn<(force: boolean) => Promise<void>>(async () => {});
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- The opener keeps the inbound object by identity and settles at once.
-    const { transport } = scriptedTransport(async (inbound) => {
+    const { transport, calls } = scriptedTransport(async (inbound) => {
       inbound.bytes(Uint8Array.of(0x21));
       return { bufferedBytes: 0, write: async () => {}, close };
     });
     await expect(createByteClient(transport, { clientId: 'open' }).connect()).rejects.toThrow(
       'Invalid header flag bits, must be 0x0 for connack packet',
     );
+    expect(calls[0]?.signal.aborted).toBe(true);
     expect(close).toHaveBeenCalledWith(true);
   });
 

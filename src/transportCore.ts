@@ -154,7 +154,8 @@ async function connectOverBytes(transport: Readonly<ByteTransport>, options: Rea
       if (isAborted()) throw abortReason();
       return client;
     } catch (error) {
-      await packets.close(true);
+      // The session's error is the outcome; a failing close must not replace it.
+      await packets.close(true).catch(() => {});
       throw error;
     }
   } catch (error) {
