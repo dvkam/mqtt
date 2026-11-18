@@ -459,10 +459,10 @@ describe('the core over a transport it closes', () => {
     const controller = new AbortController();
     const client = await nodeClient(peer.transport, { clientId: 'graceful', signal: controller.signal }).connect();
     await client.disconnect();
-    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(1);
+    // The graceful close settled, so the caller's signal is released.
+    expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
     peer.end();
     expect(peer.closes).toEqual([false]);
-    expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
   });
 });
 

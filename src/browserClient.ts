@@ -43,9 +43,19 @@ export function createBrowserClient(options: BrowserClientOptions): ClientFactor
         return openBrowserSocket(options, inbound, context);
       },
     },
-    options,
+    // BrowserClientOptions has no password (#146), so never send one an untyped object carries. The view reads every
+    // other option from the caller's object only when the core needs it, as before.
+    withoutPassword(options),
     portablePlatform,
   );
+}
+
+/** The caller's options with `password` hidden, read lazily through the prototype. */
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The view keeps the caller's option object, its getters and native signals by identity.
+function withoutPassword(options: BrowserClientOptions): BrowserClientOptions & Readonly<{ password?: undefined }> {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Object.create returns any. The view inherits every option from the caller's object, so options stay read at connect time (test/outgoing-config.test.ts, test/native-write-config.test.ts), and it adds only an own undefined password.
+  return Object.create(options, { password: { value: undefined, enumerable: true } }) as BrowserClientOptions &
+    Readonly<{ password?: undefined }>;
 }
 
 /** Open a native WebSocket with the `mqtt` subprotocol and adapt it to the byte transport contract. */
@@ -80,18 +90,16 @@ async function openBrowserSocket(options: BrowserClientOptions, inbound: ByteInb
   };
   socket.addEventListener('message', message);
   socket.addEventListener('error', errored);
-  socket.addEventListener(
-    'close',
-    () => {
-      detach();
-      try {
-        inbound.end(new Error('MQTT WebSocket closed'));
-      } finally {
-        closeSeen();
-      }
-    },
-    { once: true },
-  );
+  const nativeClosed = () => {
+    socket.removeEventListener('close', nativeClosed);
+    detach();
+    try {
+      inbound.end(new Error('MQTT WebSocket closed'));
+    } finally {
+      closeSeen();
+    }
+  };
+  socket.addEventListener('close', nativeClosed);
 
   return {
     get bufferedBytes() {

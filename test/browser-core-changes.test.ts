@@ -1,7 +1,8 @@
 // What the browser client changed when it moved onto the byte transport core and took on the Node inbound rules. Each
 // case states the behavior on main before the move. AUTH (connack-agreement), QoS 1 without a handler (browser-client)
 // and the first-byte header check (browser-eof) are pinned where those files already cover them.
-import { afterEach, expect, test, vi } from 'vitest';
+import { getEventListeners } from 'node:events';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createBrowserClient } from '../src/browserClient.js';
 
 const connack = [0x20, 3, 0, 0, 0];
@@ -13,6 +14,7 @@ class ScriptedSocket extends EventTarget {
   static CLOSED = 3;
   static instance: ScriptedSocket;
   static stallClose = false;
+  static created = 0;
   protocol = 'mqtt';
   readyState = 1;
   binaryType = 'arraybuffer';
@@ -21,6 +23,7 @@ class ScriptedSocket extends EventTarget {
   constructor() {
     super();
     ScriptedSocket.instance = this;
+    ScriptedSocket.created++;
     queueMicrotask(() => {
       this.dispatchEvent(new Event('open'));
     });
@@ -50,6 +53,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
   ScriptedSocket.stallClose = false;
+  ScriptedSocket.created = 0;
 });
 
 const options = { url: 'ws://localhost', clientId: 'browser-changes' };
@@ -58,11 +62,14 @@ test('a close the peer does not finish resolves after the timeout instead of rej
   // Main rejected the disconnect with 'MQTT WebSocket close timed out'.
   vi.stubGlobal('WebSocket', ScriptedSocket);
   ScriptedSocket.stallClose = true;
-  const client = await createBrowserClient({ ...options, timeoutMs: 50 }).connect();
+  const controller = new AbortController();
+  const client = await createBrowserClient({ ...options, timeoutMs: 50, signal: controller.signal }).connect();
   vi.useFakeTimers();
   const closing = client.disconnect();
   await vi.advanceTimersByTimeAsync(50);
   await expect(closing).resolves.toBeUndefined();
+  // No close event came, but the close settled, so the caller's signal is released.
+  expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
 });
 
 test('a QoS 0 PUBLISH with DUP set is a protocol error answered with DISCONNECT 0x81', async () => {
@@ -137,4 +144,99 @@ test('the timeout is validated before the packet limit', async () => {
   await expect(createBrowserClient({ ...options, timeoutMs: 0, maxPacketBytes: 1 }).connect()).rejects.toThrow(
     'MQTT timeout must be a positive integer and fit in a timer',
   );
+});
+
+// Behavior of the browser opener that test/browser-transport.test.ts pinned on main and that the move kept.
+describe('behavior the browser client keeps on the core', () => {
+  test.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2_147_483_648])(
+    'rejects the message limit %s before any socket opens',
+    async (limit) => {
+      vi.stubGlobal('WebSocket', ScriptedSocket);
+      await expect(createBrowserClient({ ...options, maxWebSocketMessageBytes: limit }).connect()).rejects.toThrow(
+        'WebSocket receive message limit must be an integer from 1 to 2147483647',
+      );
+      expect(ScriptedSocket.created).toBe(0);
+    },
+  );
+
+  test('accepts the smallest message limit and enforces it on the five-byte CONNACK', async () => {
+    vi.stubGlobal('WebSocket', ScriptedSocket);
+    await expect(createBrowserClient({ ...options, maxWebSocketMessageBytes: 1 }).connect()).rejects.toThrow(
+      'WebSocket receive message limit exceeded',
+    );
+    expect(ScriptedSocket.created).toBe(1);
+  });
+
+  test('accepts the largest message limit', async () => {
+    vi.stubGlobal('WebSocket', ScriptedSocket);
+    const client = await createBrowserClient({ ...options, maxWebSocketMessageBytes: 2_147_483_647 }).connect();
+    expect(ScriptedSocket.created).toBe(1);
+    await client.disconnect();
+  });
+
+  test('a text message fails the session', async () => {
+    vi.stubGlobal('WebSocket', ScriptedSocket);
+    const client = await createBrowserClient(options).connect();
+    const pending = client.ping();
+    ScriptedSocket.instance.dispatchEvent(new MessageEvent('message', { data: 'text' }));
+    await expect(pending).rejects.toThrow('MQTT WebSocket requires binary messages');
+  });
+
+  test('a native error event fails the session and closes the socket', async () => {
+    vi.stubGlobal('WebSocket', ScriptedSocket);
+    const client = await createBrowserClient(options).connect();
+    const pending = client.ping();
+    ScriptedSocket.instance.dispatchEvent(new Event('error'));
+    await expect(pending).rejects.toThrow('MQTT WebSocket failed');
+    expect(ScriptedSocket.instance.readyState).not.toBe(ScriptedSocket.OPEN);
+  });
+
+  test('a write on a closing socket rejects instead of being dropped', async () => {
+    vi.stubGlobal('WebSocket', ScriptedSocket);
+    const client = await createBrowserClient(options).connect();
+    const sent = ScriptedSocket.instance.sent.length;
+    ScriptedSocket.instance.readyState = ScriptedSocket.CLOSING;
+    await expect(client.publish('a', 'late')).rejects.toThrow('MQTT WebSocket closed');
+    expect(ScriptedSocket.instance.sent).toHaveLength(sent);
+  });
+
+  test('an empty binary message is admitted', async () => {
+    vi.stubGlobal('WebSocket', ScriptedSocket);
+    const client = await createBrowserClient(options).connect();
+    ScriptedSocket.instance.receive([]);
+    const ping = client.ping();
+    ScriptedSocket.instance.receive([0xd0, 0]);
+    await expect(ping).resolves.toBeUndefined();
+    await client.disconnect();
+  });
+
+  test.each([Number.NaN, -1, Number.POSITIVE_INFINITY, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    'an invalid native bufferedAmount %s refuses the write',
+    async (queued) => {
+      vi.stubGlobal('WebSocket', ScriptedSocket);
+      const client = await createBrowserClient(options).connect();
+      ScriptedSocket.instance.bufferedAmount = queued;
+      await expect(client.publish('a', 'x')).rejects.toThrow('WebSocket write budget exceeded');
+    },
+  );
+
+  test('never sends a password, which the browser options do not have', async () => {
+    vi.stubGlobal('WebSocket', ScriptedSocket);
+    // An object that carries a password still type-checks, because only fresh literals get excess property checks.
+    const carrier = { ...options, username: 'u', password: Uint8Array.of(1, 2) };
+    const client = await createBrowserClient(carrier).connect();
+    const flags = ScriptedSocket.instance.sent[0]?.[9] ?? 0;
+    // CONNECT flags: 0x80 is the username, 0x40 the password.
+    expect({ username: (flags & 0x80) !== 0, password: (flags & 0x40) !== 0 }).toEqual({ username: true, password: false });
+    await client.disconnect();
+  });
+
+  test('a normal close leaves no close deadline timer behind', async () => {
+    vi.stubGlobal('WebSocket', ScriptedSocket);
+    const controller = new AbortController();
+    const client = await createBrowserClient({ ...options, signal: controller.signal }).connect();
+    vi.useFakeTimers();
+    await client.disconnect();
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
