@@ -31,7 +31,7 @@ The browser client applies the same reserve through the shared transport core, w
 
 ## Controlled validation observations
 
-Source pin is 47432a7. The local run used Node 26.13.0 and ws 8.22.1 in Ubuntu 24.04 under WSL. From that checkout, reproduce the real corked checks with `pnpm exec vitest run test/tcp-client.test.ts test/websocket-client.test.ts -t 'reserves native|reserves framed'`. The supported browser and controlled-counter checks are in test/browser-client.test.ts, and test/websocket-client.test.ts.
+Source pin is 47432a7. The local run used Node 26.13.0 and ws 8.22.1 in Ubuntu 24.04 under WSL. From that checkout, reproduce the real corked checks with `pnpm exec vitest run test/tcp-client.test.ts test/websocket-client.test.ts -t 'reserves native|reserves framed'`. The supported browser and controlled-counter checks are in test/browser-client.test.ts, test/browser-core-changes.test.ts and test/websocket-client.test.ts.
 
 The TCP test corks a real client socket with a total of 32 bytes and an eight-byte reserve. A 24-byte publication fills its allowance; an excess publication leaves writableLength at 24. PINGREQ adds two bytes to 26. The peer sees no new command before uncorking, then receives publication before ping.
 
