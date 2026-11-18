@@ -4,7 +4,7 @@ The supported TCP and `ws` clients run on a byte-level transport contract and a 
 
 ## Contract
 
-`src/byteTransport.ts` defines it. A transport has a `name` and an `open(inbound, context)` function.
+`src/byteTransport.ts` defines it. A transport has a `name`, an optional `supportsSharedSubscriptions` that defaults to true, and an `open(inbound, context)` function. When `supportsSharedSubscriptions` is false, the session refuses a `$share/` filter before it writes anything.
 
 - The core creates the read side, `ByteInbound`, before it calls `open`. The transport calls `bytes(chunk)` for received bytes, `end(reason)` when the peer finished or the connection closed, and `fail(error)` when the transport broke.
 - `context.signal` aborts when the core gives up on the attempt. The opener then releases its connection and rejects. An opener that awaits before it listens to the signal must check `signal.aborted` after each await, because an abort that already happened fires no event. `context.timeoutMs` is the opener's own deadline for establishing the connection.
@@ -21,14 +21,14 @@ Step 3 moved the `ws` client onto the core and kept the core's rules where they 
 
 Only an end, a failure or fatal input during the open is kept for the session. A valid packet that arrives before the session listens is dropped. A broker sends nothing before CONNECT, and the session writes CONNECT after it listens.
 
-`close(true)` must release the connection promptly and settle pending writes. The core sets no close deadline of its own. The TCP socket closes at once. The `ws` writer keeps its own deadline: a graceful close that the peer does not answer within the operation timeout becomes a forced one. Moving the deadline into the core would also give TCP a deadline it does not have, so that question moves to step 4, where the browser takes on the same escalation.
+`close(true)` must release the connection promptly and settle pending writes. The core sets no close deadline of its own. The TCP socket closes at once. The `ws` writer keeps its own deadline: a graceful close that the peer does not answer within the operation timeout becomes a forced one. Moving the deadline into the core would also give TCP a deadline it does not have. The owner decided on 18 November 2026 to keep the deadline in each writer: the browser writer gets its own, TCP stays without one, and the question comes back with the separate deadlines of the recommended order in #171.
 
 ## What the core owns
 
-`src/transportCore.ts` holds `createByteClient(transport, options)`. It returns the same cached `ClientFactory` the built-in factories return, and does the following for one connection attempt:
+`src/transportCore.ts` holds `createByteClient(transport, options, platform)`. It returns the same cached `ClientFactory` the built-in factories return, and does the following for one connection attempt:
 
 - It validates the options before it opens anything.
-- It frames and checks inbound packets through the Node framer and its inbound rules.
+- It frames and checks inbound packets with the framer the platform supplies, and applies the inbound rules.
 - It applies the write budget: `bufferedBytes` plus `frameOverhead` must fit before a write. A refusal rejects with `<name> write budget exceeded`, and a refused QoS 1 publication leaves the session usable.
 - It handles the caller's abort signal and force-closes the writer after a remote end, a transport failure, rejected input or an abort. A transport failure force-closes the writer even after a graceful close started.
 - If the open rejects, it reports the first failure the transport delivered to `inbound`, and otherwise the rejection.
@@ -39,4 +39,13 @@ The TCP opener in `src/tcpClient.ts` creates the socket, maps its `data`, `end`,
 
 `test/byte-transport-conformance.test.ts` runs the same cases over an in-memory transport and over a Node `Duplex` adapted in about 30 lines. The shared cases cover a publication split into single bytes, a graceful disconnect, a remote end, a close without an end or an error, a transport failure, AUTH answered with DISCONNECT 0x82, the packet limit and an abort. Cases that need control of the writer or the open run over the in-memory transport: the write budget, frame overhead, a refused connection, a forced close after a protocol error, no write after the transport ended, a failed write, a close that throws, a graceful close followed by a remote end or by a transport failure, aborts, failures and invalid input during the open, a writer that arrives after the transport ended, and the factory opening once.
 
-The core still uses the Node framer and delivers Buffer payloads. Generalizing the payload type is part of the browser step.
+## Platforms
+
+`createByteClient(transport, options, platform)` takes a `BytePlatform` (`src/bytePlatform.ts`): a `framer` factory and a `bytes` view for payloads and byte properties. The core imports no platform, so it bundles for Node and for a browser.
+
+- `nodePlatform` (`src/nodePlatform.ts`) frames each packet into one unpooled Buffer and delivers Buffer payloads. The TCP and `ws` clients use it.
+- `portablePlatform` (`src/portablePlatform.ts`) frames into plain `Uint8Array`s and delivers them as they are. The browser client uses it from step 4.
+
+The generic input is `PacketInput` (`src/packetInput.ts`), and the inbound rules are `inboundPacketListener` (`src/inboundPackets.ts`). `NodePacketInput` and `nodePacketListener` are their Node versions.
+
+A conformance case bundles the core and `portablePlatform` with Vite for a browser and fails on any import outside the bundle, any dynamic import, and any `Buffer`, `node:` or browser-external stub in the output. That is the rule the packed browser check applies to the packed package. The shared conformance cases also run over the in-memory transport with `portablePlatform` and check that payloads are not Buffers.

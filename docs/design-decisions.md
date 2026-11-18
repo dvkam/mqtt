@@ -78,6 +78,8 @@ Consequences, added by the author of this file:
 
 What follows: the contract is in the [#171 plan comment](https://github.com/dvkam/mqtt/issues/171#issuecomment-6912613511), and its public documentation moves to [public-types.md](public-types.md) in step 5. The core calls an opener once per connection attempt, so a reconnect supervisor can call it again later. The core creates the read side before it calls the opener. The opener returns a write-only object. After the removal, `mqtt/websocket` exports only the `WebSocketOptions` type, and `mqtt/portable` keeps `ProtocolInputError` and the packet types. `mqtt/websocket` is the native WebSocket opener and is unrelated to the new `mqtt/ws` entry for the Node `ws` client.
 
+Update, 18 November 2026: the owner chose to remove `openBrowserTransport` and its types from `mqtt/browser` in step 4, when the browser client moves onto the core, instead of with the other seams in step 5. The recommended option was to keep it until step 5, so that each pull request has one kind of break. Step 5 still removes `PacketTransport`, `connectPortable` and `openMqttWebSocket`, and its migration table covers all removed seams.
+
 ## The legacy `connect()` client is deleted
 
 Decided on 15 November 2026 at 21:02 UTC, for [#164](https://github.com/dvkam/mqtt/issues/164) and [#159](https://github.com/dvkam/mqtt/issues/159). Status: done in [#170](https://github.com/dvkam/mqtt/pull/170). The #170 body and the closing comment on #164 date the decision 16 November. Why the dates differ is not recorded. #170 was opened at 21:08 UTC on 15 November, after the answer.

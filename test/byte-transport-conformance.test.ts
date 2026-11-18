@@ -1,13 +1,23 @@
+import { fileURLToPath } from 'node:url';
 import { getEventListeners } from 'node:events';
 import { duplexPair, type Duplex } from 'node:stream';
 import { setImmediate } from 'node:timers/promises';
 import { generate, parser, type Packet } from 'mqtt-packet';
+import { build, normalizePath } from 'vite';
 import { describe, expect, test, vi } from 'vitest';
 import type { ByteInbound, ByteTransport, ByteWriter, OpenContext } from '../src/byteTransport.js';
 import type { SessionEnd } from '../src/session.js';
+import type { BytePlatform } from '../src/bytePlatform.js';
+import { nodePlatform } from '../src/nodePlatform.js';
+import { portablePlatform } from '../src/portablePlatform.js';
 import { createByteClient, type ByteClientOptions } from '../src/transportCore.js';
 
 const codec = { protocolVersion: 5 } as const;
+
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The core keeps native signals and Buffer payloads by identity.
+function nodeClient(transport: ByteTransport, options: ByteClientOptions<Buffer>) {
+  return createByteClient(transport, options, nodePlatform);
+}
 
 /** The broker side of a transport under test. */
 type Peer = {
@@ -198,18 +208,26 @@ function endError(event: SessionEnd): Readonly<Error> {
   return event.error;
 }
 
-describe.each([
-  ['an in-memory transport', (script?: Script) => memoryPeer(script).peer],
-  ['a Node Duplex', (script?: Script) => duplexPeer(script).peer],
-])('the core over %s', (_name, makePeer) => {
+const platforms: ReadonlyArray<readonly [string, (script?: Script) => Peer, BytePlatform<Uint8Array>, boolean]> = [
+  ['an in-memory transport', (script) => memoryPeer(script).peer, nodePlatform, true],
+  ['a Node Duplex', (script) => duplexPeer(script).peer, nodePlatform, true],
+  ['an in-memory transport with plain Uint8Array payloads', (script) => memoryPeer(script).peer, portablePlatform, false],
+];
+
+describe.each(platforms)('the core over %s', (_name, makePeer, platform, buffers) => {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The core keeps native signals and payload views by identity.
+  const connectWith = (transport: ByteTransport, options: ByteClientOptions) => createByteClient(transport, options, platform);
+
   test('connects, receives a publication split into single bytes and disconnects gracefully', async () => {
     const peer = makePeer();
     const messages: string[] = [];
-    const client = await createByteClient(peer.transport, {
+    const payloadsAreBuffers: boolean[] = [];
+    const client = await connectWith(peer.transport, {
       clientId: 'conformance',
       // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Messages carry mutable Buffer payloads.
       onMessage(message) {
         messages.push(message.topic + '=' + Buffer.from(message.payload).toString());
+        payloadsAreBuffers.push(Buffer.isBuffer(message.payload));
       },
     }).connect();
     await client.subscribe('t');
@@ -217,6 +235,7 @@ describe.each([
     await vi.waitFor(() => {
       expect(messages).toEqual(['t=hi']);
     });
+    expect(payloadsAreBuffers).toEqual([buffers]);
     await client.disconnect();
     expect(peer.received).toEqual(['connect', 'subscribe', 'disconnect']);
     expect(peer.closes).toEqual([false]);
@@ -226,7 +245,7 @@ describe.each([
     const peer = makePeer();
     const controller = new AbortController();
     const { ended, onSessionEnd } = sessionEnd();
-    const client = await createByteClient(peer.transport, {
+    const client = await connectWith(peer.transport, {
       clientId: 'conformance',
       signal: controller.signal,
       onSessionEnd,
@@ -243,7 +262,7 @@ describe.each([
   test('ends the session when the connection closes without an end or an error', async () => {
     const peer = makePeer();
     const { ended, onSessionEnd } = sessionEnd();
-    const client = await createByteClient(peer.transport, { clientId: 'conformance', onSessionEnd }).connect();
+    const client = await connectWith(peer.transport, { clientId: 'conformance', onSessionEnd }).connect();
     peer.close();
     const error = endError(await ended);
     expect(error.message).toMatch(/closed$/u);
@@ -254,7 +273,7 @@ describe.each([
     const peer = makePeer();
     const controller = new AbortController();
     const { ended, onSessionEnd } = sessionEnd();
-    await createByteClient(peer.transport, { clientId: 'conformance', signal: controller.signal, onSessionEnd }).connect();
+    await connectWith(peer.transport, { clientId: 'conformance', signal: controller.signal, onSessionEnd }).connect();
     const failure = new Error('transport broke');
     peer.fail(failure);
     expect(endError(await ended)).toBe(failure);
@@ -265,7 +284,7 @@ describe.each([
   test('answers AUTH with DISCONNECT 0x82 and closes the transport', async () => {
     const peer = makePeer();
     const { ended, onSessionEnd } = sessionEnd();
-    await createByteClient(peer.transport, { clientId: 'conformance', onSessionEnd }).connect();
+    await connectWith(peer.transport, { clientId: 'conformance', onSessionEnd }).connect();
     peer.send({ cmd: 'auth', reasonCode: 0x18 });
     expect(endError(await ended).message).toBe('Unexpected MQTT AUTH');
     await vi.waitFor(() => {
@@ -277,7 +296,7 @@ describe.each([
   test('ends the session when a packet exceeds the packet limit', async () => {
     const peer = makePeer();
     const { ended, onSessionEnd } = sessionEnd();
-    await createByteClient(peer.transport, { clientId: 'conformance', maxPacketBytes: 16, onSessionEnd }).connect();
+    await connectWith(peer.transport, { clientId: 'conformance', maxPacketBytes: 16, onSessionEnd }).connect();
     peer.send({ cmd: 'publish', topic: 't', payload: 'x'.repeat(32), qos: 0, dup: false, retain: false });
     expect(endError(await ended).message).toBe('MQTT packet allocation limit exceeded');
     expect(peer.closes).toContain(true);
@@ -287,7 +306,7 @@ describe.each([
     const peer = makePeer();
     const controller = new AbortController();
     const { ended, onSessionEnd } = sessionEnd();
-    const client = await createByteClient(peer.transport, {
+    const client = await connectWith(peer.transport, {
       clientId: 'conformance',
       signal: controller.signal,
       onSessionEnd,
@@ -303,11 +322,11 @@ describe.each([
 });
 
 describe('the core over a transport that controls its write budget', () => {
-  const options: ByteClientOptions = { clientId: 'budget', maxBufferedBytes: 1000, reservedControlBytes: 200 };
+  const options: ByteClientOptions<Buffer> = { clientId: 'budget', maxBufferedBytes: 1000, reservedControlBytes: 200 };
 
   test('refuses a publication beyond the budget and keeps the session usable for control packets', async () => {
     const { peer, writer } = memoryPeer();
-    const client = await createByteClient(peer.transport, options).connect();
+    const client = await nodeClient(peer.transport, options).connect();
     writer.bufferedBytes = 800;
     await expect(client.publish('t', 'x')).rejects.toThrow('Memory write budget exceeded');
     await client.ping();
@@ -317,7 +336,7 @@ describe('the core over a transport that controls its write budget', () => {
   test('refuses a QoS 1 publication beyond the budget without ending the session', async () => {
     const { peer, writer } = memoryPeer();
     const { onSessionEnd } = sessionEnd();
-    const client = await createByteClient(peer.transport, { ...options, onSessionEnd }).connect();
+    const client = await nodeClient(peer.transport, { ...options, onSessionEnd }).connect();
     writer.bufferedBytes = 800;
     await expect(client.publish('t', 'x', { qos: 1 })).rejects.toThrow('Memory write budget exceeded');
     await client.ping();
@@ -326,7 +345,7 @@ describe('the core over a transport that controls its write budget', () => {
 
   test('counts the frame overhead the writer reports', async () => {
     const { peer, writer } = memoryPeer();
-    const client = await createByteClient(peer.transport, options).connect();
+    const client = await nodeClient(peer.transport, options).connect();
     writer.frameOverhead = () => 800;
     await expect(client.publish('t', 'x')).rejects.toThrow('Memory write budget exceeded');
     writer.frameOverhead = () => 0;
@@ -344,9 +363,7 @@ describe('the core over a transport it closes', () => {
   test('force-closes the transport and releases the abort listener when the broker refuses the connection', async () => {
     const { peer } = memoryPeer(refusing);
     const controller = new AbortController();
-    await expect(
-      createByteClient(peer.transport, { clientId: 'refused', signal: controller.signal }).connect(),
-    ).rejects.toMatchObject({
+    await expect(nodeClient(peer.transport, { clientId: 'refused', signal: controller.signal }).connect()).rejects.toMatchObject({
       message: 'MQTT acknowledgment refused',
       code: 0x87,
     });
@@ -360,7 +377,7 @@ describe('the core over a transport it closes', () => {
     writer.close = async () => {
       throw new Error('close rejected');
     };
-    await expect(createByteClient(peer.transport, { clientId: 'refused' }).connect()).rejects.toMatchObject({
+    await expect(nodeClient(peer.transport, { clientId: 'refused' }).connect()).rejects.toMatchObject({
       message: 'MQTT acknowledgment refused',
     });
   });
@@ -369,7 +386,7 @@ describe('the core over a transport it closes', () => {
     const { peer } = memoryPeer();
     const controller = new AbortController();
     const { ended, onSessionEnd } = sessionEnd();
-    await createByteClient(peer.transport, { clientId: 'auth', signal: controller.signal, onSessionEnd }).connect();
+    await nodeClient(peer.transport, { clientId: 'auth', signal: controller.signal, onSessionEnd }).connect();
     peer.send({ cmd: 'auth', reasonCode: 0x18 });
     await ended;
     await vi.waitFor(() => {
@@ -382,7 +399,7 @@ describe('the core over a transport it closes', () => {
     const { peer } = memoryPeer();
     const controller = new AbortController();
     const reason = new Error('aborted on CONNACK');
-    const connecting = createByteClient(peer.transport, {
+    const connecting = nodeClient(peer.transport, {
       clientId: 'late-abort',
       signal: controller.signal,
       onDiagnostic(event) {
@@ -395,7 +412,7 @@ describe('the core over a transport it closes', () => {
 
   test('writes nothing once the transport ended', async () => {
     const { peer, writer } = memoryPeer();
-    const client = await createByteClient(peer.transport, { clientId: 'ended' }).connect();
+    const client = await nodeClient(peer.transport, { clientId: 'ended' }).connect();
     const write = vi.spyOn(writer, 'write');
     peer.end();
     await expect(client.publish('t', 'x')).rejects.toThrow('Memory ended');
@@ -404,7 +421,7 @@ describe('the core over a transport it closes', () => {
 
   test('rejects a publication with the error of a failed write', async () => {
     const { peer, writer } = memoryPeer();
-    const client = await createByteClient(peer.transport, { clientId: 'write-failure' }).connect();
+    const client = await nodeClient(peer.transport, { clientId: 'write-failure' }).connect();
     const failure = new Error('write failed');
     // oxlint-disable-next-line typescript/require-await -- The writer fails as an async function would, by rejecting.
     writer.write = async () => {
@@ -416,7 +433,7 @@ describe('the core over a transport it closes', () => {
   test('keeps a synchronous throw from the writer close inside the core', async () => {
     const { peer, writer } = memoryPeer();
     const { ended, onSessionEnd } = sessionEnd();
-    await createByteClient(peer.transport, { clientId: 'close-throws', onSessionEnd }).connect();
+    await nodeClient(peer.transport, { clientId: 'close-throws', onSessionEnd }).connect();
     writer.close = () => {
       throw new Error('close threw');
     };
@@ -429,7 +446,7 @@ describe('the core over a transport it closes', () => {
   test('force-closes the transport when it fails after a graceful close, and keeps the disconnect', async () => {
     const { peer } = memoryPeer();
     const { ended, onSessionEnd } = sessionEnd();
-    const client = await createByteClient(peer.transport, { clientId: 'graceful-failure', onSessionEnd }).connect();
+    const client = await nodeClient(peer.transport, { clientId: 'graceful-failure', onSessionEnd }).connect();
     await client.disconnect();
     peer.fail(new Error('broke while closing'));
     expect(peer.closes).toEqual([false, true]);
@@ -440,12 +457,34 @@ describe('the core over a transport it closes', () => {
   test('does not force-close after a graceful close when the peer then ends', async () => {
     const { peer } = memoryPeer();
     const controller = new AbortController();
-    const client = await createByteClient(peer.transport, { clientId: 'graceful', signal: controller.signal }).connect();
+    const client = await nodeClient(peer.transport, { clientId: 'graceful', signal: controller.signal }).connect();
     await client.disconnect();
     expect(getEventListeners(controller.signal, 'abort')).toHaveLength(1);
     peer.end();
     expect(peer.closes).toEqual([false]);
     expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
+  });
+});
+
+describe('the core and shared subscriptions', () => {
+  test('refuses a $share/ filter and writes nothing when the transport does not support it', async () => {
+    const { peer } = memoryPeer();
+    const client = await createByteClient(
+      { ...peer.transport, supportsSharedSubscriptions: false },
+      { clientId: 'no-share' },
+      nodePlatform,
+    ).connect();
+    await expect(client.subscribe('$share/g/t')).rejects.toThrow('Unsupported shared subscription');
+    // The session refuses the filter itself, so the refusal does not end it.
+    await client.ping();
+    expect(peer.received).toEqual(['connect', 'pingreq']);
+  });
+
+  test('encodes and sends a $share/ filter by default', async () => {
+    const { peer } = memoryPeer();
+    const client = await nodeClient(peer.transport, { clientId: 'share' }).connect();
+    await client.subscribe('$share/g/t');
+    expect(peer.received).toEqual(['connect', 'subscribe']);
   });
 });
 
@@ -470,9 +509,7 @@ describe('the core while it opens a transport', () => {
       throw new Error('not reached');
     });
     const reason = new Error('aborted first');
-    await expect(createByteClient(transport, { clientId: 'open', signal: AbortSignal.abort(reason) }).connect()).rejects.toBe(
-      reason,
-    );
+    await expect(nodeClient(transport, { clientId: 'open', signal: AbortSignal.abort(reason) }).connect()).rejects.toBe(reason);
     expect(calls).toEqual([]);
   });
 
@@ -487,7 +524,7 @@ describe('the core while it opens a transport', () => {
         }),
     );
     const controller = new AbortController();
-    const connecting = createByteClient(transport, { clientId: 'open', signal: controller.signal }).connect();
+    const connecting = nodeClient(transport, { clientId: 'open', signal: controller.signal }).connect();
     await vi.waitFor(() => {
       expect(calls).toHaveLength(1);
     });
@@ -503,7 +540,7 @@ describe('the core while it opens a transport', () => {
     const { transport, calls } = scriptedTransport(async () => {
       throw new Error('refused');
     });
-    await expect(createByteClient(transport, { clientId: 'open', timeoutMs: 1234 }).connect()).rejects.toThrow('refused');
+    await expect(nodeClient(transport, { clientId: 'open', timeoutMs: 1234 }).connect()).rejects.toThrow('refused');
     expect(calls[0]?.timeoutMs).toBe(1234);
   });
 
@@ -513,7 +550,7 @@ describe('the core while it opens a transport', () => {
       throw new Error('refused');
     });
     const controller = new AbortController();
-    await expect(createByteClient(transport, { clientId: 'open', signal: controller.signal }).connect()).rejects.toThrow('refused');
+    await expect(nodeClient(transport, { clientId: 'open', signal: controller.signal }).connect()).rejects.toThrow('refused');
     expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
   });
 
@@ -526,7 +563,7 @@ describe('the core while it opens a transport', () => {
       throw new Error('socket closed before connecting');
     });
     const controller = new AbortController();
-    await expect(createByteClient(transport, { clientId: 'open', signal: controller.signal }).connect()).rejects.toBe(failure);
+    await expect(nodeClient(transport, { clientId: 'open', signal: controller.signal }).connect()).rejects.toBe(failure);
     expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
   });
 
@@ -539,7 +576,7 @@ describe('the core while it opens a transport', () => {
       inbound.end(new Error('ended while opening'));
       return { bufferedBytes: 0, write, close };
     });
-    await expect(createByteClient(transport, { clientId: 'open' }).connect()).rejects.toThrow('ended while opening');
+    await expect(nodeClient(transport, { clientId: 'open' }).connect()).rejects.toThrow('ended while opening');
     expect(close).toHaveBeenCalledWith(true);
     expect(write).not.toHaveBeenCalled();
   });
@@ -551,7 +588,7 @@ describe('the core while it opens a transport', () => {
       inbound.bytes(Uint8Array.of(0x21));
       return { bufferedBytes: 0, write: async () => {}, close };
     });
-    await expect(createByteClient(transport, { clientId: 'open' }).connect()).rejects.toThrow(
+    await expect(nodeClient(transport, { clientId: 'open' }).connect()).rejects.toThrow(
       'Invalid header flag bits, must be 0x0 for connack packet',
     );
     expect(calls[0]?.signal.aborted).toBe(true);
@@ -560,7 +597,7 @@ describe('the core while it opens a transport', () => {
 
   test('opens once however often the factory connects', async () => {
     const { peer } = memoryPeer();
-    const factory = createByteClient(peer.transport, { clientId: 'once' });
+    const factory = nodeClient(peer.transport, { clientId: 'once' });
     const first = factory.connect();
     expect(factory.connect()).toBe(first);
     await first;
@@ -569,9 +606,50 @@ describe('the core while it opens a transport', () => {
 
   test('rejects an invalid option before it opens the transport', async () => {
     const { peer } = memoryPeer();
-    await expect(createByteClient(peer.transport, { clientId: 'invalid', maxPacketBytes: 1 }).connect()).rejects.toThrow(
-      RangeError,
-    );
+    await expect(nodeClient(peer.transport, { clientId: 'invalid', maxPacketBytes: 1 }).connect()).rejects.toThrow(RangeError);
     expect(peer.opens()).toBe(0);
   });
+});
+
+// Bundle the core for a browser, as the packed browser check bundles the package, and scan what the bundler emits. This
+// covers every import form, Node builtins without the node: prefix, and code inside strings.
+test('a browser bundle of the transport core contains no Node API', async () => {
+  // Vite reports module ids with forward slashes on every platform, and drive letters may differ in case on Windows.
+  const sources = normalizePath(fileURLToPath(new URL('../src/', import.meta.url))).toLowerCase();
+  const outside = (id: string) => !id.startsWith('\0') && !normalizePath(id).toLowerCase().startsWith(sources);
+  const result = await build({
+    configFile: false,
+    logLevel: 'silent',
+    build: {
+      write: false,
+      lib: {
+        entry: {
+          core: fileURLToPath(new URL('../src/transportCore.ts', import.meta.url)),
+          platform: fileURLToPath(new URL('../src/portablePlatform.ts', import.meta.url)),
+        },
+        formats: ['es'],
+      },
+    },
+  });
+  const chunks = [];
+  for (const bundle of Array.isArray(result) ? result : [result]) {
+    if (!('output' in bundle)) throw new Error('Unexpected Vite watcher');
+    for (const output of bundle.output) if (output.type === 'chunk') chunks.push(output);
+  }
+  expect(chunks.length).toBeGreaterThan(0);
+  for (const chunk of chunks) {
+    expect({ chunk: chunk.fileName, external: chunk.imports.filter((name) => !name.endsWith('.js')) }).toEqual({
+      chunk: chunk.fileName,
+      external: [],
+    });
+    expect(chunk.dynamicImports).toEqual([]);
+    // Only the package's own sources: a consumer has no polyfill such as the events package to bundle.
+    expect(chunk.moduleIds.filter(outside)).toEqual([]);
+    expect(chunk.code).not.toMatch(/__vite-browser-external|\bBuffer\b|\bnode:|\bprocess\b|\bsetImmediate\b|\brequire\(/u);
+  }
+  let code = '';
+  for (const chunk of chunks) code += chunk.code;
+  // The bundle must hold the framer and the session, so a broken entry cannot pass by being empty.
+  expect(code).toContain('MQTT packet allocation limit exceeded');
+  expect(code).toContain('Duplicate MQTT CONNACK');
 });

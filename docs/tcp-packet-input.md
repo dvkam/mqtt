@@ -34,8 +34,8 @@ A payload view can be transferred without detaching the chunk that still contain
 flowchart LR
   Socket[Node TCP socket] --> Opener[TCP opener]
   Opener -->|ByteInbound| Transport[Transport core]
-  Transport --> Input[NodePacketInput]
-  Input --> Decoder[NodePacketDecoder]
+  Transport --> Input[PacketInput]
+  Input -->|nodePlatform| Decoder[NodePacketDecoder]
   Decoder --> Native[portable codec]
   Native --> Core[Portable session]
   Core -->|unlisten| Input

@@ -5,6 +5,7 @@ import type { ByteInbound, ByteWriter, OpenContext } from './byteTransport.js';
 import type { NativeWriteLimits } from './nativeWriteBudget.js';
 import type { PortableOptions } from './portable.js';
 import type { ClientFactory } from './session.js';
+import { nodePlatform } from './nodePlatform.js';
 import { createByteClient } from './transportCore.js';
 import { resolveWebSocketMessageLimit } from './websocketLimits.js';
 
@@ -29,6 +30,7 @@ export function createWebSocketClient(options: Readonly<WebSocketClientOptions>)
       },
     },
     options,
+    nodePlatform,
   );
 }
 

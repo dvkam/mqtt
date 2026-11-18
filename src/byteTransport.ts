@@ -56,6 +56,8 @@ export interface ByteTransport {
    * is not an Error, and `<name> connection closed` when `end` gets no reason. The core needs it before a writer exists.
    */
   readonly name: string;
+  /** Whether the client may subscribe to `$share/` filters over this transport. Defaults to true. */
+  readonly supportsSharedSubscriptions?: boolean;
   /**
    * Open one connection. Settle only once the connection is usable, or once it is released. When the open rejects, the
    * core reports the first failure the transport delivered to `inbound`, and otherwise the rejection.
