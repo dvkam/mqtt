@@ -3,7 +3,7 @@ import { getEventListeners } from 'node:events';
 import { duplexPair, type Duplex } from 'node:stream';
 import { setImmediate } from 'node:timers/promises';
 import { generate, parser, type Packet } from 'mqtt-packet';
-import { build } from 'vite';
+import { build, normalizePath } from 'vite';
 import { describe, expect, test, vi } from 'vitest';
 import type { ByteInbound, ByteTransport, ByteWriter, OpenContext } from '../src/byteTransport.js';
 import type { SessionEnd } from '../src/session.js';
@@ -614,7 +614,9 @@ describe('the core while it opens a transport', () => {
 // Bundle the core for a browser, as the packed browser check bundles the package, and scan what the bundler emits. This
 // covers every import form, Node builtins without the node: prefix, and code inside strings.
 test('a browser bundle of the transport core contains no Node API', async () => {
-  const sources = fileURLToPath(new URL('../src/', import.meta.url));
+  // Vite reports module ids with forward slashes on every platform, and drive letters may differ in case on Windows.
+  const sources = normalizePath(fileURLToPath(new URL('../src/', import.meta.url))).toLowerCase();
+  const outside = (id: string) => !id.startsWith('\0') && !normalizePath(id).toLowerCase().startsWith(sources);
   const result = await build({
     configFile: false,
     logLevel: 'silent',
@@ -642,8 +644,8 @@ test('a browser bundle of the transport core contains no Node API', async () => 
     });
     expect(chunk.dynamicImports).toEqual([]);
     // Only the package's own sources: a consumer has no polyfill such as the events package to bundle.
-    expect(chunk.moduleIds.filter((id) => !id.startsWith(sources))).toEqual([]);
-    expect(chunk.code).not.toMatch(/__vite-browser-external|\bBuffer\b|\bnode:/u);
+    expect(chunk.moduleIds.filter(outside)).toEqual([]);
+    expect(chunk.code).not.toMatch(/__vite-browser-external|\bBuffer\b|\bnode:|\bprocess\b|\bsetImmediate\b|\brequire\(/u);
   }
   let code = '';
   for (const chunk of chunks) code += chunk.code;
