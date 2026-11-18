@@ -38,7 +38,7 @@ The optional signal applies while opening and during the active connection. Canc
 
 The [inbound publication checks](inbound-publication-validation.md) cover empty names, wildcards and unnegotiated Topic Aliases.
 
-The supported TCP, Node WebSocket and browser clients reject decoded CONNECT, SUBSCRIBE, UNSUBSCRIBE and PINGREQ packets from the broker with protocol error `0x82`. They stop processing at that packet and attempt to send DISCONNECT after a successful CONNACK, while the client is still open. The standalone codec can decode packets from both directions. [MQTT 5 sections 2.1.2 and 4.13](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html)
+The supported TCP, Node WebSocket and browser clients reject CONNECT, SUBSCRIBE, UNSUBSCRIBE and PINGREQ packets from the broker on their first byte, with protocol error `0x82`. They stop processing at that packet and attempt to send DISCONNECT after a successful CONNACK, while the client is still open. The standalone codec can decode packets from both directions. [MQTT 5 sections 2.1.2 and 4.13](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html)
 
 An empty client ID requires a nonempty server assignment on successful CONNACK. The browser adapter forwards that identifier for the shared session's agreement check. Unsolicited authentication remains unsupported. [Connection agreement](connack-agreement.md) documents the rules, refusal handling and identity-consistency policy.
 

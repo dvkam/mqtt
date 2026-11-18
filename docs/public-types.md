@@ -67,6 +67,10 @@ On Node, `payload` and `correlationData` are views of the one allocation the dec
 
 The old map kept the order of values under one key but lost the order between keys. The pairs keep the order the broker sent, which MQTT 5 requires a forwarder to keep (MQTT-3.3.2-18).
 
+## Removed browser transport
+
+Step 4 of [#171](https://github.com/dvkam/mqtt/issues/171) removed `openBrowserTransport` and its types `BrowserTransport`, `BrowserTransportOptions`, `BrowserCloseKind` and `WriteTraffic` from `mqtt/browser`. Use `createBrowserClient` for an MQTT session. For raw bytes, open the socket with `openMqttWebSocket` from `mqtt/websocket` and encode and decode with `mqtt/codec`. Step 5 makes the byte transport public and adds a migration table for every removed seam.
+
 ## Custom transport contract
 
 `PacketTransport` speaks the packet model of `mqtt/codec`, so a custom transport can encode with `encodePacket` and decode with `PacketDecoder` without a translation layer.
