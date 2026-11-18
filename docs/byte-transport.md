@@ -4,7 +4,7 @@ The supported TCP and `ws` clients run on a byte-level transport contract and a 
 
 ## Contract
 
-`src/byteTransport.ts` defines it. A transport has a `name` and an `open(inbound, context)` function.
+`src/byteTransport.ts` defines it. A transport has a `name`, an optional `supportsSharedSubscriptions` that defaults to true, and an `open(inbound, context)` function. When `supportsSharedSubscriptions` is false, the session refuses a `$share/` filter before it writes anything.
 
 - The core creates the read side, `ByteInbound`, before it calls `open`. The transport calls `bytes(chunk)` for received bytes, `end(reason)` when the peer finished or the connection closed, and `fail(error)` when the transport broke.
 - `context.signal` aborts when the core gives up on the attempt. The opener then releases its connection and rejects. An opener that awaits before it listens to the signal must check `signal.aborted` after each await, because an abort that already happened fires no event. `context.timeoutMs` is the opener's own deadline for establishing the connection.
@@ -25,7 +25,7 @@ Only an end, a failure or fatal input during the open is kept for the session. A
 
 ## What the core owns
 
-`src/transportCore.ts` holds `createByteClient(transport, options)`. It returns the same cached `ClientFactory` the built-in factories return, and does the following for one connection attempt:
+`src/transportCore.ts` holds `createByteClient(transport, options, platform)`. It returns the same cached `ClientFactory` the built-in factories return, and does the following for one connection attempt:
 
 - It validates the options before it opens anything.
 - It frames and checks inbound packets with the framer the platform supplies, and applies the inbound rules.
@@ -48,4 +48,4 @@ The TCP opener in `src/tcpClient.ts` creates the socket, maps its `data`, `end`,
 
 The generic input is `PacketInput` (`src/packetInput.ts`), and the inbound rules are `inboundPacketListener` (`src/inboundPackets.ts`). `NodePacketInput` and `nodePacketListener` are their Node versions.
 
-A conformance case walks the module graph of the core and of `portablePlatform` and fails on any `Buffer` or `node:` outside comments, which is the rule the packed browser check applies to the bundle. The shared conformance cases also run over the in-memory transport with `portablePlatform` and check that payloads are not Buffers.
+A conformance case bundles the core and `portablePlatform` with Vite for a browser and fails on any import outside the bundle, any dynamic import, and any `Buffer`, `node:` or browser-external stub in the output. That is the rule the packed browser check applies to the packed package. The shared conformance cases also run over the in-memory transport with `portablePlatform` and check that payloads are not Buffers.
