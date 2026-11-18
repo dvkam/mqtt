@@ -1,5 +1,5 @@
 import type { PacketTransport } from '../../dist/portable.js';
-import { createBrowserClient, openBrowserTransport } from '../../dist/browser.js';
+import { createBrowserClient } from '../../dist/browser.js';
 
 type Same<Left, Right> =
   (<Value>(_value: Value) => Value extends Left ? 1 : 2) extends <Value>(_value: Value) => Value extends Right ? 1 : 2
@@ -37,17 +37,3 @@ export const browserFactory = createBrowserClient({
     message.payload = new Uint8Array();
   },
 });
-
-export async function mutableBrowserCallbacks() {
-  const transport = await openBrowserTransport('wss://localhost/mqtt', {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onBytes(bytes) {
-      bytes[0] = 0;
-    },
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onClose(reason) {
-      reason.message = 'consumer annotation';
-    },
-  });
-  await transport.close();
-}

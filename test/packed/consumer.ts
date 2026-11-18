@@ -103,7 +103,7 @@ export async function checkWebSocketDeclarations(signal: AbortSignal) {
   await client.ping();
   await client.disconnect();
 }
-import { createBrowserClient, openBrowserTransport } from 'mqtt/browser';
+import { createBrowserClient } from 'mqtt/browser';
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
 export async function checkBrowserClientDeclarations(signal: AbortSignal) {
@@ -133,21 +133,6 @@ export function checkCodecDeclarations() {
   const packets = decoder.push(bytes);
   decoder.finish();
   return packets;
-}
-
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-export async function checkBrowserTransportDeclarations(signal: AbortSignal) {
-  const transport = await openBrowserTransport('wss://localhost/mqtt', {
-    signal,
-    onBytes(bytes: Readonly<{ byteLength: number }>) {
-      bytes.byteLength.toFixed();
-    },
-    onClose(reason: Readonly<Error>) {
-      reason.message.toLowerCase();
-    },
-  });
-  transport.send(Uint8Array.of(0xc0, 0));
-  await transport.close();
 }
 
 export const secureTcpConsumer = createTcpClient({

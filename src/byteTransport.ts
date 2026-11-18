@@ -41,7 +41,7 @@ export interface ByteWriter {
    * took it.
    */
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The native layer keeps the encoded bytes by identity.
-  write(chunk: Uint8Array): Promise<void>;
+  write(chunk: Uint8Array<ArrayBuffer>): Promise<void>;
   /**
    * Close gracefully when `force` is false. When it is true, release the connection promptly and settle every pending
    * `write`, and reject a `write` that follows. Allow repeated calls. Settle once closed. The core sets no close deadline of

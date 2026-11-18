@@ -1,5 +1,4 @@
 import { openMqttWebSocket } from 'mqtt/websocket';
-import { openBrowserTransport } from 'mqtt/browser';
 import { encodePacket, PacketDecoder } from 'mqtt/codec';
 export { createBrowserClient } from 'mqtt/browser';
 
@@ -7,45 +6,6 @@ export { createBrowserClient } from 'mqtt/browser';
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
 export function codecRoundTrip(packet) {
   return new PacketDecoder().push(encodePacket(packet));
-}
-
-/** @param {string} url */
-export async function exchangeTransport(url) {
-  /** @type {(bytes: readonly number[]) => void} */
-  let receive = () => {
-    throw new Error('Missing reply observer');
-  };
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  /** @type {(error: Error) => void} */
-  let reject = () => {
-    throw new Error('Missing failure observer');
-  };
-  const reply = new Promise(
-    /** @param {(bytes: readonly number[]) => void} resolve */ (resolve, fail) => {
-      receive = resolve;
-      reject = fail;
-    },
-  );
-  const transport = await openBrowserTransport(url, {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onBytes(bytes) {
-      receive(Array.from(bytes));
-    },
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onClose(reason) {
-      reject(reason);
-    },
-  });
-  const timer = setTimeout(() => {
-    reject(new Error('MQTT frame did not arrive'));
-  }, 3000);
-  try {
-    transport.send(Uint8Array.of(0xc0, 0));
-    return await reply;
-  } finally {
-    clearTimeout(timer);
-    await transport.close();
-  }
 }
 
 /** @param {string} url */

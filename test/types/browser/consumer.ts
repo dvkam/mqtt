@@ -1,6 +1,5 @@
-import { createBrowserClient, openBrowserTransport } from 'mqtt/browser';
+import { createBrowserClient } from 'mqtt/browser';
 import type { BrowserClientOptions, BrowserSession, ClientFactory, ClientSession } from 'mqtt/browser';
-import { encodePacket, PacketDecoder } from 'mqtt/codec';
 
 const namedOptions: BrowserClientOptions = {
   url: 'wss://localhost/mqtt',
@@ -32,19 +31,6 @@ export async function checkBrowserTypes(signal: AbortSignal) {
   await client.publish('a', 'hello');
   await client.ping();
   await client.disconnect();
-  const decoder = new PacketDecoder();
-  const transport = await openBrowserTransport('wss://localhost/mqtt', {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onBytes(bytes) {
-      decoder.push(bytes);
-    },
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onClose(reason) {
-      reason.message.toLowerCase();
-    },
-  });
-  transport.send(encodePacket({ cmd: 'connect', clientId: 'types' }));
-  await transport.close();
 }
 
 export * from '../../packed/browser/consumer.js';

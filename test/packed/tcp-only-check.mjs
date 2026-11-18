@@ -12,6 +12,7 @@ const root = await import('mqtt');
 assert.equal(typeof root.createTcpClient, 'function');
 assert.equal('createWebSocketClient' in root, false, 'the root entry must not export the ws client');
 for (const entry of ['mqtt/browser', 'mqtt/codec', 'mqtt/portable', 'mqtt/websocket']) await import(entry);
+assert.equal('openBrowserTransport' in (await import('mqtt/browser')), false, 'mqtt/browser must not export openBrowserTransport');
 
 await assert.rejects(import('mqtt/ws'), missingWs, 'mqtt/ws must fail to load without ws');
 console.log('Without ws installed, every entry but mqtt/ws loads, and mqtt/ws reports the missing ws package.');
