@@ -15,7 +15,6 @@ Use `import type` for the named contracts. TypeScript 7.0.2 is the supported com
 | `ClientSession`                                                                   | Both client entries                     | Subscribe, unsubscribe, text publish, ping and disconnect promises                                                                           |
 | `BrowserSession`                                                                  | `mqtt/browser`                          | Alias for `ClientSession`                                                                                                                    |
 | `PublishOptions`, `SubscribeOptions`                                              | Both client entries                     | QoS options. Only QoS 1 publish accepts a cancellation signal.                                                                               |
-| `BrowserTransportOptions`, `BrowserTransport`, `BrowserCloseKind`, `WriteTraffic` | `mqtt/browser`                          | Native browser transport callbacks, send and close operations, and their argument types                                                      |
 | `WebSocketOptions`                                                                | `mqtt/websocket`                        | Timeout and cancellation for opening a native MQTT WebSocket                                                                                 |
 | `PortableOptions`, `PacketTransport`                                              | `mqtt/portable`                         | Experimental generic client and custom transport options. The packet contract uses the codec's packet model. See [custom transport contract](#custom-transport-contract).                                 |
 | `ProtocolInputError`, `ProtocolInputCode`                                         | `mqtt/portable`                         | Decoder rejection passed to the optional transport protocol-error callback. Its readonly code is 0x81, 0x82 or 0x94. A custom transport can construct one. |
@@ -67,6 +66,10 @@ On Node, `payload` and `correlationData` are views of the one allocation the dec
 | `message.dup`, a `boolean` | `false` on a QoS 0 message, `boolean` on a QoS 1 message |
 
 The old map kept the order of values under one key but lost the order between keys. The pairs keep the order the broker sent, which MQTT 5 requires a forwarder to keep (MQTT-3.3.2-18).
+
+## Removed browser transport
+
+Step 4 of [#171](https://github.com/dvkam/mqtt/issues/171) removed `openBrowserTransport` and its types `BrowserTransport`, `BrowserTransportOptions`, `BrowserCloseKind` and `WriteTraffic` from `mqtt/browser`. Use `createBrowserClient` for an MQTT session. For raw bytes, open the socket with `openMqttWebSocket` from `mqtt/websocket` and encode and decode with `mqtt/codec`. Step 5 makes the byte transport public and adds a migration table for every removed seam.
 
 ## Custom transport contract
 

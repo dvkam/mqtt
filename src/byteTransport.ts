@@ -41,7 +41,7 @@ export interface ByteWriter {
    * took it.
    */
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The native layer keeps the encoded bytes by identity.
-  write(chunk: Uint8Array): Promise<void>;
+  write(chunk: Uint8Array<ArrayBuffer>): Promise<void>;
   /**
    * Close gracefully when `force` is false. When it is true, release the connection promptly and settle every pending
    * `write`, and reject a `write` that follows. Allow repeated calls. Settle once closed. The core sets no close deadline of
@@ -58,6 +58,8 @@ export interface ByteTransport {
   readonly name: string;
   /** Whether the client may subscribe to `$share/` filters over this transport. Defaults to true. */
   readonly supportsSharedSubscriptions?: boolean;
+  /** Whether the client sends the `password` option in CONNECT. Defaults to true. */
+  readonly supportsPassword?: boolean;
   /**
    * Open one connection. Settle only once the connection is usable, or once it is released. When the open rejects, the
    * core reports the first failure the transport delivered to `inbound`, and otherwise the rejection.

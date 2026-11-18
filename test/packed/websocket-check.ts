@@ -76,13 +76,12 @@ if (process.argv.includes('--bundle-only')) {
     if (typeof moduleValue !== 'object' || moduleValue === null) throw new Error('Expected packed module');
     if (!('exchange' in moduleValue) || typeof moduleValue.exchange !== 'function')
       throw new Error('Missing packed export exchange');
-    if (!('exchangeTransport' in moduleValue) || typeof moduleValue.exchangeTransport !== 'function')
-      throw new Error('Missing packed export exchangeTransport');
+    if ('exchangeTransport' in moduleValue) throw new Error('The packed browser transport seam should be gone');
     if (!('codecRoundTrip' in moduleValue) || typeof moduleValue.codecRoundTrip !== 'function')
       throw new Error('Missing packed export codecRoundTrip');
     if (!('measureQueue' in moduleValue) || typeof moduleValue.measureQueue !== 'function')
       throw new Error('Missing packed export measureQueue');
-    const { exchange, exchangeTransport, codecRoundTrip, measureQueue } = moduleValue;
+    const { exchange, codecRoundTrip, measureQueue } = moduleValue;
     assert.deepEqual(Reflect.apply(codecRoundTrip, undefined, [{ cmd: 'pingreq' }]), [{ cmd: 'pingreq' }]);
     assert.deepEqual(await Reflect.apply(exchange, undefined, [url]), expected);
     browser = await chromium.launch();
@@ -92,11 +91,7 @@ if (process.argv.includes('--bundle-only')) {
       { cmd: 'pingreq' },
     ]);
     assert.deepEqual(await page.evaluate(async (url) => (await import('/probe.js')).exchange(url), url), expected);
-    assert.deepEqual(await Reflect.apply(exchangeTransport, undefined, [url]), [0xd0, 0]);
-    assert.deepEqual(await page.evaluate(async (url) => (await import('/probe.js')).exchangeTransport(url), url), [0xd0, 0]);
     assert.deepEqual(frames, [
-      { binary: true, bytes: [0xc0, 0] },
-      { binary: true, bytes: [0xc0, 0] },
       { binary: true, bytes: [0xc0, 0] },
       { binary: true, bytes: [0xc0, 0] },
     ]);

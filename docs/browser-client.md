@@ -1,6 +1,6 @@
 # Browser MQTT client preview
 
-`createBrowserClient` combines the native browser byte transport, the portable MQTT 5 codec and the existing session lifecycle.
+`createBrowserClient` opens the browser's native WebSocket with the `mqtt` subprotocol and runs it on the shared [byte transport core](byte-transport.md), the same core as the TCP and Node WebSocket clients. It frames with the portable framer and delivers `Uint8Array` payloads.
 
 ```ts
 import { createBrowserClient } from 'mqtt/browser';
@@ -38,17 +38,28 @@ The optional signal applies while opening and during the active connection. Canc
 
 The [inbound publication checks](inbound-publication-validation.md) cover empty names, wildcards and unnegotiated Topic Aliases.
 
-The supported TCP, Node WebSocket and browser clients reject decoded CONNECT, SUBSCRIBE, UNSUBSCRIBE and PINGREQ packets from the broker with protocol error `0x82`. They stop processing at that packet and attempt to send DISCONNECT after a successful CONNACK, while the client is still open. The standalone codec can decode packets from both directions. [MQTT 5 sections 2.1.2 and 4.13](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html)
+The supported TCP, Node WebSocket and browser clients reject CONNECT, SUBSCRIBE, UNSUBSCRIBE and PINGREQ packets from the broker on their first byte, with protocol error `0x82`. They stop processing at that packet and attempt to send DISCONNECT after a successful CONNACK, while the client is still open. The standalone codec can decode packets from both directions. [MQTT 5 sections 2.1.2 and 4.13](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html)
 
 An empty client ID requires a nonempty server assignment on successful CONNACK. The browser adapter forwards that identifier for the shared session's agreement check. Unsolicited authentication remains unsupported. [Connection agreement](connack-agreement.md) documents the rules, refusal handling and identity-consistency policy.
 
-A peer close completes the decoder. If MQTT input ends inside a packet, pending operations reject with the truncation error. A clean packet boundary retains the transport close reason. Local disconnect, cancellation and earlier errors keep their original outcome, even with partial input. Decoder completion runs once and does not wait for another message.
+A peer close completes the framer. If MQTT input ends inside a packet, pending operations reject with the truncation error. A clean packet boundary retains the transport close reason. Local disconnect, cancellation, an operation timeout and earlier errors stop the framer instead and keep their original outcome, even with partial input.
+
+The browser client applies the same inbound rules as the Node clients. The owner decided this on 16 November 2026, and [design-decisions.md](design-decisions.md) records it.
+
+- AUTH is a protocol error with reason code 0x82, and the client sends DISCONNECT.
+- A QoS 0 PUBLISH with DUP set is a protocol error with 0x81, also with DISCONNECT.
+- A QoS 1 PUBLISH without a QoS 1 handler is dropped, and no PUBACK is sent.
+- A QoS 2 PUBLISH is dropped without a QoS 1 handler. With a QoS 1 handler it ends the session with `Unsupported incoming MQTT PUBLISH`.
+- PUBREC, PUBREL and PUBCOMP are ignored.
+- A fixed header with invalid flags fails on its first byte.
+
+`test/browser-core-changes.test.ts` pins each change from the earlier browser client.
 
 Write admission and per-packet receive allocation have separate budgets. A successful QoS 0 publish means local send admission. The [QoS 1 publishing](qos1-publish.md) and [delivery](qos1-receive.md) guides describe their separate acknowledgment contracts.
 
-The browser client also limits aggregate incoming WebSocket messages with maxWebSocketMessageBytes. The default is one MiB. A larger batch retires the connection before decoder entry, including a batch whose prefix contains a valid acknowledgment. Pending operations and later writes receive the original RangeError. It takes precedence over partial MQTT input discarded during cleanup. The byte transport guide defines its supported range, fragmentation behavior and memory exclusions. Per-packet maxPacketBytes still applies to MQTT assembled across multiple admitted messages.
+The browser client also limits aggregate incoming WebSocket messages with maxWebSocketMessageBytes. The default is one MiB. A larger batch retires the connection before decoder entry, including a batch whose prefix contains a valid acknowledgment. Pending operations and later writes receive the original RangeError. It takes precedence over partial MQTT input discarded during cleanup. The limit accepts integers from 1 through 2,147,483,647 and is checked before the socket opens. An exact-limit message is admitted, and a text message fails the session. The browser has already reassembled, and possibly decompressed, a message before the client sees it. So the limit bounds the library's own work, not browser allocation, total receive memory or network backpressure. WebSocket protocol fragments count together, while MQTT fragments sent as separate WebSocket messages are checked one by one. Per-packet maxPacketBytes still applies to MQTT assembled across multiple admitted messages.
 
-A failed ping retires the session before another ping can reuse the acknowledgment slot. Forced retirement starts native close but settles locally, so a silent peer adds no second native-close deadline to the operation timeout. Eventual native-close failure is observed in the background. Graceful disconnect still waits for native closure or its deadline.
+A failed ping retires the session before another ping can reuse the acknowledgment slot. Forced retirement starts native close but settles locally, so a silent peer adds no second native-close deadline to the operation timeout. Graceful disconnect waits for native closure up to the operation timeout. A browser cannot cut a WebSocket off, so after that the client stops waiting and resolves. Before step 4 of #171 it rejected with `MQTT WebSocket close timed out`.
 
 Browser TLS trust, client certificates and proxy settings belong to the browser. The packed tests exercise the public client against Mosquitto over WS, WSS through an HTTP/1.1 TLS gateway and a CONNECT proxy.
 

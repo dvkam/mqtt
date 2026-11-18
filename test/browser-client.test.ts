@@ -118,15 +118,17 @@ test('forwards broker limits and PUBACK to the portable session', async () => {
   }
 });
 
-test('keeps a decoded QoS 1 publication out of the QoS 0 message callback', async () => {
+test('drops a QoS 1 publication without a QoS 1 handler and keeps the session, as on Node', async () => {
   const broker = await peer(0, true);
-  const onMessage = vi.fn<() => void>();
+  const onMessage = vi.fn<(message: unknown) => void>();
   try {
     const client = await createBrowserClient({ url: broker.url, clientId: 'qos-1-inbound', onMessage }).connect();
-    const pending = client.ping();
-    broker.sendWire([0x32, 7, 0, 1, 97, 0, 1, 0, 255]);
-    await expect(pending).rejects.toThrow('Unsupported incoming MQTT QoS 1');
-    expect(onMessage).not.toHaveBeenCalled();
+    // A QoS 1 publication, then a QoS 0 one with payload 'b'.
+    broker.sendWire([0x32, 7, 0, 1, 97, 0, 1, 0, 255, 0x30, 5, 0, 1, 97, 0, 98]);
+    await expect.poll(() => onMessage.mock.calls.length).toBe(1);
+    expect(onMessage.mock.calls[0]?.[0]).toMatchObject({ topic: 'a', payload: Uint8Array.of(98) });
+    await client.disconnect();
+    expect(broker.packets).not.toContainEqual(expect.objectContaining({ cmd: 'puback' }));
   } finally {
     await broker.close();
   }
@@ -461,7 +463,8 @@ test.each([
     suffix: invalidHeader,
     description: 'generic error',
     notice: false,
-    message: 'Unsupported MQTT packet or invalid fixed-header flags',
+    // The framer checks the fixed header on its first byte, as on Node.
+    message: 'Invalid header flag bits',
   },
 ])(
   'handles the PUBLISH prefix before a $description',

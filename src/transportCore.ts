@@ -49,7 +49,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
   options: Readonly<ByteClientOptions<Bytes>>,
   platform: Readonly<BytePlatform<Bytes>>,
 ): Promise<ClientSession> {
-  const { name, supportsSharedSubscriptions = true } = transport;
+  const { name, supportsSharedSubscriptions = true, supportsPassword = true } = transport;
   const { onDiagnostic, onSessionEnd, onQosOneMessage, signal } = options;
   const isAborted = (): boolean => signal?.aborted === true;
   const abortReason = () => {
@@ -149,6 +149,8 @@ async function connectOverBytes<Bytes extends Uint8Array>(
         input.detachCore();
         if (force === true) release();
         await opened.close(force === true);
+        // The writer settles once closed, or once it stopped waiting for the peer, so nothing is left to abort.
+        release();
       },
     };
     // If the transport ended or failed while it opened, `listen` reports that at once and the session fails before it writes.
@@ -156,7 +158,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
       const client = await connectPortable(packets, {
         clientId: options.clientId,
         username: options.username,
-        password: options.password,
+        password: supportsPassword ? options.password : undefined,
         onMessage: options.onMessage,
         onDiagnostic,
         onSessionEnd,

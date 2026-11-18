@@ -1,4 +1,5 @@
-import { openBrowserTransport, createBrowserClient } from 'mqtt/browser';
+import { createBrowserClient } from 'mqtt/browser';
+import { openMqttWebSocket } from 'mqtt/websocket';
 import { encodePacket, PacketDecoder } from 'mqtt/codec';
 
 /** @param {string} url */
@@ -91,7 +92,11 @@ export async function mqttSession(url, packets) {
   /** @param {Uint8Array} bytes */
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
   function receive(bytes) {
-    for (const packet of decoder.push(bytes)) received.push(Array.from(encodePacket(packet)));
+    try {
+      for (const packet of decoder.push(bytes)) received.push(Array.from(encodePacket(packet)));
+    } catch (error) {
+      failure ??= error instanceof Error ? error : new Error('MQTT reply could not be decoded');
+    }
     wake?.();
   }
 
@@ -114,7 +119,17 @@ export async function mqttSession(url, packets) {
     }
   }
 
-  const transport = await openBrowserTransport(url, { onBytes: receive, onClose: fail });
+  const socket = await openMqttWebSocket(url);
+  const closed = new Promise((resolve) => {
+    socket.addEventListener('close', resolve, { once: true });
+  });
+  socket.addEventListener('close', fail);
+  socket.addEventListener('error', fail);
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+  socket.addEventListener('message', (/** @type {MessageEvent} */ event) => {
+    if (event.data instanceof ArrayBuffer) receive(new Uint8Array(event.data));
+    else fail();
+  });
   const input = new PacketDecoder();
   const requests = packets.map((/** @type {readonly number[]} */ bytes) => {
     const packet = input.push(Uint8Array.from(bytes))[0];
@@ -124,15 +139,26 @@ export async function mqttSession(url, packets) {
   try {
     const replies = [];
     for (const request of requests.slice(0, -1)) {
-      transport.send(request);
+      socket.send(request);
       replies.push(await nextPacket());
     }
     const last = requests[requests.length - 1];
     if (last === undefined) throw new Error('Missing DISCONNECT request');
-    transport.send(last);
-    await transport.close();
+    socket.send(last);
     return replies;
   } finally {
-    await transport.close();
+    socket.close();
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    let closeTimer;
+    await Promise.race([
+      closed,
+      new Promise((_resolve, reject) => {
+        closeTimer = setTimeout(() => {
+          reject(new Error('WebSocket did not close within 3 s'));
+        }, 3000);
+      }),
+    ]).finally(() => {
+      clearTimeout(closeTimer);
+    });
   }
 }

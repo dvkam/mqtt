@@ -1,12 +1,10 @@
-import { createBrowserClient, openBrowserTransport } from 'mqtt/browser';
+import { createBrowserClient } from 'mqtt/browser';
 import { PacketDecoder, type WirePacket } from 'mqtt/codec';
 import { openMqttWebSocket, type WebSocketOptions } from 'mqtt/websocket';
 import type {
   BrowserClientOptions,
-  BrowserCloseKind,
   BrowserQosOneMessage,
   BrowserSession,
-  BrowserTransportOptions,
   ClientDiagnostic,
   ClientFactory,
   DiagnosticObserver,
@@ -77,18 +75,6 @@ export async function checkPublishOptions(client: Readonly<ClientSession>) {
   const subscription: SubscribeOptions = { qos: 1 };
   await client.subscribe('packed/qos1', subscription);
   await client.publish('packed/qos1', 'payload', publish);
-}
-
-export async function checkTransportCloseKind() {
-  const transportOptions: BrowserTransportOptions = {
-    maxWebSocketMessageBytes: 4096,
-    onBytes() {},
-    onClose(_reason: Readonly<Error>, kind) {
-      const closeKind: BrowserCloseKind = kind;
-      if (closeKind === 'remote') return;
-    },
-  };
-  return openBrowserTransport('wss://localhost/mqtt', transportOptions);
 }
 
 export function checkDecoderCompletion() {

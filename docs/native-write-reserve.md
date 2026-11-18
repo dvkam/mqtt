@@ -27,11 +27,11 @@ These checks bound the admission projection at the time of the call. Automatic W
 
 Reserved capacity means admission room, not control priority or latency. A control packet cannot overtake queued data or a partial native write. Other controls can consume the reserve. A control larger than the remaining space still fails under the existing operation contract. A native publication budget refusal leaves the session usable when the adapter can establish that it refused the exact attempt before submission. A refused QoS 1 publication releases its identifier, broker quota and publication budget without waiting for PUBACK. A prior terminal failure still takes precedence.
 
-The raw browser byte transport keeps its previous behavior for `send(bytes)`, which uses the full budget. It also accepts `send(bytes, 'publication')` or `send(bytes, 'control')`. Raw callers own this classification because byte chunks may contain fragments or coalesced packets. The supported browser client supplies the classification from its packet object. WriteTraffic is exported from mqtt/browser as a type.
+The browser client applies the same reserve through the shared transport core, which classifies each packet before it writes. The raw browser byte transport and its `WriteTraffic` type were removed in step 4 of #171.
 
 ## Controlled validation observations
 
-Source pin is 47432a7. The local run used Node 26.13.0 and ws 8.22.1 in Ubuntu 24.04 under WSL. From that checkout, reproduce the real corked checks with `pnpm exec vitest run test/tcp-client.test.ts test/websocket-client.test.ts -t 'reserves native|reserves framed'`. The supported browser and controlled-counter checks are in test/browser-client.test.ts, test/browser-transport.test.ts and test/websocket-client.test.ts.
+Source pin is 47432a7. The local run used Node 26.13.0 and ws 8.22.1 in Ubuntu 24.04 under WSL. From that checkout, reproduce the real corked checks with `pnpm exec vitest run test/tcp-client.test.ts test/websocket-client.test.ts -t 'reserves native|reserves framed'`. The supported browser and controlled-counter checks are in test/browser-client.test.ts, test/browser-core-changes.test.ts and test/websocket-client.test.ts.
 
 The TCP test corks a real client socket with a total of 32 bytes and an eight-byte reserve. A 24-byte publication fills its allowance; an excess publication leaves writableLength at 24. PINGREQ adds two bytes to 26. The peer sees no new command before uncorking, then receives publication before ping.
 

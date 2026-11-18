@@ -2,7 +2,7 @@ import { getEventListeners, once } from 'node:events';
 import { WebSocketServer } from 'ws';
 import { afterEach, expect, test, vi } from 'vitest';
 import { createBrowserClient } from '../src/browserClient.js';
-import { PacketDecoder } from '../src/codec.js';
+import { PacketFramer } from '../src/packetFramer.js';
 
 class ScriptedSocket extends EventTarget {
   static OPEN = 1;
@@ -58,7 +58,7 @@ afterEach(() => {
 
 test.each([[0x20], [0x20, 3, 0]])('remote EOF rejects a truncated CONNACK %j', async (...bytes: readonly number[]) => {
   vi.stubGlobal('WebSocket', ScriptedSocket);
-  const finish = vi.spyOn(PacketDecoder.prototype, 'finish');
+  const finish = vi.spyOn(PacketFramer.prototype, 'finish');
   ScriptedSocket.connectBytes = bytes;
   ScriptedSocket.closeAfterConnect = true;
   await expect(createBrowserClient({ url: 'ws://localhost', clientId: 'partial-connect' }).connect()).rejects.toThrow(
@@ -70,7 +70,7 @@ test.each([[0x20], [0x20, 3, 0]])('remote EOF rejects a truncated CONNACK %j', a
 
 test('remote EOF rejects a pending ping with truncation and retires later writes', async () => {
   vi.stubGlobal('WebSocket', ScriptedSocket);
-  const finish = vi.spyOn(PacketDecoder.prototype, 'finish');
+  const finish = vi.spyOn(PacketFramer.prototype, 'finish');
   const client = await createBrowserClient({ url: 'ws://localhost', clientId: 'partial-ping' }).connect();
   const pending = client.ping();
   const rejected = pending.catch((error: unknown) => error);
@@ -84,7 +84,7 @@ test('remote EOF rejects a pending ping with truncation and retires later writes
 
 test('clean remote EOF retains the transport close reason', async () => {
   vi.stubGlobal('WebSocket', ScriptedSocket);
-  const finish = vi.spyOn(PacketDecoder.prototype, 'finish');
+  const finish = vi.spyOn(PacketFramer.prototype, 'finish');
   const client = await createBrowserClient({ url: 'ws://localhost', clientId: 'clean-end' }).connect();
   const rejected = client.ping().catch((error: unknown) => error);
   ScriptedSocket.instance.remoteClose();
@@ -94,7 +94,7 @@ test('clean remote EOF retains the transport close reason', async () => {
 
 test('abort keeps its exact reason despite partial input and captured late events', async () => {
   vi.stubGlobal('WebSocket', ScriptedSocket);
-  const finish = vi.spyOn(PacketDecoder.prototype, 'finish');
+  const finish = vi.spyOn(PacketFramer.prototype, 'finish');
   const controller = new AbortController();
   const onMessage = vi.fn<(message: unknown) => void>();
   const client = await createBrowserClient({
@@ -113,32 +113,33 @@ test('abort keeps its exact reason despite partial input and captured late event
   await expect(rejected).resolves.toBe(reason);
   await expect(client.publish('a', 'late')).rejects.toBe(reason);
   expect(onMessage).not.toHaveBeenCalled();
-  expect(finish).toHaveBeenCalledTimes(1);
+  // The abort stops the framer; only a remote end completes it.
+  expect(finish).not.toHaveBeenCalled();
   expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
 });
 
 test('graceful local disconnect succeeds while discarding partial input', async () => {
   vi.stubGlobal('WebSocket', ScriptedSocket);
-  const finish = vi.spyOn(PacketDecoder.prototype, 'finish');
+  const finish = vi.spyOn(PacketFramer.prototype, 'finish');
   const client = await createBrowserClient({ url: 'ws://localhost', clientId: 'local-partial' }).connect();
   ScriptedSocket.instance.receive([0x30]);
   await expect(client.disconnect()).resolves.toBeUndefined();
-  expect(finish).toHaveBeenCalledTimes(1);
+  expect(finish).not.toHaveBeenCalled();
 });
 
 test('refusal keeps its code when trailing input is incomplete', async () => {
   vi.stubGlobal('WebSocket', ScriptedSocket);
-  const finish = vi.spyOn(PacketDecoder.prototype, 'finish');
+  const finish = vi.spyOn(PacketFramer.prototype, 'finish');
   ScriptedSocket.connectBytes = [0x20, 3, 0, 0x87, 0, 0x30];
   await expect(createBrowserClient({ url: 'ws://localhost', clientId: 'refused-partial' }).connect()).rejects.toMatchObject({
     code: 0x87,
   });
-  expect(finish).toHaveBeenCalledTimes(1);
+  expect(finish).not.toHaveBeenCalled();
 });
 
 test('application callback failure wins over trailing truncation', async () => {
   vi.stubGlobal('WebSocket', ScriptedSocket);
-  const finish = vi.spyOn(PacketDecoder.prototype, 'finish');
+  const finish = vi.spyOn(PacketFramer.prototype, 'finish');
   const reason = new Error('application failed');
   const client = await createBrowserClient({
     url: 'ws://localhost',
@@ -150,24 +151,26 @@ test('application callback failure wins over trailing truncation', async () => {
   const rejected = client.ping().catch((error: unknown) => error);
   ScriptedSocket.instance.receive([0x30, 5, 0, 1, 0x61, 0, 0x62, 0x30]);
   await expect(rejected).resolves.toBe(reason);
-  expect(finish).toHaveBeenCalledTimes(1);
+  expect(finish).not.toHaveBeenCalled();
 });
 
-test('prior decoder failure keeps its identity during completion', async () => {
+test('prior decoder failure keeps its identity after a remote end', async () => {
   vi.stubGlobal('WebSocket', ScriptedSocket);
-  const finish = vi.spyOn(PacketDecoder.prototype, 'finish');
+  const finish = vi.spyOn(PacketFramer.prototype, 'finish');
   const client = await createBrowserClient({ url: 'ws://localhost', clientId: 'decode-error' }).connect();
   const result = client.ping().catch((error: unknown) => error);
+  // The framer checks the fixed header on its first byte, as on Node.
   ScriptedSocket.instance.receive([0xff]);
   const failure: unknown = await result;
-  expect(failure).toBeInstanceOf(Error);
-  const completionFailure: unknown = finish.mock.results[0]?.value;
-  expect(failure).toBe(completionFailure);
+  expect(failure).toMatchObject({ message: 'Invalid header flag bits, must be 0x0 for auth packet' });
+  ScriptedSocket.instance.remoteClose();
+  await expect(client.publish('a', 'late')).rejects.toBe(failure);
+  expect(finish).not.toHaveBeenCalled();
 });
 
 test('partial input does not replace a ping timeout or add a native close wait', async () => {
   vi.stubGlobal('WebSocket', ScriptedSocket);
-  const finish = vi.spyOn(PacketDecoder.prototype, 'finish');
+  const finish = vi.spyOn(PacketFramer.prototype, 'finish');
   ScriptedSocket.stallClose = true;
   const client = await createBrowserClient({ url: 'ws://localhost', clientId: 'timeout-partial', timeoutMs: 50 }).connect();
   ScriptedSocket.instance.receive([0xd0]);
@@ -180,14 +183,14 @@ test('partial input does not replace a ping timeout or add a native close wait',
   await vi.advanceTimersByTimeAsync(50);
   expect(settled).toBe(true);
   await expect(result).resolves.toMatchObject({ message: 'MQTT operation timed out' });
-  expect(finish).toHaveBeenCalledTimes(1);
+  expect(finish).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(50);
   expect(vi.getTimerCount()).toBe(0);
 });
 
-test('fragmented replies are completed only when the transport retires', async () => {
+test('fragmented replies complete without completing the framer on a local close', async () => {
   vi.stubGlobal('WebSocket', ScriptedSocket);
-  const finish = vi.spyOn(PacketDecoder.prototype, 'finish');
+  const finish = vi.spyOn(PacketFramer.prototype, 'finish');
   const client = await createBrowserClient({ url: 'ws://localhost', clientId: 'fragmented' }).connect();
   const ping = client.ping();
   ScriptedSocket.instance.receive([0xd0]);
@@ -196,7 +199,7 @@ test('fragmented replies are completed only when the transport retires', async (
   await ping;
   expect(finish).not.toHaveBeenCalled();
   await client.disconnect();
-  expect(finish).toHaveBeenCalledTimes(1);
+  expect(finish).not.toHaveBeenCalled();
 });
 
 test.each([

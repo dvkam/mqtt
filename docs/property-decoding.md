@@ -1,6 +1,6 @@
 # Property decoding
 
-One reader in `src/wireProperties.ts` decodes and checks the property section of every packet. `PacketDecoder`, which the browser client uses, and the Node decoder both call it, so a malformed section gives the same error class, code and message on every platform. `test/property-decode-parity.test.ts` pins that with one vector for each row below.
+One reader in `src/wireProperties.ts` decodes and checks the property section of every packet. The packet framer that every client uses and the `PacketDecoder` of `mqtt/codec` both call it, so a malformed section gives the same error class, code and message on every platform. `test/property-decode-parity.test.ts` pins that with one vector for each row below.
 
 Before #169 the Node decoder walked the property bytes with its own tables and then handed the frame to the codec, which read them again with different messages.
 

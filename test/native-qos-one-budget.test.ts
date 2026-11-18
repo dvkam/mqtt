@@ -2,7 +2,6 @@ import { expect, test, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import { createBrowserClient } from '../src/browserClient.js';
 import { createWebSocketClient } from '../src/websocketClient.js';
-import { openBrowserTransport } from '../src/browserTransport.js';
 import { startProtocolPeer } from './experiments/protocol-peer.js';
 
 test.each(['node-websocket', 'browser'] as const)(
@@ -41,16 +40,8 @@ test.each(['node-websocket', 'browser'] as const)(
 test('a budget error from an earlier byte view cannot classify another send as unsent', async () => {
   const broker = await startProtocolPeer();
   try {
-    const raw = await openBrowserTransport(broker.url, { maxBufferedBytes: 1, onBytes() {}, onClose() {} });
-    let saved: unknown;
-    try {
-      raw.send(Uint8Array.of(1, 2), 'publication');
-    } catch (reason) {
-      saved = reason;
-    } finally {
-      await raw.close();
-    }
-    expect(saved).toBeInstanceOf(Error);
+    // The error a budget refusal would carry, but thrown by the native send.
+    const saved = new Error('WebSocket write budget exceeded');
     const client = await createBrowserClient({ url: broker.url, clientId: 'stale-budget-error' }).connect();
     const send = vi.spyOn(globalThis.WebSocket.prototype, 'send').mockImplementationOnce(() => {
       throw saved;

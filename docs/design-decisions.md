@@ -33,6 +33,8 @@ The four browser changes, compared with 351f172:
 
 What follows: step 4 lists each change in its pull request and pins it with a test.
 
+Update, 18 November 2026: step 4 moved the browser client onto the core. A browser cannot force a WebSocket closed, so the fourth change above takes this form: a close that misses its deadline stops waiting and resolves. Besides the four changes above, the browser now treats a QoS 0 PUBLISH with DUP set as protocol error 0x81, drops a QoS 2 PUBLISH without a QoS 1 handler, and ignores PUBREC, PUBREL and PUBCOMP, as the Node clients do. The packet-limit error is a RangeError, an invalid packet limit names its range, an abort with a non-Error reason reads `WebSocket connection aborted`, and the timeout is validated before the packet limit. The browser also rejects a client-only packet on its first byte with 0x82 and DISCONNECT, a pre-aborted signal wins over invalid options, a non-canonical Remaining Length names the Remaining Length, and a forced close drops the close listener at once. Each change case in `test/browser-core-changes.test.ts` fails against the browser client before the move, and each case in its kept block passes against it.
+
 ## `ws` moves to its own entry, `mqtt/ws`
 
 Decided on 16 November 2026 (UTC), for [#171](https://github.com/dvkam/mqtt/issues/171). Status: step 3 of the #171 plan, not merged when this entry was written.
