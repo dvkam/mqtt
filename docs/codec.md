@@ -59,7 +59,6 @@ Call `finish()` when byte input has ended, not after each chunk or WebSocket mes
 
 Packets already returned by `push()` remain valid if trailing input is truncated. `finish()` performs no I/O and does not wait for missing bytes. A caller that owns a socket decides when input ends and calls it then.
 
-
 The bounded CodecFrames model checks allocation admission, completion before emission and no output after failure. It abstracts complete header validation, byte content and copying. UTF-8, property rules and concrete fragmented parsing are covered by wire-vector tests.
 
 The bounded CodecEndOfInput model checks truncation rejection, no output after successful completion and failure reporting on repeated completion. It uses five abstract states for an open boundary, partial header, partial body, successful end and failure. Sequential method calls and ordinary byte-view reads are assumptions. It does not prove packet conformance, garbage collection behavior or transport shutdown.
