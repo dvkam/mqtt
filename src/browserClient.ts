@@ -114,7 +114,11 @@ async function openBrowserSocket(options: BrowserClientOptions, inbound: ByteInb
     async close(force) {
       detach();
       if (socket.readyState < WebSocket.CLOSING) socket.close();
-      if (force || socket.readyState === WebSocket.CLOSED) return;
+      if (socket.readyState === WebSocket.CLOSED) return;
+      if (force) {
+        socket.removeEventListener('close', nativeClosed);
+        return;
+      }
       // A browser cannot cut a WebSocket off. If the peer does not finish the close in time, stop waiting.
       let deadline: ReturnType<typeof setTimeout> | undefined;
       try {
@@ -126,6 +130,7 @@ async function openBrowserSocket(options: BrowserClientOptions, inbound: ByteInb
         ]);
       } finally {
         clearTimeout(deadline);
+        socket.removeEventListener('close', nativeClosed);
       }
     },
   };

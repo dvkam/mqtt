@@ -92,7 +92,11 @@ export async function mqttSession(url, packets) {
   /** @param {Uint8Array} bytes */
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
   function receive(bytes) {
-    for (const packet of decoder.push(bytes)) received.push(Array.from(encodePacket(packet)));
+    try {
+      for (const packet of decoder.push(bytes)) received.push(Array.from(encodePacket(packet)));
+    } catch (error) {
+      failure ??= error instanceof Error ? error : new Error('MQTT reply could not be decoded');
+    }
     wake?.();
   }
 
@@ -144,6 +148,17 @@ export async function mqttSession(url, packets) {
     return replies;
   } finally {
     socket.close();
-    await closed;
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    let closeTimer;
+    await Promise.race([
+      closed,
+      new Promise((_resolve, reject) => {
+        closeTimer = setTimeout(() => {
+          reject(new Error('WebSocket did not close within 3 s'));
+        }, 3000);
+      }),
+    ]).finally(() => {
+      clearTimeout(closeTimer);
+    });
   }
 }

@@ -139,6 +139,35 @@ test('an abort whose reason is not an Error names the WebSocket transport', asyn
   });
 });
 
+test('a pre-aborted signal wins over invalid options', async () => {
+  // Main validated the options first and rejected with their RangeError.
+  const reason = new Error('pre-aborted');
+  await expect(
+    createBrowserClient({ ...options, signal: AbortSignal.abort(reason), maxWebSocketMessageBytes: 0 }).connect(),
+  ).rejects.toBe(reason);
+});
+
+test('a client-only packet from the broker fails on its first byte with 0x82 and DISCONNECT', async () => {
+  // Main waited for the complete packet, so a malformed body failed as truncated input with no DISCONNECT.
+  vi.stubGlobal('WebSocket', ScriptedSocket);
+  const client = await createBrowserClient(options).connect();
+  const pending = client.ping();
+  ScriptedSocket.instance.receive([0x10]);
+  await expect(pending).rejects.toMatchObject({ code: 0x82 });
+  await vi.waitFor(() => {
+    expect(ScriptedSocket.instance.sent[ScriptedSocket.instance.sent.length - 1]).toEqual([0xe0, 1, 0x82]);
+  });
+});
+
+test('a non-canonical Remaining Length names the Remaining Length', async () => {
+  // Main reported 'Non-canonical MQTT variable integer'.
+  vi.stubGlobal('WebSocket', ScriptedSocket);
+  const client = await createBrowserClient(options).connect();
+  const pending = client.ping();
+  ScriptedSocket.instance.receive([0xd0, 0x80, 0x00]);
+  await expect(pending).rejects.toThrow('Non-canonical MQTT Remaining Length');
+});
+
 test('the timeout is validated before the packet limit', async () => {
   // Main validated the packet limit first and the timeout only when the native socket opened.
   await expect(createBrowserClient({ ...options, timeoutMs: 0, maxPacketBytes: 1 }).connect()).rejects.toThrow(
@@ -229,6 +258,26 @@ describe('behavior the browser client keeps on the core', () => {
     // CONNECT flags: 0x80 is the username, 0x40 the password.
     expect({ username: (flags & 0x80) !== 0, password: (flags & 0x40) !== 0 }).toEqual({ username: true, password: false });
     await client.disconnect();
+  });
+
+  test('a forced close does not wait for the native close and drops the close listener', async () => {
+    vi.stubGlobal('WebSocket', ScriptedSocket);
+    ScriptedSocket.stallClose = true;
+    const controller = new AbortController();
+    const client = await createBrowserClient({ ...options, signal: controller.signal, timeoutMs: 60_000 }).connect();
+    const removed = vi.spyOn(ScriptedSocket.instance, 'removeEventListener');
+    const reason = new Error('stop');
+    controller.abort(reason);
+    await expect(client.ping()).rejects.toBe(reason);
+    expect(removed).toHaveBeenCalledWith('close', expect.any(Function));
+  });
+
+  test('a graceful close resolves when the close event comes, before the deadline', async () => {
+    vi.stubGlobal('WebSocket', ScriptedSocket);
+    const client = await createBrowserClient({ ...options, timeoutMs: 60_000 }).connect();
+    const started = performance.now();
+    await client.disconnect();
+    expect(performance.now() - started).toBeLessThan(1000);
   });
 
   test('a normal close leaves no close deadline timer behind', async () => {
