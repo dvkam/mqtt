@@ -1,6 +1,7 @@
 import { encodePacket } from './codec.js';
 import type { ByteInbound, ByteTransport, ByteWriter } from './byteTransport.js';
-import { NodePacketInput } from './nodePacketInput.js';
+import type { BytePlatform } from './bytePlatform.js';
+import { PacketInput } from './packetInput.js';
 import {
   allowsNativeWrite,
   recordNativeBudgetFailure,
@@ -13,19 +14,26 @@ import type { ClientFactory, ClientSession } from './session.js';
 import { resolveSubscriptionLimits } from './subscriptionExchanges.js';
 import { resolveTimeout } from './timeout.js';
 
-export interface ByteClientOptions extends PortableOptions<Buffer>, NativeWriteLimits {
+export interface ByteClientOptions<Bytes extends Uint8Array = Uint8Array> extends PortableOptions<Bytes>, NativeWriteLimits {
   signal?: AbortSignal;
   maxPacketBytes?: number;
 }
 
-/** A client factory over a byte transport. The first `connect()` opens the transport, and later calls return the same promise. */
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The core keeps native signals and Buffer payloads by identity.
-export function createByteClient(transport: Readonly<ByteTransport>, options: Readonly<ByteClientOptions>): ClientFactory {
+/**
+ * A client factory over a byte transport. The first `connect()` opens the transport, and later calls return the same
+ * promise. `platform` supplies the framer and the payload type.
+ */
+export function createByteClient<Bytes extends Uint8Array>(
+  transport: Readonly<ByteTransport>,
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The core keeps native signals and payload views by identity.
+  options: Readonly<ByteClientOptions<Bytes>>,
+  platform: Readonly<BytePlatform<Bytes>>,
+): ClientFactory {
   let connection: Promise<ClientSession> | undefined;
   return {
     // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
     connect() {
-      connection ??= connectOverBytes(transport, options);
+      connection ??= connectOverBytes(transport, options, platform);
       return connection;
     },
   };
@@ -35,9 +43,13 @@ export function createByteClient(transport: Readonly<ByteTransport>, options: Re
  * Own one connection attempt over `transport`: abort, framing and inbound rules, encoding, the write budget and teardown.
  * The transport only opens its connection and adapts its calls.
  */
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The core keeps native signals and Buffer payloads by identity.
-async function connectOverBytes(transport: Readonly<ByteTransport>, options: Readonly<ByteClientOptions>): Promise<ClientSession> {
-  const { name } = transport;
+async function connectOverBytes<Bytes extends Uint8Array>(
+  transport: Readonly<ByteTransport>,
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The core keeps native signals and payload views by identity.
+  options: Readonly<ByteClientOptions<Bytes>>,
+  platform: Readonly<BytePlatform<Bytes>>,
+): Promise<ClientSession> {
+  const { name, supportsSharedSubscriptions = true } = transport;
   const { onDiagnostic, onSessionEnd, onQosOneMessage, signal } = options;
   const isAborted = (): boolean => signal?.aborted === true;
   const abortReason = () => {
@@ -50,7 +62,7 @@ async function connectOverBytes(transport: Readonly<ByteTransport>, options: Rea
   const publicationLimits = resolvePublicationLimits(options);
   const subscriptionLimits = resolveSubscriptionLimits(options);
   const writeLimits = resolveNativeWriteLimits(options);
-  const input = new NodePacketInput(options.maxPacketBytes);
+  const input = new PacketInput(options.maxPacketBytes, platform);
 
   // Cancels the open while no writer exists.
   const opening = new AbortController();
@@ -118,10 +130,11 @@ async function connectOverBytes(transport: Readonly<ByteTransport>, options: Rea
       throw input.reason ?? error;
     }
     const opened = writer;
-    const packets: PacketTransport<Buffer> = {
+    const packets: PacketTransport<Bytes> = {
+      supportsSharedSubscriptions,
       // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The session hands over mutable packets.
       async send(packet) {
-        const bytes = encodePacket(packet, { sharedSubscriptions: true });
+        const bytes = encodePacket(packet, { sharedSubscriptions: supportsSharedSubscriptions });
         const wireBytes = bytes.length + (opened.frameOverhead?.(bytes.length) ?? 0);
         const traffic = packet.cmd === 'publish' ? 'publication' : 'control';
         if (!allowsNativeWrite(writeLimits, opened.bufferedBytes, wireBytes, traffic)) {
