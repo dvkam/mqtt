@@ -1,11 +1,7 @@
-import type { PacketFramer } from './packetFramer.js';
-import type { FramedPacket } from './wireCodec.js';
+import type { FramerOptions, PacketFramer } from './packetFramer.js';
 
-export type FramerFactoryOptions = Readonly<{
-  maxPacketBytes?: number;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The framer delivers mutable packets and byte views of its allocation.
-  onPacket: (packet: FramedPacket) => void;
-}>;
+/** The platform supplies the allocator, so the core passes only the limit and the packet sink. */
+export type FramerFactoryOptions = Omit<FramerOptions, 'allocate'>;
 
 /**
  * What differs between platforms on the inbound path: how the framer allocates each packet and which byte type the

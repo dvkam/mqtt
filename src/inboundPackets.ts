@@ -1,3 +1,4 @@
+import type { BytePlatform } from './bytePlatform.js';
 import { publishMessage } from './messageProperties.js';
 import type { ReceivedPacket } from './portable.js';
 import { brokerPacketDirectionError, ProtocolInputError } from './protocolInputError.js';
@@ -11,8 +12,7 @@ export function inboundPacketListener<Bytes extends Uint8Array>(
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The observer accepts mutable packets; deep readonly types would change the public payload contract.
   onPacket: (packet: ReceivedPacket<Bytes>) => void,
   receiveQosOne: boolean,
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Decoded byte views keep their mutable backing allocation.
-  toBytes: (value: Uint8Array) => Bytes,
+  toBytes: BytePlatform<Bytes>['bytes'],
 ) {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The listener forwards byte views of the framer's packet allocation.
   return (packet: FramedPacket): void => {

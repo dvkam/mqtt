@@ -18,8 +18,7 @@ type Termination = Readonly<{ owner: 'input'; kind: 'error' | 'abort' | 'remote'
 
 /**
  * Frames inbound bytes for one connection and owns its first terminal cause. The platform supplies the framer and the
- * payload type, so the same input serves Node and the browser. Its error texts still say "Node" because tests and callers
- * match them; they predate the browser using this input.
+ * payload type, so the same input serves Node and the browser.
  */
 export class PacketInput<Bytes extends Uint8Array> {
   private readonly decoder: PacketFramer;
@@ -50,8 +49,8 @@ export class PacketInput<Bytes extends Uint8Array> {
     receiveQosOne = false,
     protocolError?: ProtocolErrorSink<Bytes>,
   ): () => void {
-    if (this.registered) throw new Error('Node packet input already registered');
-    if (this.terminal?.owner === 'core') throw new Error('Node packet input has retired');
+    if (this.registered) throw new Error('MQTT packet input already registered');
+    if (this.terminal?.owner === 'core') throw new Error('MQTT packet input has retired');
     this.registered = true;
     const registration: Registration<Bytes> = {
       received: inboundPacketListener(onPacket, receiveQosOne, this.toBytes),
@@ -108,7 +107,7 @@ export class PacketInput<Bytes extends Uint8Array> {
     this.registration = undefined;
     if (this.terminal) return;
     this.terminal = { owner: 'core' };
-    this.decoder.stop(new Error('Node packet decoder detached from core'));
+    this.decoder.stop(new Error('MQTT packet decoder detached from core'));
   }
 
   private notify(): void {

@@ -475,7 +475,9 @@ describe('the core and shared subscriptions', () => {
       nodePlatform,
     ).connect();
     await expect(client.subscribe('$share/g/t')).rejects.toThrow('Unsupported shared subscription');
-    expect(peer.received).toEqual(['connect']);
+    // The session refuses the filter itself, so the refusal does not end it.
+    await client.ping();
+    expect(peer.received).toEqual(['connect', 'pingreq']);
   });
 
   test('encodes and sends a $share/ filter by default', async () => {
