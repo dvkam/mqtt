@@ -1,8 +1,9 @@
-import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { getEventListeners } from 'node:events';
 import { duplexPair, type Duplex } from 'node:stream';
 import { setImmediate } from 'node:timers/promises';
 import { generate, parser, type Packet } from 'mqtt-packet';
+import { build } from 'vite';
 import { describe, expect, test, vi } from 'vitest';
 import type { ByteInbound, ByteTransport, ByteWriter, OpenContext } from '../src/byteTransport.js';
 import type { SessionEnd } from '../src/session.js';
@@ -465,6 +466,26 @@ describe('the core over a transport it closes', () => {
   });
 });
 
+describe('the core and shared subscriptions', () => {
+  test('refuses a $share/ filter and writes nothing when the transport does not support it', async () => {
+    const { peer } = memoryPeer();
+    const client = await createByteClient(
+      { ...peer.transport, supportsSharedSubscriptions: false },
+      { clientId: 'no-share' },
+      nodePlatform,
+    ).connect();
+    await expect(client.subscribe('$share/g/t')).rejects.toThrow('Unsupported shared subscription');
+    expect(peer.received).toEqual(['connect']);
+  });
+
+  test('encodes and sends a $share/ filter by default', async () => {
+    const { peer } = memoryPeer();
+    const client = await nodeClient(peer.transport, { clientId: 'share' }).connect();
+    await client.subscribe('$share/g/t');
+    expect(peer.received).toEqual(['connect', 'subscribe']);
+  });
+});
+
 describe('the core while it opens a transport', () => {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The opener keeps the inbound object and the native abort signal by identity.
   function scriptedTransport(open: (inbound: ByteInbound, context: OpenContext) => Promise<ByteWriter>) {
@@ -588,17 +609,43 @@ describe('the core while it opens a transport', () => {
   });
 });
 
-test('the transport core and everything it imports use no Node API', () => {
-  const pending = ['transportCore.ts', 'portablePlatform.ts'];
-  const seen = new Set<string>();
-  for (let name = pending.pop(); name !== undefined; name = pending.pop()) {
-    if (seen.has(name)) continue;
-    seen.add(name);
-    const source = readFileSync(new URL('../src/' + name, import.meta.url), 'utf8');
-    // Comments never reach a bundle, so skip them, as the packed browser check does by minifying.
-    const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/.*/gu, '');
-    expect({ name, nodeApi: /\bBuffer\b|node:/u.test(code) }).toEqual({ name, nodeApi: false });
-    for (const [, path] of source.matchAll(/from '\.\/([^']+)\.js'/gu)) if (path !== undefined) pending.push(path + '.ts');
+// Bundle the core for a browser, as the packed browser check bundles the package, and scan what the bundler emits. This
+// covers every import form, Node builtins without the node: prefix, and code inside strings.
+test('a browser bundle of the transport core contains no Node API', async () => {
+  const sources = fileURLToPath(new URL('../src/', import.meta.url));
+  const result = await build({
+    configFile: false,
+    logLevel: 'silent',
+    build: {
+      write: false,
+      lib: {
+        entry: {
+          core: fileURLToPath(new URL('../src/transportCore.ts', import.meta.url)),
+          platform: fileURLToPath(new URL('../src/portablePlatform.ts', import.meta.url)),
+        },
+        formats: ['es'],
+      },
+    },
+  });
+  const chunks = [];
+  for (const bundle of Array.isArray(result) ? result : [result]) {
+    if (!('output' in bundle)) throw new Error('Unexpected Vite watcher');
+    for (const output of bundle.output) if (output.type === 'chunk') chunks.push(output);
   }
-  expect(seen.size).toBeGreaterThan(10);
+  expect(chunks.length).toBeGreaterThan(0);
+  for (const chunk of chunks) {
+    expect({ chunk: chunk.fileName, external: chunk.imports.filter((name) => !name.endsWith('.js')) }).toEqual({
+      chunk: chunk.fileName,
+      external: [],
+    });
+    expect(chunk.dynamicImports).toEqual([]);
+    // Only the package's own sources: a consumer has no polyfill such as the events package to bundle.
+    expect(chunk.moduleIds.filter((id) => !id.startsWith(sources))).toEqual([]);
+    expect(chunk.code).not.toMatch(/__vite-browser-external|\bBuffer\b|\bnode:/u);
+  }
+  let code = '';
+  for (const chunk of chunks) code += chunk.code;
+  // The bundle must hold the framer and the session, so a broken entry cannot pass by being empty.
+  expect(code).toContain('MQTT packet allocation limit exceeded');
+  expect(code).toContain('Duplicate MQTT CONNACK');
 });

@@ -18,7 +18,8 @@ type Termination = Readonly<{ owner: 'input'; kind: 'error' | 'abort' | 'remote'
 
 /**
  * Frames inbound bytes for one connection and owns its first terminal cause. The platform supplies the framer and the
- * payload type, so the same input serves Node and the browser.
+ * payload type, so the same input serves Node and the browser. Its error texts still say "Node" because tests and callers
+ * match them; they predate the browser using this input.
  */
 export class PacketInput<Bytes extends Uint8Array> {
   private readonly decoder: PacketFramer;
