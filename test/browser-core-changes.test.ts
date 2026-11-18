@@ -70,6 +70,8 @@ test('a close the peer does not finish resolves after the timeout instead of rej
   await expect(closing).resolves.toBeUndefined();
   // No close event came, but the close settled, so the caller's signal is released.
   expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
+  // The writer stopped waiting, so it no longer listens for the close event either.
+  expect(getEventListeners(ScriptedSocket.instance, 'close')).toEqual([]);
 });
 
 test('a QoS 0 PUBLISH with DUP set is a protocol error answered with DISCONNECT 0x81', async () => {
@@ -278,6 +280,36 @@ describe('behavior the browser client keeps on the core', () => {
     const client = await createBrowserClient({ ...options, timeoutMs: 60_000 }).connect();
     const started = performance.now();
     await client.disconnect();
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  test('a forced close stops message and error delivery before any close event', async () => {
+    vi.stubGlobal('WebSocket', ScriptedSocket);
+    ScriptedSocket.stallClose = true;
+    const controller = new AbortController();
+    const client = await createBrowserClient({ ...options, signal: controller.signal }).connect();
+    const reason = new Error('stop');
+    controller.abort(reason);
+    await expect(client.ping()).rejects.toBe(reason);
+    expect(getEventListeners(ScriptedSocket.instance, 'message')).toEqual([]);
+    expect(getEventListeners(ScriptedSocket.instance, 'error')).toEqual([]);
+  });
+
+  test('an abort during a graceful disconnect settles it as soon as the socket closes', async () => {
+    vi.stubGlobal('WebSocket', ScriptedSocket);
+    ScriptedSocket.stallClose = true;
+    const controller = new AbortController();
+    const client = await createBrowserClient({ ...options, signal: controller.signal, timeoutMs: 60_000 }).connect();
+    const socket = ScriptedSocket.instance;
+    const started = performance.now();
+    const closing = client.disconnect();
+    await vi.waitFor(() => {
+      expect(socket.readyState).toBe(ScriptedSocket.CLOSING);
+    });
+    controller.abort(new Error('stop'));
+    socket.readyState = ScriptedSocket.CLOSED;
+    socket.dispatchEvent(new Event('close'));
+    await closing.catch(() => {});
     expect(performance.now() - started).toBeLessThan(1000);
   });
 

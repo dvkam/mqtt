@@ -49,7 +49,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
   options: Readonly<ByteClientOptions<Bytes>>,
   platform: Readonly<BytePlatform<Bytes>>,
 ): Promise<ClientSession> {
-  const { name, supportsSharedSubscriptions = true } = transport;
+  const { name, supportsSharedSubscriptions = true, supportsPassword = true } = transport;
   const { onDiagnostic, onSessionEnd, onQosOneMessage, signal } = options;
   const isAborted = (): boolean => signal?.aborted === true;
   const abortReason = () => {
@@ -158,7 +158,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
       const client = await connectPortable(packets, {
         clientId: options.clientId,
         username: options.username,
-        password: options.password,
+        password: supportsPassword ? options.password : undefined,
         onMessage: options.onMessage,
         onDiagnostic,
         onSessionEnd,

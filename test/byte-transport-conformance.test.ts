@@ -488,6 +488,26 @@ describe('the core and shared subscriptions', () => {
   });
 });
 
+describe('the core and passwords', () => {
+  test('sends no password for a transport that does not support one', async () => {
+    const { peer, writer } = memoryPeer();
+    const writes = vi.spyOn(writer, 'write');
+    const credentials = { clientId: 'no-password', username: 'u', password: Uint8Array.of(1, 2) };
+    await createByteClient({ ...peer.transport, supportsPassword: false }, credentials, nodePlatform).connect();
+    // CONNECT flags: 0x80 is the username, 0x40 the password.
+    const flags = writes.mock.calls[0]?.[0][9] ?? 0;
+    expect({ username: (flags & 0x80) !== 0, password: (flags & 0x40) !== 0 }).toEqual({ username: true, password: false });
+  });
+
+  test('sends the password by default', async () => {
+    const { peer, writer } = memoryPeer();
+    const writes = vi.spyOn(writer, 'write');
+    await nodeClient(peer.transport, { clientId: 'password', username: 'u', password: Uint8Array.of(1, 2) }).connect();
+    const flags = writes.mock.calls[0]?.[0][9] ?? 0;
+    expect((flags & 0x40) !== 0).toBe(true);
+  });
+});
+
 describe('the core while it opens a transport', () => {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The opener keeps the inbound object and the native abort signal by identity.
   function scriptedTransport(open: (inbound: ByteInbound, context: OpenContext) => Promise<ByteWriter>) {
