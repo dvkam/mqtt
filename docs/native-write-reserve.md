@@ -27,7 +27,7 @@ These checks bound the admission projection at the time of the call. Automatic W
 
 Reserved capacity means admission room, not control priority or latency. A control packet cannot overtake queued data or a partial native write. Other controls can consume the reserve. A control larger than the remaining space still fails under the existing operation contract. A native publication budget refusal leaves the session usable when the adapter can establish that it refused the exact attempt before submission. A refused QoS 1 publication releases its identifier, broker quota and publication budget without waiting for PUBACK. A prior terminal failure still takes precedence.
 
-The raw browser byte transport keeps its previous behavior for `send(bytes)`, which uses the full budget. It also accepts `send(bytes, 'publication')` or `send(bytes, 'control')`. Raw callers own this classification because byte chunks may contain fragments or coalesced packets. The supported browser client supplies the classification from its packet object. WriteTraffic is exported from mqtt/browser as a type.
+The browser client applies the same reserve through the shared transport core, which classifies each packet before it writes. The raw browser byte transport and its `WriteTraffic` type were removed in step 4 of #171.
 
 ## Controlled validation observations
 

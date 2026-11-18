@@ -1,6 +1,6 @@
 # Byte transport and transport core
 
-The supported TCP and `ws` clients run on a byte-level transport contract and a shared transport core. Both are private for now. The browser client moves onto them in step 4 of [#171](https://github.com/dvkam/mqtt/issues/171), and step 5 makes the contract public. The decisions behind this shape are in [design-decisions.md](design-decisions.md).
+The supported TCP, `ws` and browser clients run on a byte-level transport contract and a shared transport core. Both are private for now, and step 5 of [#171](https://github.com/dvkam/mqtt/issues/171) makes the contract public. The decisions behind this shape are in [design-decisions.md](design-decisions.md).
 
 ## Contract
 
@@ -33,7 +33,7 @@ Only an end, a failure or fatal input during the open is kept for the session. A
 - It handles the caller's abort signal and force-closes the writer after a remote end, a transport failure, rejected input or an abort. A transport failure force-closes the writer even after a graceful close started.
 - If the open rejects, it reports the first failure the transport delivered to `inbound`, and otherwise the rejection.
 
-The TCP opener in `src/tcpClient.ts` creates the socket, maps its `data`, `end`, `close` and `error` events to `ByteInbound`, and owns the connection timeout and the messages that name TCP or TLS. The `ws` opener in `src/websocketClient.ts` creates the WebSocket with the `mqtt` subprotocol, maps `message`, `close` and `error`, rejects text messages and owns the close deadline. `ws` itself refuses a handshake response without the `mqtt` subprotocol.
+The TCP opener in `src/tcpClient.ts` creates the socket, maps its `data`, `end`, `close` and `error` events to `ByteInbound`, and owns the connection timeout and the messages that name TCP or TLS. The `ws` opener in `src/websocketClient.ts` creates the WebSocket with the `mqtt` subprotocol, maps `message`, `close` and `error`, rejects text messages and owns the close deadline. `ws` itself refuses a handshake response without the `mqtt` subprotocol. The browser opener in `src/browserClient.ts` opens the native WebSocket through `openMqttWebSocket`, maps `message`, `error` and `close`, checks the message limit, rejects text messages and stops listening once the socket or the core closes it. Its writer rejects a write on a socket that is not open, because `WebSocket.send()` on a closing socket drops data silently, and it owns its close deadline: a graceful close the peer does not finish within the operation timeout stops waiting. It reports no frame overhead, as the browser client before it did not.
 
 ## Conformance suite
 

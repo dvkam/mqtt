@@ -79,7 +79,7 @@ try {
 }
 ```
 
-See the [browser client profile](docs/browser-client.md) and [byte transport contract](docs/browser-transport.md) before using the preview against a broker.
+See the [browser client profile](docs/browser-client.md) and the [byte transport core](docs/byte-transport.md) before using the preview against a broker.
 
 ## Supported profile and limits
 
@@ -108,7 +108,7 @@ The [native write reserve](docs/native-write-reserve.md) checks observed queued 
 | ---------------- | ----------------------------------------------------------------- |
 | `mqtt`           | Node TCP client factory                                           |
 | `mqtt/ws`        | Node WS/WSS client factory, which needs the optional peer `ws`    |
-| `mqtt/browser`   | Browser MQTT client and native browser byte transport             |
+| `mqtt/browser`   | Browser MQTT client                                               |
 | `mqtt/codec`     | Portable `Uint8Array` encoder and incremental decoder             |
 | `mqtt/portable`  | Packet-transport session tracer for adapter work                  |
 | `mqtt/websocket` | Experimental native WebSocket transport probe                     |
