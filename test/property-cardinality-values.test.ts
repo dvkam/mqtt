@@ -193,7 +193,7 @@ test.each([[], [0x2b], [0x23], [0x61, 0x2f, 0x2b], [0x61, 0x2f, 0x23]])(
   'rejects invalid Response Topic %j',
   (...bytes: readonly number[]) => {
     const result = decode(frame('publish', stringField(0x08, bytes)));
-    expect(result.failure).toMatchObject({ code: 0x82 });
+    expect(result.failure).toMatchObject({ reasonCode: 0x82 });
     expect(result.packets).toEqual([]);
   },
 );
@@ -206,8 +206,8 @@ test.each([[0x2f], [0xef, 0xbb, 0xbf, 0xc3, 0xa9]])('preserves a valid Response 
 });
 
 test('preserves the zero-alias 0x94 and duplicate-alias 0x82 classifications', () => {
-  expect(decode(frame('publish', [0x23, 0, 0])).failure).toMatchObject({ code: 0x94 });
-  expect(decode(frame('publish', [0x23, 0, 1, 0x23, 0, 1])).failure).toMatchObject({ code: 0x82 });
+  expect(decode(frame('publish', [0x23, 0, 0])).failure).toMatchObject({ reasonCode: 0x94 });
+  expect(decode(frame('publish', [0x23, 0, 1, 0x23, 0, 1])).failure).toMatchObject({ reasonCode: 0x82 });
 });
 test.each([1, 65_535])('keeps a positive raw alias %i syntactically valid', (value) => {
   const result = decode(frame('publish', scalar(0x23, 2, value)));
@@ -323,7 +323,7 @@ test.each(['tcp', 'node-websocket'] as const)(
         'host' in peer ? createTcpClient({ ...peer, ...options }) : createWebSocketClient({ ...peer, ...options })
       ).connect();
       const failure = await client.ping().catch((reason: unknown) => reason);
-      expect(failure).toMatchObject({ code: 0x82 });
+      expect(failure).toMatchObject({ reasonCode: 0x82 });
       expect(onMessage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ topic: 'b' }));
       await expect(client.ping()).rejects.toBe(failure);
       await expect.poll(() => peer.disconnectReasons).toEqual([0x82]);

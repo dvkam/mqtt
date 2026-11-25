@@ -116,7 +116,7 @@ test('rejects AUTH as a protocol error with code 0x82', () => {
   const { received, listen } = listener();
   expect(() => {
     listen({ cmd: 'auth', reasonCode: 0 });
-  }).toThrow(expect.objectContaining({ message: 'Unexpected MQTT AUTH', code: 0x82 }));
+  }).toThrow(expect.objectContaining({ message: 'Unexpected MQTT AUTH', reasonCode: 0x82 }));
   expect(received).toEqual([]);
 });
 

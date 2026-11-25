@@ -275,7 +275,7 @@ test.each([
     ]);
     expect(broker.packets[3]).toEqual({ cmd: 'disconnect', reasonCode: code });
     const failure = await subsequent;
-    expect(failure).toMatchObject({ code });
+    expect(failure).toMatchObject({ reasonCode: code });
     for (const outcome of await outcomes) {
       if (outcome.status === 'fulfilled') throw new Error('Expected the pending request to reject');
       expect(outcome.reason).toBe(failure);
@@ -309,7 +309,7 @@ test('retires a malformed subscription reply during closing without sending anot
     expect(broker.packets.filter(({ cmd }: Readonly<{ cmd: string }>) => cmd === 'disconnect')).toEqual([{ cmd: 'disconnect' }]);
     const [first, second] = await outcomes;
     if (first.status !== 'rejected' || second.status !== 'rejected') throw new Error('Expected both operations to reject');
-    expect(first.reason).toMatchObject({ code: 0x82 });
+    expect(first.reason).toMatchObject({ reasonCode: 0x82 });
     expect(second.reason).toBe(first.reason);
   } finally {
     write.resolve();

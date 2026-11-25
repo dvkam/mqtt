@@ -15,7 +15,8 @@ function outcome(decoderKind: 'before' | 'after', bytes: readonly number[]): str
     decoder.push(Uint8Array.from(bytes));
     return delivered;
   } catch (reason) {
-    if (reason instanceof ProtocolInputError) return 'ProtocolInputError 0x' + reason.code.toString(16) + ' ' + reason.message;
+    if (reason instanceof ProtocolInputError)
+      return 'ProtocolInputError 0x' + reason.reasonCode.toString(16) + ' ' + reason.message;
     if (reason instanceof Error) return reason.constructor.name + ' ' + reason.message;
     throw reason;
   }

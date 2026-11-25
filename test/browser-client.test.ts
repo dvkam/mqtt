@@ -346,7 +346,7 @@ test.each([
       const onMessage = vi.fn<() => void>();
       const client = await createBrowserClient({ url: broker.url, clientId: 'unsuback-protocol', onMessage }).connect();
       const failure = await client.unsubscribe('a').catch((reason: unknown) => reason);
-      expect(failure).toMatchObject({ code });
+      expect(failure).toMatchObject({ reasonCode: code });
       await expect(client.ping()).rejects.toBe(failure);
       await expect.poll(() => broker.packets[2]).toMatchObject({ cmd: 'disconnect', reasonCode: code });
       expect(onMessage).not.toHaveBeenCalled();
@@ -373,7 +373,7 @@ test.each([
       expect(layout === 'separate messages' || 'reason' in opened).toBe(true);
       await expect.poll(() => broker.closed).toBe(true);
       const outcome = 'reason' in opened ? opened.reason : await opened.ping().catch((reason: unknown) => reason);
-      expect(outcome).toMatchObject({ message: 'Invalid SUBACK', code: 0x81 });
+      expect(outcome).toMatchObject({ message: 'Invalid SUBACK', reasonCode: 0x81 });
       expect(broker.packets[1]).toMatchObject({ cmd: 'disconnect', reasonCode: 0x81 });
       expect(broker.packets).toHaveLength(2);
     } finally {
@@ -448,7 +448,9 @@ test.each([
       const opening = createBrowserClient({ url: broker.url, clientId: 'direction-order' }).connect();
       const refused = message === 'MQTT acknowledgment refused';
       await expect(opening).rejects.toMatchObject(
-        refused ? { code: 'ERR_MQTT_REFUSED', reasonCode: code, message } : { code, message },
+        refused
+          ? { code: 'ERR_MQTT_REFUSED', reasonCode: code, message }
+          : { code: 'ERR_MQTT_PROTOCOL', reasonCode: code, message },
       );
       await expect.poll(() => broker.closed).toBe(true);
       expect(broker.packets).toHaveLength(notice ? 2 : 1);

@@ -7,7 +7,7 @@ import { ProtocolInputError } from '../src/protocolInputError.js';
 import { decodeUtf8 } from '../src/wireProperties.js';
 
 function describeFailure(reason: unknown): string {
-  if (reason instanceof ProtocolInputError) return 'ProtocolInputError 0x' + reason.code.toString(16) + ' ' + reason.message;
+  if (reason instanceof ProtocolInputError) return 'ProtocolInputError 0x' + reason.reasonCode.toString(16) + ' ' + reason.message;
   if (reason instanceof Error) return reason.constructor.name + ' ' + reason.message;
   throw reason;
 }

@@ -455,7 +455,7 @@ class PortableClient<Bytes extends Uint8Array> {
 
   private rejectProtocolInput(error: Readonly<ProtocolInputError>): void {
     if (this.failure) return;
-    const notice = this.activation !== 'opening' && !this.closing ? error.code : undefined;
+    const notice = this.activation !== 'opening' && !this.closing ? error.reasonCode : undefined;
     void this.abort(error, notice).catch(() => {});
   }
 
