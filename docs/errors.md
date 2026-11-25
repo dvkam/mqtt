@@ -13,7 +13,7 @@ try {
 }
 ```
 
-`error.fatal` says whether the session ended. When it is `true`, later calls reject with the same error. Create a new client factory to connect again.
+`error.fatal` says whether the session ended. When it is `true`, later calls reject with the same error, except that each call after `disconnect()` gets a new `ERR_MQTT_CLOSING` error. Create a new client factory to connect again. If an `onQosOneMessage` handler rethrows a non-fatal rejection, the session ends with a fatal copy that keeps its code and sets `cause` to the original.
 
 MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputError` extends `MqttError`. Before, its numeric `code` held the reason code. Read `reasonCode` instead. `PacketDecoder` from `mqtt/codec` reports the same class. A broker DISCONNECT also carries `reasonString` and `userProperties` when the broker sent them.
 
@@ -38,6 +38,7 @@ These still reject with their existing errors. Code them before treating the lis
 
 `test/error-code-ratchet.test.ts` counts the plain `Error`, `RangeError` and `TypeError` constructions left in `src/` and fails if one is added.
 
+- A QoS 1 publish whose signal cannot be observed rejects with a plain `Error`.
 - A non-Error value thrown by an `onQosOneMessage` handler ends the session with a plain `Error`.
 - Codec failures that MQTT 5 gives no reason code, such as many property defects and packets over `maxPacketBytes`, are plain `Error` or `RangeError` values.
 - Option validation before connecting, such as `timeoutMs` or publication limits, throws `RangeError`.
