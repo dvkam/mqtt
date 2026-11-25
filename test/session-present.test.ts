@@ -75,7 +75,7 @@ test('an earlier refusal owns the result before Session Present violation', asyn
   const opening = connectPortable(peer.transport, { clientId: 'clean-start' }).catch((reason: unknown) => reason);
   peer.receive()?.({ cmd: 'connack', sessionPresent: false, reasonCode: 0x87 });
   peer.receive()?.({ cmd: 'connack', sessionPresent: true, reasonCode: 0 });
-  expect(await opening).toMatchObject({ message: 'MQTT acknowledgment refused', code: 0x87 });
+  expect(await opening).toMatchObject({ message: 'MQTT acknowledgment refused', code: 'ERR_MQTT_REFUSED', reasonCode: 0x87 });
 });
 
 test('Session Present false permits a clean session without a persistence option', async () => {
@@ -168,7 +168,7 @@ test.each(adapters)('%s preserves a valid refusal with Session Present false', a
           ? createBrowserClient({ ...peer, ...options })
           : createWebSocketClient({ ...peer, ...options });
     const failure = await factory.connect().catch((reason: unknown) => reason);
-    expect(failure).toMatchObject({ message: 'MQTT acknowledgment refused', code: 0x87 });
+    expect(failure).toMatchObject({ message: 'MQTT acknowledgment refused', code: 'ERR_MQTT_REFUSED', reasonCode: 0x87 });
     await expect(factory.connect()).rejects.toBe(failure);
     await expect.poll(peer.connections).toBe(0);
   } finally {

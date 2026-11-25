@@ -191,7 +191,7 @@ test.each(['tcp', 'node-websocket', 'browser'] as const)('%s preserves a compact
           : createWebSocketClient({ ...peer, ...options });
     const client = await factory.connect();
     const failure = await client.ping().catch((reason: unknown) => reason);
-    expect(failure).toMatchObject({ message: 'MQTT broker disconnected', code: 0x82 });
+    expect(failure).toMatchObject({ message: 'MQTT broker disconnected', code: 'ERR_MQTT_BROKER_DISCONNECT', reasonCode: 0x82 });
     await expect(client.ping()).rejects.toBe(failure);
     await expect.poll(peer.connections).toBe(0);
   } finally {

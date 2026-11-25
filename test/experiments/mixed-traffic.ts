@@ -1,6 +1,7 @@
 import { createTcpClient } from '../../src/tcpClient.js';
 import { createWebSocketClient } from '../../src/websocketClient.js';
 import type { ClientSession } from '../../src/session.js';
+import { isMqttError } from '../../src/mqttError.js';
 import { ProbeRound, summarizeLatencies, type LatencySummary } from './mixed-traffic-ledger.js';
 import { startMixedTrafficPeer } from './mixed-traffic-peer.js';
 import { observeProbe } from './mixed-traffic-metrics.js';
@@ -162,7 +163,7 @@ export async function runMixedTrafficProbe(options: Readonly<MixedTrafficOptions
               current.accepted(id, performance.now());
             },
             (reason: unknown) => {
-              if (!(reason instanceof RangeError) || reason.message !== 'MQTT publication capacity exceeded') throw reason;
+              if (!isMqttError(reason, 'ERR_MQTT_CAPACITY')) throw reason;
               current.rejected(id);
             },
           ),

@@ -367,7 +367,8 @@ describe('the core over a transport it closes', () => {
     const controller = new AbortController();
     await expect(nodeClient(peer.transport, { clientId: 'refused', signal: controller.signal }).connect()).rejects.toMatchObject({
       message: 'MQTT acknowledgment refused',
-      code: 0x87,
+      code: 'ERR_MQTT_REFUSED',
+      reasonCode: 0x87,
     });
     expect(peer.closes).toContain(true);
     expect(getEventListeners(controller.signal, 'abort')).toEqual([]);

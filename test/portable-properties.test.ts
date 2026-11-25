@@ -202,7 +202,10 @@ test('browser client reports a broker DISCONNECT that carries a reason string wi
     }).connect();
     peer.send({ cmd: 'disconnect', reasonCode: 0x8e, properties: { reasonString: 'taken over' } });
     await expect.poll(() => ended.length).toBe(1);
-    expect(ended[0]).toMatchObject({ kind: 'error', error: { message: 'MQTT broker disconnected', code: 0x8e } });
+    expect(ended[0]).toMatchObject({
+      kind: 'error',
+      error: { message: 'MQTT broker disconnected', code: 'ERR_MQTT_BROKER_DISCONNECT', reasonCode: 0x8e },
+    });
   } finally {
     await peer.close();
   }

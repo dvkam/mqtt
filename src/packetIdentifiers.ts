@@ -1,3 +1,5 @@
+import { MqttError } from './mqttError.js';
+
 export interface IdentifierLease {
   readonly messageId: number;
   readonly release: () => void;
@@ -8,7 +10,8 @@ export class PacketIdentifiers {
   private cursor = 0;
 
   reserve(): IdentifierLease {
-    if (this.occupied.size === 65_535) throw new RangeError('MQTT packet identifiers exhausted');
+    if (this.occupied.size === 65_535)
+      throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT packet identifiers exhausted', { fatal: false });
     let messageId = this.cursor;
     do {
       messageId = messageId === 65_535 ? 1 : messageId + 1;

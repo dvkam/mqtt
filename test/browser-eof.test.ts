@@ -132,7 +132,8 @@ test('refusal keeps its code when trailing input is incomplete', async () => {
   const finish = vi.spyOn(PacketFramer.prototype, 'finish');
   ScriptedSocket.connectBytes = [0x20, 3, 0, 0x87, 0, 0x30];
   await expect(createBrowserClient({ url: 'ws://localhost', clientId: 'refused-partial' }).connect()).rejects.toMatchObject({
-    code: 0x87,
+    code: 'ERR_MQTT_REFUSED',
+    reasonCode: 0x87,
   });
   expect(finish).not.toHaveBeenCalled();
 });
@@ -211,7 +212,7 @@ test.each([
   {
     name: 'refusal before immediate close with partial trailing input',
     bytes: [0x20, 3, 0, 0x87, 0, 0x30],
-    expected: { code: 0x87 },
+    expected: { code: 'ERR_MQTT_REFUSED', reasonCode: 0x87 },
   },
 ])(
   'a real native WebSocket reports $name',
@@ -221,7 +222,7 @@ test.each([
   }: Readonly<{
     name: string;
     bytes: readonly number[];
-    expected: Readonly<{ message?: string; code?: number }>;
+    expected: Readonly<{ message?: string; code?: number | string; reasonCode?: number }>;
   }>) => {
     const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
     await once(server, 'listening');

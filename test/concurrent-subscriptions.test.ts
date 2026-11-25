@@ -100,7 +100,7 @@ test('bounds retained subscription bytes before sending or consuming an identifi
   const second = broker.client.subscribe('b');
   const outcomes = Promise.allSettled([first, second]);
   try {
-    await expect(broker.client.subscribe('c')).rejects.toBeInstanceOf(RangeError);
+    await expect(broker.client.subscribe('c')).rejects.toMatchObject({ code: 'ERR_MQTT_CAPACITY', fatal: false });
     expect(broker.packets).toHaveLength(3);
     broker.receive({ cmd: 'suback', messageId: 2, granted: [0] });
     await second;
@@ -167,7 +167,7 @@ test('a legal SUBACK refusal waits for send settlement and ignores a later malfo
     expect(settled).toBe(false);
     await expect(broker.client.subscribe('b')).rejects.toThrow('MQTT subscription capacity exceeded');
     sent.resolve();
-    expect(await first).toMatchObject({ message: 'MQTT acknowledgment refused', code: 128 });
+    expect(await first).toMatchObject({ message: 'MQTT acknowledgment refused', code: 'ERR_MQTT_REFUSED', reasonCode: 128 });
     broker.transport.send = original;
     const next = broker.client.subscribe('b');
     broker.receive({ cmd: 'suback', messageId: 2, granted: [0] });

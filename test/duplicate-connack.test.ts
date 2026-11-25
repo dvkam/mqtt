@@ -128,7 +128,7 @@ test.each([false, true])('an earlier terminal CONNACK keeps ownership, refusal=%
   peer.receive()?.({ cmd: 'connack', sessionPresent: !refusal, reasonCode: refusal ? 0x87 : 0 });
   peer.receive()?.({ cmd: 'connack', sessionPresent: false, reasonCode: 0 });
   expect(await opening).toMatchObject({
-    code: refusal ? 0x87 : 0x82,
+    ...(refusal ? { code: 'ERR_MQTT_REFUSED', reasonCode: 0x87 } : { code: 0x82 }),
     message: refusal ? 'MQTT acknowledgment refused' : 'Unexpected MQTT Session Present',
   });
 });
