@@ -365,7 +365,7 @@ class PortableClient<Bytes extends Uint8Array> {
     } catch (reason) {
       const refusedBeforeWrite =
         packet.cmd === 'publish' && packet.qos === 1 && takeNativeBudgetFailure(packet, reason) !== undefined;
-      if (!refusedBeforeWrite) void this.abort(reason instanceof Error ? reason : new Error(fallback)).catch(() => {});
+      if (!refusedBeforeWrite) void this.abort(reason instanceof Error ? reason : transportFailure(fallback)).catch(() => {});
       throw reason;
     }
   }
@@ -477,7 +477,7 @@ class PortableClient<Bytes extends Uint8Array> {
     try {
       await this.run(async () => this.sendPacket({ cmd: 'disconnect' }));
     } catch (error) {
-      await this.abort(error instanceof Error ? error : new Error('MQTT disconnect failed')).catch(() => {});
+      await this.abort(error instanceof Error ? error : transportFailure('MQTT disconnect failed')).catch(() => {});
       throw error;
     }
     this.fail(new MqttError('ERR_MQTT_CLOSING', 'Client disconnected', { fatal: true }), 'disconnect');
@@ -525,7 +525,7 @@ class PortableClient<Bytes extends Uint8Array> {
     } catch (error) {
       // Retire before freeing the acknowledgment slot. PINGRESP has no request ID.
       if (ping && !this.failure && (!background || !this.closing)) {
-        await this.abort(error instanceof Error ? error : new Error('MQTT ping failed')).catch(() => {});
+        await this.abort(error instanceof Error ? error : transportFailure('MQTT ping failed')).catch(() => {});
       }
       throw error;
     } finally {
@@ -589,6 +589,11 @@ function invalidArgument(message: string): MqttError {
   return new MqttError('ERR_MQTT_INVALID_ARGUMENT', message, { fatal: false });
 }
 
+// A transport rejected with a value that is not an Error.
+function transportFailure(message: string): MqttError {
+  return new MqttError('ERR_MQTT_TRANSPORT', message, { fatal: true });
+}
+
 function closingError(): MqttError {
   return new MqttError('ERR_MQTT_CLOSING', 'Client is closing', { fatal: true });
 }
@@ -608,7 +613,7 @@ export async function connectPortable<Bytes extends Uint8Array = Uint8Array>(
   try {
     await client.open();
   } catch (error) {
-    await client.abort(error instanceof Error ? error : new Error('MQTT connect failed')).catch(() => {});
+    await client.abort(error instanceof Error ? error : transportFailure('MQTT connect failed')).catch(() => {});
     throw error;
   }
   return {
