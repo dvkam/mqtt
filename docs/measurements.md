@@ -43,3 +43,34 @@ Local timing observations do not become CI thresholds automatically. #18 owns re
 The [historical dependency removal observations](baseline/dependency-removal.md) preserve PR #59's installed-tree, bundle and broker checks, including the correction that the after tree came from an incremental update.
 
 The [PUBLISH encoding comparison](publish-encoding-measurements.md) records unprofiled Node and Chromium timings, V8 allocation samples, and the isolated codec bundle for the single-frame assembly.
+
+## Packed echo and V8 profiles
+
+Build and pack the baseline and candidate. Install each tarball and the pinned `ws` peer into its own clean directory. Start [the pinned Mosquitto fixture](../test/packed/mosquitto-container.sh) with [the TCP configuration](../test/packed/mosquitto.conf). Use the same Node version and broker for all runs.
+
+```sh
+MQTT_TEST_PORT=18883 bash test/bench/packed-echo.sh /path/to/baseline /path/to/candidate
+```
+
+The script runs five pairs in alternating order. Each fresh process checks the QoS 1 exchange, then measures 10,000 sequential QoS 0 TCP echoes by default. Each sample checks the echoed topic and payload. The output reports echo throughput and p99 round-trip latency. Preserve the individual observations, artifact commits, broker digest, and machine load. Compare medians and ranges. The probe includes client and broker work, and its sequential requests do not exercise burst capacity or browser delivery.
+
+For a separate profile, copy `test/packed/broker.mjs` into the installed consumer and run the same workload with one diagnostic at a time.
+
+```sh
+MQTT_TEST_PORT=18883 MQTT_TEST_ITERATIONS=10000 node --cpu-prof --cpu-prof-dir=/path/to/profiles /path/to/candidate/broker.mjs
+MQTT_TEST_PORT=18883 MQTT_TEST_ITERATIONS=10000 node --heap-prof --heap-prof-dir=/path/to/profiles /path/to/candidate/broker.mjs
+MQTT_TEST_PORT=18883 MQTT_TEST_ITERATIONS=10000 node --trace-opt --trace-deopt /path/to/candidate/broker.mjs > /path/to/profiles/v8.log
+```
+
+Use the CPU or allocation profile to pick a call site before investigating object shapes or type feedback in the V8 trace. Recheck a candidate with the profiler off and the same packet validation, byte ownership and ordering. Log the result under [#178](https://github.com/dvkam/mqtt/issues/178). Open a linked issue when a measured bottleneck needs its own change.
+
+### Public transport comparison
+
+On 24 November 2026, the pinned Mosquitto 2.0.22 fixture ran on Linux x64 in a five CPU cloud machine. The compared tarballs contained `1c9fb4e` and `4e56286`. The client ran Node 26.13.0 with V8 14.6.202.34-node.40. Both sides completed 50,000 checked echoes across five runs. The figures below are medians with the ranges in parentheses.
+
+| Revision | Echoes per second | p99 echo latency in ms |
+| --- | ---: | ---: |
+| `1c9fb4e` | 37,623 (34,503–61,857) | 0.113 (0.097–0.126) |
+| `4e56286` | 40,968 (39,152–47,846) | 0.116 (0.098–0.125) |
+
+The difference is smaller than the run variation. A separate 200,000-echo CPU profile of `4e56286` captured 5,369 samples, including 2,328 idle samples. Native `writeBuffer` accounted for 1,646 samples. The largest package function by self samples was `wireCodec.join` with 128, followed by `wireCodec.variable` with 89. Those are candidates for a focused encoder workload. The V8 trace also recorded wrong-map deoptimizations in `encodePacket` and the shared send path. This trace does not show a repeated steady-state cost from those deoptimizations. The profile runs are excluded from the timing table.
