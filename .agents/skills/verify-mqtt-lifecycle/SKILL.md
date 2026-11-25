@@ -600,3 +600,11 @@ ConnackAgreement now explicitly projects only first receipts with Session Presen
 Five real source faults omit rejection, record only with a pending acknowledgment, check only active sessions, initialize a consumed flag or record after metadata access. All fail regressions and were restored. The final 19-case file fails 15 cases on the old source and passes after restoration. Concrete tests cover early listener callbacks, held CONNECT send and queued QoS 1, a mutable packet replay, a metadata getter that reenters delivery, per-client ownership, coalesced and byte-per-WebSocket-message delivery, active prefix/suffix behavior, exact observer Error identity and peer/listener cleanup. docs/duplicate-connack.md records behavior and proof limits.
 
 Source change #170 removes the legacy `connect()` client with its store, sequencer, writer and connection factory. The LegacyTlsError model and its two negative configurations are removed with it, because no source maps to them. Earlier notes about legacy TLS, the legacy writer and legacy connect options describe code that no longer exists.
+
+## Server Keep Alive and the ping exchange
+
+In `src/portable.ts`, both manual and automatic PINGREQ use the `pendingAck` slot in `exchange`. PingFence's Request maps to the installation of that slot before the write, regardless of who requested the ping. A manual caller that joins an automatic ping creates no wire request. Receive and FailExchange keep their previous mappings. A failed exchange still retires before the slot clears. The model continues to check one response owner and retirement after failure.
+
+PingFence does not model clocks, broker negotiation, or the priority of an explicit disconnect. `test/server-keep-alive.test.ts` checks those with fixed CONNACK bytes and a controlled clock. Its cases cover idle expiry, successful writes, rearming, delayed CONNACK, the pending response slot, blocked writes, cancellation and a graceful disconnect already in progress. `test/packed/server-keep-alive.mjs` checks the installed TCP client against a controlled byte peer. Browser timer suspension remains under #32.
+
+TLC 1.7.4 passed 41 positive models and reported all 146 expected invariant violations with the current model set.

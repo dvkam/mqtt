@@ -62,17 +62,25 @@ export interface PortableOptions<Bytes extends Uint8Array = Uint8Array> extends 
 type InboundPhase = 'handling' | 'acknowledging';
 type Connack = Extract<BrokerPacket, { cmd: 'connack' }>;
 type Acknowledgment =
-  | Readonly<Pick<Connack, 'cmd' | 'reasonCode' | 'sessionPresent' | 'receiveMaximum' | 'maximumQoS'>>
+  | Readonly<Pick<Connack, 'cmd' | 'reasonCode' | 'sessionPresent' | 'receiveMaximum' | 'maximumQoS' | 'serverKeepAlive'>>
   | Readonly<{ cmd: 'pingresp' }>;
+
+interface KeepAlive {
+  readonly intervalMs: number;
+  deadline: number;
+  timer?: ReturnType<typeof setTimeout>;
+}
 
 class PortableClient<Bytes extends Uint8Array> {
   private readonly transport: PacketTransport<Bytes>;
-  private readonly sendPacket: PacketTransport<Bytes>['send'];
+  private sendPacket: PacketTransport<Bytes>['send'];
   private readonly onDiagnostic: DiagnosticObserver | undefined;
   private readonly onSessionEnd: SessionEndObserver | undefined;
   private readonly options: PortableOptions<Bytes>;
   private readonly clientId: string;
   private pendingAck?: (packet: Acknowledgment) => void;
+  private keepAlive?: KeepAlive;
+  private automaticPing?: Promise<void>;
   private readonly pendingOperations = new Set<(error: Readonly<Error>) => void>();
   private failure?: Error;
   private closing?: Promise<void>;
@@ -190,6 +198,7 @@ class PortableClient<Bytes extends Uint8Array> {
   }
 
   async open(): Promise<void> {
+    let connectSentAt = 0;
     const reply = await this.exchange(
       {
         cmd: 'connect',
@@ -201,10 +210,15 @@ class PortableClient<Bytes extends Uint8Array> {
         ...(this.onQosOneMessage ? { receiveMaximum: 1 } : {}),
       },
       (ack) => ack.cmd === 'connack',
+      {
+        onSent: () => {
+          connectSentAt = performance.now();
+        },
+      },
     );
     if (this.failure) throw this.failure;
     if (reply.cmd !== 'connack') throw new Error('Expected CONNACK');
-    const { receiveMaximum = 65_535, maximumQoS } = reply;
+    const { receiveMaximum = 65_535, maximumQoS, serverKeepAlive = 0 } = reply;
     if (!Number.isInteger(receiveMaximum) || receiveMaximum < 1 || receiveMaximum > 65_535)
       throw new Error('Invalid broker Receive Maximum');
     if (maximumQoS !== undefined && maximumQoS !== 0 && maximumQoS !== 1) throw new Error('Invalid broker Maximum QoS');
@@ -212,6 +226,7 @@ class PortableClient<Bytes extends Uint8Array> {
       this.outbound = new OutboundQosOne(receiveMaximum, this.identifiers, this.transmitQosOne.bind(this));
     }
     this.activation = 'active';
+    if (serverKeepAlive > 0) this.startKeepAlive(serverKeepAlive * 1000, connectSentAt);
     this.advanceInbound();
     const interrupted = this.reportConnection('active');
     if (interrupted) throw interrupted;
@@ -350,13 +365,69 @@ class PortableClient<Bytes extends Uint8Array> {
 
   async ping(): Promise<void> {
     if (this.closing) throw new Error('Client is closing');
-    await this.exchange({ cmd: 'pingreq' }, (ack) => ack.cmd === 'pingresp');
+    await (this.automaticPing ?? this.exchangePing());
+  }
+
+  private async exchangePing(background = false): Promise<void> {
+    if (this.closing) throw new Error('Client is closing');
+    await this.exchange({ cmd: 'pingreq' }, (ack) => ack.cmd === 'pingresp', { background });
+  }
+
+  private startKeepAlive(intervalMs: number, lastSentAt: number): void {
+    const keepAlive: KeepAlive = { intervalMs, deadline: lastSentAt + intervalMs };
+    this.keepAlive = keepAlive;
+    const send = this.sendPacket;
+    // Only a session with a positive override observes completed writes.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Forward the same mutable packet to the writer.
+    this.sendPacket = async (packet) => {
+      await send(packet);
+      keepAlive.deadline = performance.now() + intervalMs;
+    };
+    this.scheduleKeepAlive();
+  }
+
+  private scheduleKeepAlive(): void {
+    const keepAlive = this.keepAlive;
+    if (!keepAlive || keepAlive.timer !== undefined) return;
+    const remaining = () => keepAlive.deadline - performance.now();
+    keepAlive.timer = setTimeout(
+      () => {
+        keepAlive.timer = undefined;
+        if (remaining() > 0) {
+          this.scheduleKeepAlive();
+          return;
+        }
+        if (this.pendingAck) {
+          void this.abort(new Error('MQTT Keep Alive deadline expired')).catch(() => {});
+          return;
+        }
+        // Starting the automatic PINGREQ begins the next interval.
+        keepAlive.deadline = performance.now() + keepAlive.intervalMs;
+        // Publish the owner before sending so a call from a diagnostic or transport callback can join it.
+        this.automaticPing = Promise.resolve().then(async () => {
+          try {
+            await this.exchangePing(true);
+          } finally {
+            this.automaticPing = undefined;
+          }
+        });
+        void this.automaticPing.catch(() => {});
+        this.scheduleKeepAlive();
+      },
+      Math.max(0, Math.ceil(remaining())),
+    );
+  }
+
+  private stopKeepAlive(): void {
+    clearTimeout(this.keepAlive?.timer);
+    this.keepAlive = undefined;
   }
 
   // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
   disconnect(): Promise<void> {
     if (this.closing === undefined) {
       this.closing = Promise.resolve().then(this.end.bind(this));
+      this.stopKeepAlive();
       this.outbound?.stop(new Error('Client is closing'));
       this.nextInbound = undefined;
     }
@@ -406,11 +477,16 @@ class PortableClient<Bytes extends Uint8Array> {
     await this.transport.close();
   }
 
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
-  private async exchange(packet: ClientPacket, matches: (ack: Acknowledgment) => boolean): Promise<Acknowledgment> {
+  private async exchange(
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
+    packet: ClientPacket,
+    matches: (ack: Acknowledgment) => boolean,
+    { onSent, background = false }: Readonly<{ onSent?: () => void; background?: boolean }> = {},
+  ): Promise<Acknowledgment> {
     const failureBeforeExchange = this.failure;
     if (failureBeforeExchange) throw failureBeforeExchange;
     if (this.pendingAck) throw new Error('Another acknowledgment is pending');
+    const ping = packet.cmd === 'pingreq';
     const ack = new Promise<Acknowledgment>((resolve) => {
       this.pendingAck = (reply) => {
         if (matches(reply)) {
@@ -425,6 +501,7 @@ class PortableClient<Bytes extends Uint8Array> {
               sessionPresent: reply.sessionPresent,
               receiveMaximum: reply.receiveMaximum,
               maximumQoS: reply.maximumQoS,
+              serverKeepAlive: reply.serverKeepAlive,
             });
           } else resolve(reply);
         }
@@ -432,15 +509,16 @@ class PortableClient<Bytes extends Uint8Array> {
     });
     try {
       const reply = await this.run(async () => {
-        const [received] = await Promise.all([ack, this.sendPacket(packet)]);
+        const sent = this.sendPacket(packet);
+        const [received] = await Promise.all([ack, onSent ? sent.then(onSent) : sent]);
         return received;
-      });
+      }, !background);
       if (reply.cmd === 'connack' && reply.reasonCode !== 0)
         throw Object.assign(new Error('MQTT acknowledgment refused'), { code: reply.reasonCode });
       return reply;
     } catch (error) {
       // Retire before freeing the acknowledgment slot. PINGRESP has no request ID.
-      if (packet.cmd === 'pingreq' && !this.failure) {
+      if (ping && !this.failure && (!background || !this.closing)) {
         await this.abort(error instanceof Error ? error : new Error('MQTT ping failed')).catch(() => {});
       }
       throw error;
@@ -472,6 +550,7 @@ class PortableClient<Bytes extends Uint8Array> {
   private fail(error: Readonly<Error>, kind: 'error' | 'disconnect' = 'error'): void {
     if (this.failure) return;
     this.failure = error;
+    this.stopKeepAlive();
     this.nextInbound = undefined;
     this.subscriptions.retire(error);
     this.outbound?.retire(error);

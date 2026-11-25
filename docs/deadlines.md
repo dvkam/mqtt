@@ -15,3 +15,11 @@ An operation timeout now retires the session in its timer callback. Pending publ
 Retirement creates one forced-close request. The transport close call runs in a later microtask. A throwing transport listener cleanup does not prevent the request, and a rejected close promise is observed. Pending publish, subscribe and ping failures do not wait for that promise. Opening and disconnect still await forced cleanup. A custom byte transport must settle its forced close promptly. An adapter that leaves this promise pending indefinitely can also leave opening or disconnect pending.
 
 Byte and operation admission before the deadline remains part of #11. This retirement policy prevents repeated timed-out retries on one session; it does not bound a burst of concurrent writes before expiry. Incoming packet limits do not bound outgoing work. See [the tracked work](https://github.com/dvkam/mqtt/issues/11) before treating the preview as a fully bounded outgoing client.
+
+## Server Keep Alive
+
+Clients send CONNECT with Keep Alive `0`. A successful CONNACK can supply a positive Server Keep Alive in seconds. The idle deadline starts at the completed CONNECT write. Each successful outbound MQTT write moves it forward. When the deadline expires, the session starts a PINGREQ and waits for its write and response within the operation timeout.
+
+There is one PINGRESP slot. A manual ping can wait on an automatic ping already in progress. A second manual ping still rejects while another manual ping owns the slot. If the idle deadline expires while a response is pending, the session closes without sending another ping. Traffic keeps moving the idle deadline while the operation timeout runs. Timeout retires the session and keeps the first error. Disconnect and retirement stop the idle timer. An automatic ping yields to a graceful disconnect already in progress. An absent or zero server value leaves automatic pings off.
+
+A suspended browser tab can miss the idle deadline. [Requirements ledger #15](https://github.com/dvkam/mqtt/issues/15) · [Negotiated MQTT behavior #16](https://github.com/dvkam/mqtt/issues/16) · [Browser suspension #32](https://github.com/dvkam/mqtt/issues/32) · [Server Keep Alive #181](https://github.com/dvkam/mqtt/issues/181)

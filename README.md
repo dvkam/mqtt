@@ -94,12 +94,12 @@ The [concurrent subscription guide](docs/concurrent-subscriptions.md) defines in
 The [native write reserve](docs/native-write-reserve.md) checks observed queued bytes before each application send and preserves control admission room. TCP and WS/WSS default to a 1 MiB total with a 128 KiB control reserve. These settings preserve wire order and do not give control packets priority over queued data.
 
 - The supported clients open MQTT 5 clean sessions with Keep Alive set to zero. They support ordinary QoS 0 and 1 subscriptions, text publishing, received binary payloads, explicit ping and graceful disconnect.
-- Only one ping can await PINGRESP. A failed ping retires the connection because a later PINGRESP cannot identify which request it answers.
+- A positive Server Keep Alive in CONNACK makes the client send pings when its outbound connection is idle. Manual and automatic pings share one PINGRESP exchange. A failed ping retires the connection because a later PINGRESP cannot identify which request it answers.
 - Any operation timeout retires the session and starts forced cleanup. Later work cannot send. Already-admitted QoS 0 bytes may still reach the broker; a timeout does not prove non-delivery. The deadline guide explains custom transport cleanup requirements.
 - Successful QoS 0 publication reports local send completion or admission according to the adapter. It does not prove broker receipt or durable storage.
 - Publishing rejects empty topic names, wildcards, null characters, unpaired surrogates and names exceeding 65,535 UTF-8 bytes before sending. Rejection leaves an active session usable. Topic aliases are not supported by this publishing API.
 - The browser transport has a write budget and the browser codec has a separate packet allocation limit. These are not a bound on every retained application object or an offline message queue.
-- QoS 2, reconnect, durable sessions, automatic keepalive scheduling, full authentication and the complete MQTT 5 property set remain planned work. The [codec profile](docs/codec.md) lists accepted packets and properties.
+- QoS 2, reconnect, durable sessions, configurable CONNECT Keep Alive, full authentication and the complete MQTT 5 property set remain planned work. The [codec profile](docs/codec.md) lists accepted packets and properties.
 - The package has no `connect()` export. Create a client with `createTcpClient`, `createWebSocketClient` or `createBrowserClient`. The MQTT.js-style client that earlier previews kept for baseline comparisons was removed in #170.
 
 ## Entry points
