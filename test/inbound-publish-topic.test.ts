@@ -2,6 +2,7 @@ import { expect, test, vi } from 'vitest';
 import { createBrowserClient } from '../src/browser.js';
 import { createTcpClient } from '../src/index.js';
 import { createWebSocketClient } from '../src/ws.js';
+import { ProtocolInputError } from '../src/protocolInputError.js';
 import { startTcpPacketPeer } from './experiments/tcp-packet-peer.js';
 import { startWebSocketPacketPeer } from './experiments/websocket-packet-peer.js';
 
@@ -87,7 +88,7 @@ test.each(
     try {
       const client = await peer.open();
       const failure = await client.ping().catch((reason: unknown) => reason);
-      expect(failure).toMatchObject({ code: 0x82 });
+      expect(failure).toMatchObject({ reasonCode: 0x82 });
       expect(onMessage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ topic: 'a' }));
       await expect(client.ping()).rejects.toBe(failure);
       await expect.poll(() => peer.disconnectReasons).toEqual([0x82]);
@@ -114,7 +115,7 @@ test.each(
     try {
       const client = await peer.open();
       const failure = await client.ping().catch((reason: unknown) => reason);
-      expect(failure).toMatchObject({ code: 0x94 });
+      expect(failure).toMatchObject({ reasonCode: 0x94 });
       expect(onMessage).not.toHaveBeenCalled();
       await expect(client.ping()).rejects.toBe(failure);
       await expect.poll(() => peer.disconnectReasons).toEqual([0x94]);
@@ -131,11 +132,11 @@ test.each(adapters)('%s rejects duplicate Topic Alias properties before delivery
   try {
     const client = await peer.open();
     const failure = await client.ping().catch((reason: unknown) => reason);
-    if (!(failure instanceof Error) || !('code' in failure)) throw new Error('Expected coded duplicate-alias rejection');
-    expect([0x82, 0x94]).toContain(failure.code);
+    if (!(failure instanceof ProtocolInputError)) throw new Error('Expected coded duplicate-alias rejection');
+    expect([0x82, 0x94]).toContain(failure.reasonCode);
     expect(onMessage).not.toHaveBeenCalled();
     await expect(client.ping()).rejects.toBe(failure);
-    await expect.poll(() => peer.disconnectReasons).toEqual([failure.code]);
+    await expect.poll(() => peer.disconnectReasons).toEqual([failure.reasonCode]);
   } finally {
     await peer.close();
   }

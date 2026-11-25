@@ -15,7 +15,7 @@ try {
 
 `error.fatal` says whether the session ended. When it is `true`, later calls reject with the same error. Create a new client factory to connect again.
 
-MQTT reason codes are in `error.reasonCode`, not `error.code`. A broker DISCONNECT also carries `reasonString` and `userProperties` when the broker sent them.
+MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputError` extends `MqttError`. Before, its numeric `code` held the reason code. Read `reasonCode` instead. `PacketDecoder` from `mqtt/codec` reports the same class. A broker DISCONNECT also carries `reasonString` and `userProperties` when the broker sent them.
 
 | Code | Cause | `fatal` | `reasonCode` |
 | --- | --- | --- | --- |
@@ -25,6 +25,7 @@ MQTT reason codes are in `error.reasonCode`, not `error.code`. A broker DISCONNE
 | `ERR_MQTT_REFUSED` | The broker refused SUBACK, UNSUBACK or PUBACK | `false` | The acknowledgment's reason code |
 | `ERR_MQTT_TIMEOUT` | An operation passed `timeoutMs`, or a Server Keep Alive deadline passed while an acknowledgment was pending | `true` | None |
 | `ERR_MQTT_BROKER_DISCONNECT` | The broker sent DISCONNECT | `true` | The DISCONNECT reason code, 0 when omitted |
+| `ERR_MQTT_PROTOCOL` | Malformed or out-of-profile broker input. The error is a `ProtocolInputError`, and an active session sends DISCONNECT with its reason code. | `true` | 0x81, 0x82 or 0x94 |
 | `ERR_MQTT_PROTOCOL` | The broker broke a session rule, such as an invalid PUBACK identifier, an invalid CONNACK limit, or more inbound QoS 1 messages than Receive Maximum allows | `true` | 0x93 for Receive Maximum. None otherwise. |
 | `ERR_MQTT_CLOSING` | The call came after `disconnect()` | `true` | None |
 
@@ -32,7 +33,7 @@ MQTT reason codes are in `error.reasonCode`, not `error.code`. A broker DISCONNE
 
 These still reject with their existing errors. Code them before treating the list above as complete.
 
-- Decoder and session input errors remain `ProtocolInputError`. Its numeric `code` is the MQTT reason code, 0x81, 0x82 or 0x94.
+- Codec failures that MQTT 5 gives no reason code, such as many property defects and packets over `maxPacketBytes`, are plain `Error` or `RangeError` values.
 - Option validation before connecting, such as `timeoutMs` or publication limits, throws `RangeError`.
 - Transport failures, write budget refusals and native socket errors keep their transport's error.
 - An abort rejects with the signal's own reason, or an `AbortError` when the reason is not an Error. This stays as it is.

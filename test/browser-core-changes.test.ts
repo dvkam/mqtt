@@ -80,7 +80,7 @@ test('a QoS 0 PUBLISH with DUP set is a protocol error answered with DISCONNECT 
   const client = await createBrowserClient(options).connect();
   const pending = client.ping();
   ScriptedSocket.instance.receive([0x38, 4, 0, 1, 97, 0]);
-  await expect(pending).rejects.toMatchObject({ code: 0x81 });
+  await expect(pending).rejects.toMatchObject({ reasonCode: 0x81 });
   await vi.waitFor(() => {
     expect(ScriptedSocket.instance.sent[ScriptedSocket.instance.sent.length - 1]).toEqual([0xe0, 1, 0x81]);
   });
@@ -155,7 +155,7 @@ test('a client-only packet from the broker fails on its first byte with 0x82 and
   const client = await createBrowserClient(options).connect();
   const pending = client.ping();
   ScriptedSocket.instance.receive([0x10]);
-  await expect(pending).rejects.toMatchObject({ code: 0x82 });
+  await expect(pending).rejects.toMatchObject({ reasonCode: 0x82 });
   await vi.waitFor(() => {
     expect(ScriptedSocket.instance.sent[ScriptedSocket.instance.sent.length - 1]).toEqual([0xe0, 1, 0x82]);
   });

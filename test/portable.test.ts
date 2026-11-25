@@ -294,7 +294,7 @@ test('opt-in diagnostics include only connection state and packet commands', asy
     reasonString: 'private-reason',
     userProperties: [['private-key', 'private-value']],
   });
-  await expect(client.ping()).rejects.toMatchObject({ code: 0x82 });
+  await expect(client.ping()).rejects.toMatchObject({ reasonCode: 0x82 });
   broker.close(new Error('private-failure'));
   expect(events).toEqual([
     { kind: 'packet', direction: 'inbound', command: 'connack' },

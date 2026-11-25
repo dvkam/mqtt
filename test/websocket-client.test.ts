@@ -212,7 +212,7 @@ test.each([
     try {
       const client = await createWebSocketClient({ url: broker.url, clientId: 'suback-protocol' }).connect();
       const failure = await client[command]('a').catch((reason: unknown) => reason);
-      expect(failure).toMatchObject({ code: 0x82 });
+      expect(failure).toMatchObject({ reasonCode: 0x82 });
       await expect(client.ping()).rejects.toBe(failure);
       await expect.poll(() => broker.packets[2]).toMatchObject({ cmd: 'disconnect', reasonCode: 0x82 });
     } finally {

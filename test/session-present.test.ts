@@ -50,7 +50,7 @@ test.each([0, 0x87])('rejects decoded Session Present with reason %i before acce
   peer.receive()?.({ cmd: 'publish', qos: 0, topic: 'a', payload: Buffer.alloc(0), dup: false, retain: false });
   peer.closed()?.(new Error('later close'));
   const failure = await opening;
-  expect(failure).toMatchObject({ message: 'Unexpected MQTT Session Present', code: 0x82 });
+  expect(failure).toMatchObject({ message: 'Unexpected MQTT Session Present', reasonCode: 0x82 });
   expect(peer.connects).toEqual([{ cleanStart: true, clientId: 'clean-start' }]);
   expect(peer.commands).toEqual(['connect']);
   expect(peer.close).toHaveBeenCalledExactlyOnceWith(true);
@@ -67,7 +67,7 @@ test('Session Present failure owns the result before a coalesced later refusal',
   const opening = connectPortable(peer.transport, { clientId: 'clean-start' }).catch((reason: unknown) => reason);
   peer.receive()?.({ cmd: 'connack', sessionPresent: true, reasonCode: 0 });
   peer.receive()?.({ cmd: 'connack', sessionPresent: false, reasonCode: 0x87 });
-  expect(await opening).toMatchObject({ message: 'Unexpected MQTT Session Present', code: 0x82 });
+  expect(await opening).toMatchObject({ message: 'Unexpected MQTT Session Present', reasonCode: 0x82 });
 });
 
 test('an earlier refusal owns the result before Session Present violation', async () => {
@@ -96,7 +96,7 @@ test('a second CONNACK claiming Session Present retires accepted opening before 
   peer.receive()?.({ cmd: 'connack', sessionPresent: false, reasonCode: 0 });
   peer.receive()?.({ cmd: 'publish', qos: 1, topic: 'a', payload: Buffer.alloc(0), messageId: 1, dup: false, retain: false });
   peer.receive()?.({ cmd: 'connack', sessionPresent: true, reasonCode: 0 });
-  expect(await opening).toMatchObject({ message: 'Duplicate MQTT CONNACK', code: 0x82 });
+  expect(await opening).toMatchObject({ message: 'Duplicate MQTT CONNACK', reasonCode: 0x82 });
   expect(onQosOneMessage).not.toHaveBeenCalled();
   expect(peer.commands).toEqual(['connect', 'disconnect']);
   expect(peer.close).toHaveBeenCalledExactlyOnceWith(true);
@@ -136,7 +136,7 @@ test.each(adapters.flatMap((adapter) => [false, true].map((accepted) => ({ adapt
       const failure = await opening.catch((reason: unknown) => reason);
       expect(failure).toMatchObject({
         message: accepted ? 'Duplicate MQTT CONNACK' : 'Unexpected MQTT Session Present',
-        code: 0x82,
+        reasonCode: 0x82,
       });
       await expect(factory.connect()).rejects.toBe(failure);
       await expect.poll(peer.connections).toBe(0);
@@ -193,7 +193,7 @@ test.each(adapters)('%s retires active Session Present before ping and publicati
           : createWebSocketClient({ ...peer, ...options });
     const client = await factory.connect();
     const failure = await client.ping().catch((reason: unknown) => reason);
-    expect(failure).toMatchObject({ message: 'Duplicate MQTT CONNACK', code: 0x82 });
+    expect(failure).toMatchObject({ message: 'Duplicate MQTT CONNACK', reasonCode: 0x82 });
     await expect(client.ping()).rejects.toBe(failure);
     await expect.poll(peer.connections).toBe(0);
     expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);

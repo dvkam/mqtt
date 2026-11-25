@@ -29,7 +29,7 @@ Open a native WebSocket with the `mqtt` subprotocol and set `binaryType` to `arr
 
 User Properties are ordered key/value tuples. Duplicate keys and empty keys or values are preserved.
 
-`ClientPacket` names the packets a client may encode, and `BrokerPacket` the packets a broker may send in this profile. A zero packet identifier in a broker packet is a `ProtocolInputError` with code 0x82 (MQTT-2.2.1-3). Before, PUBLISH and PUBACK threw a `RangeError`. The browser client answers it with DISCONNECT 0x82 once the session is active, as the Node clients do.
+`ClientPacket` names the packets a client may encode, and `BrokerPacket` the packets a broker may send in this profile. A zero packet identifier in a broker packet is a `ProtocolInputError` with reason code 0x82 (MQTT-2.2.1-3). Before, PUBLISH and PUBACK threw a `RangeError`. The browser client answers it with DISCONNECT 0x82 once the session is active, as the Node clients do.
 
 A malformed property section reports the same error from `PacketDecoder` and from the Node clients. The messages name the packet, for example `Invalid MQTT PUBLISH property UTF-8` and `Duplicate MQTT CONNACK property`. An ill-formed string no longer surfaces as a `TypeError` from `TextDecoder`, and a zero Receive Maximum, Maximum Packet Size or Subscription Identifier is `Invalid zero MQTT property value`, not a `RangeError`. [Property decoding](property-decoding.md) lists every message.
 

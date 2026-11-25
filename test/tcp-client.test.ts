@@ -356,7 +356,7 @@ test.each([
     if (!(socket instanceof Socket)) throw new Error('Expected the broker socket');
     socket.write(Buffer.from(bytes));
     const failure = await pending;
-    expect(failure).toMatchObject({ code: 0x82 });
+    expect(failure).toMatchObject({ reasonCode: 0x82 });
     await expect(client.ping()).rejects.toBe(failure);
     expect(onMessage).not.toHaveBeenCalled();
     await closed;
@@ -378,7 +378,7 @@ test('closes on a parser-rejected SUBACK before CONNACK without writing a notice
     const socket = event[0];
     if (!(socket instanceof Socket)) throw new Error('Expected the broker socket');
     socket.write(Buffer.from([0x90, 4, 0, 1, 0, 17]));
-    expect(await pending).toMatchObject({ code: 0x82 });
+    expect(await pending).toMatchObject({ reasonCode: 0x82 });
     await closed;
     expect(peer.commands).toEqual(['connect']);
   } finally {
