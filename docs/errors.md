@@ -29,13 +29,16 @@ MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputErr
 | `ERR_MQTT_PROTOCOL` | The broker broke a session rule, such as an invalid PUBACK identifier, an invalid CONNACK limit, or more inbound QoS 1 messages than Receive Maximum allows | `true` | 0x93 for Receive Maximum. None otherwise. |
 | `ERR_MQTT_CLOSING` | The call came after `disconnect()` | `true` | None |
 | `ERR_MQTT_TIMEOUT` | The TCP or TLS connection, or the native WebSocket handshake, did not open within `timeoutMs` | `true` | None |
-| `ERR_MQTT_TRANSPORT` | The socket or WebSocket closed, a WebSocket handshake or subprotocol check failed, a text WebSocket message arrived, or no native WebSocket exists | `true` | None |
+| `ERR_MQTT_TRANSPORT` | The socket or WebSocket closed, a WebSocket handshake or subprotocol check failed, a text WebSocket message arrived, no native WebSocket exists, or a custom transport rejected with a value that is not an Error | `true` | None |
 | `ERR_MQTT_ABORTED` | The signal aborted with a reason that is not an Error. The error's `name` is `AbortError`. | `true` | None |
 
 ## Not yet coded
 
 These still reject with their existing errors. Code them before treating the list above as complete.
 
+`test/error-code-ratchet.test.ts` counts the plain `Error`, `RangeError` and `TypeError` constructions left in `src/` and fails if one is added.
+
+- A non-Error value thrown by an `onQosOneMessage` handler ends the session with a plain `Error`.
 - Codec failures that MQTT 5 gives no reason code, such as many property defects and packets over `maxPacketBytes`, are plain `Error` or `RangeError` values.
 - Option validation before connecting, such as `timeoutMs` or publication limits, throws `RangeError`.
 - Native socket and `ws` errors pass through unchanged, as do custom transport errors.
