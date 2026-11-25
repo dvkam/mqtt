@@ -91,7 +91,7 @@ if run_session wss://localhost:18886/mqtt "$broker_dir/ca.pem" > "$broker_dir/no
   exit 1
 fi
 grep -Ei 'certificate.required|handshake.failure|socket hang up|alert' "$broker_dir/no-client-cert.log"
-cp test/packed/websocket-session.mjs "$consumer/"
+cp test/packed/{websocket-session,native-websocket}.mjs "$consumer/"
 session=test/packed/websocket-session-check.ts
 timeout 20 node "$session" "$consumer" ws://127.0.0.1:18884/mqtt
 node test/packed/websocket-tls-gateway.ts "$broker_dir/server.pem" "$broker_dir/server.key" &

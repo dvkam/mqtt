@@ -6,7 +6,9 @@
     "types": [],
     "paths": {
       "mqtt/browser": ["../../../.type-fixtures/browser-api/browser.d.ts"],
-      "mqtt/codec": ["../../../.type-fixtures/browser-api/codec.d.ts"]
+      "mqtt/codec": ["../../../.type-fixtures/browser-api/codec.d.ts"],
+      "mqtt/portable": ["../../../.type-fixtures/browser-api/portableClient.d.ts"],
+      "mqtt/websocket": ["../../../.type-fixtures/browser-api/websocketOptions.d.ts"]
     },
     "strict": true,
     "skipLibCheck": false,

@@ -1,9 +1,17 @@
-import { createTcpClient, type ClientDiagnostic, type DiagnosticObserver, type NodeQosOneMessage, type SessionEnd } from 'mqtt';
+import {
+  createTcpClient,
+  createTransportClient,
+  type ByteTransport,
+  type ClientDiagnostic,
+  type DiagnosticObserver,
+  type NodeQosOneMessage,
+  type SessionEnd,
+} from 'mqtt';
 import { createWebSocketClient } from 'mqtt/ws';
 export type { ClientFactory, ClientSession, NodeMessage, PublishOptions, TcpClientOptions } from 'mqtt';
 export type { WebSocketClientOptions } from 'mqtt/ws';
 export type { BrowserClientOptions, ClientFactory as BrowserFactory, ClientSession as BrowserClientSession } from 'mqtt/browser';
-import { connectPortable, type PacketTransport, type ProtocolInputCode, type ProtocolInputError } from 'mqtt/portable';
+import type { ProtocolInputCode, ProtocolInputError } from 'mqtt/portable';
 
 type RequireTrue<Value extends true> = Value;
 type RequireFalse<Value extends false> = Value;
@@ -33,26 +41,20 @@ export type QosOneHasIdentifier = RequireTrue<(NodeQosOne | BrowserQosOne)['mess
 export type QosOneIsOne = RequireTrue<(NodeQosOne | BrowserQosOne)['qos'] extends 1 ? true : false>;
 export type NodeQosOneCallbackUsesNamedMessage = RequireTrue<NodeQosOne extends NodeQosOneMessage ? true : false>;
 export type NamedNodeQosOneMatchesCallback = RequireTrue<NodeQosOneMessage extends NodeQosOne ? true : false>;
-type TransportProtocolError = Parameters<NonNullable<Parameters<PacketTransport['listen']>[2]>>[0];
-export type TransportProtocolErrorIsNamed = RequireTrue<TransportProtocolError extends Readonly<ProtocolInputError> ? true : false>;
 export type ProtocolInputCodeIsSpecific = RequireFalse<IsAny<ProtocolInputCode>>;
-export type TransportProtocolCodeIsSpecific = RequireFalse<IsAny<TransportProtocolError['code']>>;
 export type ProtocolInputCodeIsBounded = RequireTrue<ProtocolInputCode extends 0x81 | 0x82 | 0x94 ? true : false>;
 export type ProtocolInputCodeIsComplete = RequireTrue<0x81 | 0x82 | 0x94 extends ProtocolInputCode ? true : false>;
-export type TransportProtocolCodeUsesNamedType = RequireTrue<
-  TransportProtocolError['code'] extends ProtocolInputCode ? true : false
->;
-export type TransportProtocolCodeAcceptsNamedType = RequireTrue<
-  ProtocolInputCode extends TransportProtocolError['code'] ? true : false
->;
+export type TransportProtocolCodeUsesNamedType = RequireTrue<ProtocolInputError['code'] extends ProtocolInputCode ? true : false>;
+type TransportPayload = Parameters<NonNullable<Parameters<typeof createTransportClient>[1]['onMessage']>>[0]['payload'];
+export type TransportPayloadIsSpecific = RequireFalse<IsAny<TransportPayload>>;
+export type TransportPayloadIsBuffer = RequireTrue<TransportPayload extends Buffer ? true : false>;
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-export async function checkDeclarations(transport: PacketTransport) {
-  const portable = await connectPortable(transport, { clientId: 'consumer' });
+export async function checkDeclarations(transport: Readonly<ByteTransport>) {
+  const portable = await createTransportClient(transport, { clientId: 'consumer' }).connect();
   await portable.subscribe('consumer/test');
   await portable.unsubscribe('consumer/test');
   await portable.publish('consumer/test', 'hello');
-  // @ts-expect-error The experimental tracer accepts string payloads.
+  // @ts-expect-error The client accepts string payloads.
   await portable.publish('consumer/test', 42);
   await portable.disconnect();
 }

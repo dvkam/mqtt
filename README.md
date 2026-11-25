@@ -110,8 +110,10 @@ The [native write reserve](docs/native-write-reserve.md) checks observed queued 
 | `mqtt/ws`        | Node WS/WSS client factory, which needs the optional peer `ws`    |
 | `mqtt/browser`   | Browser MQTT client                                               |
 | `mqtt/codec`     | Portable `Uint8Array` encoder and incremental decoder             |
-| `mqtt/portable`  | Packet-transport session tracer for adapter work                  |
-| `mqtt/websocket` | Experimental native WebSocket transport probe                     |
+| `mqtt/portable`  | Custom byte transport client with Uint8Array payloads              |
+| `mqtt/websocket` | `WebSocketOptions` type                                           |
+
+Use `createTransportClient` from `mqtt` for a custom byte transport with Buffer payloads. See the [custom transport guide](docs/recipes/using-custom-transports.md).
 
 The browser client, the Node adapters and the shared session all use the in-repository portable codec and its packet types. The package has no runtime dependency. The Node WebSocket client in `mqtt/ws` needs `ws` as an optional peer dependency. `mqtt-packet` is a development dependency that the tests use as an independent reference. The remaining protocol profile is tracked in [#8](https://github.com/dvkam/mqtt/issues/8) and [#37](https://github.com/dvkam/mqtt/issues/37).
 

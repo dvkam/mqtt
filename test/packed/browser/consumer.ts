@@ -1,6 +1,7 @@
 import { createBrowserClient } from 'mqtt/browser';
 import { PacketDecoder, type WirePacket } from 'mqtt/codec';
-import { openMqttWebSocket, type WebSocketOptions } from 'mqtt/websocket';
+import { createTransportClient, type ByteTransport } from 'mqtt/portable';
+import type { WebSocketOptions } from 'mqtt/websocket';
 import type {
   BrowserClientOptions,
   BrowserQosOneMessage,
@@ -83,9 +84,16 @@ export function checkDecoderCompletion() {
   decoder.finish();
 }
 
-export async function checkNativeWebSocketOptions() {
+export function checkNativeWebSocketOptions(): WebSocketOptions {
   const socketOptions: WebSocketOptions = { signal: AbortSignal.timeout(1000), timeoutMs: 500 };
-  return openMqttWebSocket('wss://localhost/mqtt', socketOptions);
+  return socketOptions;
+}
+
+type TransportPayload = Parameters<NonNullable<Parameters<typeof createTransportClient>[1]['onMessage']>>[0]['payload'];
+export type TransportPayloadIsSpecific = RequireFalse<IsAny<TransportPayload>>;
+export type TransportPayloadIsBytes = RequireTrue<TransportPayload extends Uint8Array ? true : false>;
+export function createCustomBrowserFactory(transport: Readonly<ByteTransport>): ClientFactory {
+  return createTransportClient(transport, { clientId: 'packed-browser-custom' });
 }
 
 export function checkDecoderBatch() {

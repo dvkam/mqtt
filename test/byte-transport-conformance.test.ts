@@ -11,6 +11,8 @@ import type { BytePlatform } from '../src/bytePlatform.js';
 import { nodePlatform } from '../src/nodePlatform.js';
 import { portablePlatform } from '../src/portablePlatform.js';
 import { createByteClient, type ByteClientOptions } from '../src/transportCore.js';
+import { createTransportClient } from '../src/index.js';
+import type { ClientSession } from '../src/session.js';
 
 const codec = { protocolVersion: 5 } as const;
 
@@ -622,6 +624,35 @@ describe('the core while it opens a transport', () => {
     expect(factory.connect()).toBe(first);
     await first;
     expect(peer.opens()).toBe(1);
+  });
+
+  test('the public factory shares its connection with a synchronous call from open', async () => {
+    const { peer } = memoryPeer();
+    const secondPeer = memoryPeer().peer;
+    let duringOpen: Promise<ClientSession> | undefined;
+    let reentered = false;
+    const factory = createTransportClient(
+      {
+        name: 'Reentrant transport',
+        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Pass the same native inbound endpoint and signal to the scripted peer.
+        async open(inbound, context) {
+          if (reentered) return secondPeer.transport.open(inbound, context);
+          reentered = true;
+          duringOpen = factory.connect();
+          return peer.transport.open(inbound, context);
+        },
+      },
+      { clientId: 'reentrant' },
+    );
+    const first = factory.connect();
+    try {
+      expect(duringOpen).toBe(first);
+      expect(peer.opens()).toBe(1);
+      expect(secondPeer.opens()).toBe(0);
+    } finally {
+      await (await first).disconnect();
+      if (duringOpen && duringOpen !== first) await (await duringOpen).disconnect();
+    }
   });
 
   test('rejects an invalid option before it opens the transport', async () => {

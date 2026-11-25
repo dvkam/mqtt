@@ -1,6 +1,6 @@
 # Bounded concurrent subscriptions
 
-The supported TCP, Node WebSocket, browser and custom packet clients can run several subscribe and unsubscribe requests concurrently. Each request reserves a packet identifier and waits for its own SUBACK or UNSUBACK. Reversed acknowledgment order does not complete the wrong request. Ping retains a separate, unnumbered response slot.
+The supported TCP, Node WebSocket, browser and custom byte transport clients can run several subscribe and unsubscribe requests concurrently. Each request reserves a packet identifier and waits for its own SUBACK or UNSUBACK. Reversed acknowledgment order does not complete the wrong request. Ping retains a separate, unnumbered response slot.
 
 ```ts
 import { createTcpClient } from 'mqtt';
@@ -19,7 +19,7 @@ try {
 }
 ```
 
-Import `createTcpClient` from `mqtt`. Use the same limits with `createWebSocketClient` from `mqtt/ws`, `createBrowserClient` from `mqtt/browser` or `connectPortable` from `mqtt/portable`.
+Import `createTcpClient` from `mqtt`. Use the same limits with `createWebSocketClient` from `mqtt/ws`, `createBrowserClient` from `mqtt/browser` or `createTransportClient` from `mqtt` or `mqtt/portable`.
 
 ## Limits
 
@@ -28,7 +28,7 @@ Import `createTcpClient` from `mqtt`. Use the same limits with `createWebSocketC
 | maxPendingSubscriptions     |      32 | Maximum reserved subscription exchanges, from 1 through 65,535               |
 | maxPendingSubscriptionBytes | 1048576 | Sum of their complete encoded MQTT 5 SUBSCRIBE and UNSUBSCRIBE request sizes |
 
-Both values must be safe integers within their stated range. The byte limit must be positive. Factories validate and capture the values when connection starts, before native resource acquisition. Mutating the caller's settings during opening does not change them. The custom packet client validates before listener registration.
+Both values must be safe integers within their stated range. The byte limit must be positive. Factories validate and capture the values when connection starts, before native resource acquisition. Mutating the caller's settings during opening does not change them. Custom byte transport factories validate before calling `open`.
 
 An excess request rejects with a RangeError whose message is `MQTT subscription capacity exceeded`. It reserves no identifier, creates no operation timer and does not call the packet transport. There is no waiting queue. Other exchanges continue, and the caller may retry when capacity becomes available.
 
@@ -52,7 +52,7 @@ The browser dispatches complete packets before a later decoder error. An earlier
 
 A subscription send rejection can mean that bytes reached the peer. The client retires the session, rejects other operations with its first failure and requests forced closure. It does not reuse that session's identifiers. A timeout or connection failure also retires all pending subscription ownership. Graceful disconnect rejects unfinished exchanges. A late acknowledgment or send callback cannot reactivate the session.
 
-The browser codec supports ordinary filters. The session rejects a browser request for a shared filter before reservation. The Node adapters keep shared-filter support. A custom packet transport can declare the same restriction with `supportsSharedSubscriptions: false`.
+The browser codec supports ordinary filters. The session rejects a browser request for a shared filter before reservation. The Node adapters keep shared-filter support. A custom byte transport can declare the same restriction with `supportsSharedSubscriptions: false`.
 
 Identifiers use the range 1 through 65,535. Allocation wraps and skips occupied identifiers. Each release owns its entry identity. An old callback cannot delete a newer entry after numeric identifier reuse. A local identity token cannot distinguish an arbitrary stale same-kind wire acknowledgment after legitimate reuse within one connection. This design assumes the peer follows MQTT exchange and ordering rules. Reconnect generation fencing remains separate work under #12.
 

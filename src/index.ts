@@ -5,8 +5,15 @@
  * See LICENSE for more information
  */
 
+import type { ByteTransport } from './byteTransport.js';
+import { nodePlatform } from './nodePlatform.js';
+import type { ClientFactory } from './session.js';
+import { createByteClient, type ByteClientOptions } from './transportCore.js';
+
 export { createTcpClient } from './tcpClient.js';
 export type { TcpClientOptions, TcpTlsOptions } from './tcpClient.js';
+export type { ByteInbound, ByteTransport, ByteWriter, OpenContext } from './byteTransport.js';
+export type { ByteClientOptions } from './transportCore.js';
 export type {
   ClientFactory,
   ClientSession,
@@ -20,3 +27,12 @@ export type { NodeMessage, NodeQosOneMessage } from './nodeMessage.js';
 export type { MessageProperties } from './messageProperties.js';
 export type { UserProperty } from './codec.js';
 export type { ClientDiagnostic, DiagnosticObserver } from './diagnostics.js';
+
+/** Create a one-shot MQTT client with Buffer payloads over a custom transport. */
+export function createTransportClient(
+  transport: Readonly<ByteTransport>,
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The client preserves the native AbortSignal and mutable Buffer delivery.
+  options: Readonly<ByteClientOptions<Buffer>>,
+): ClientFactory {
+  return createByteClient(transport, options, nodePlatform);
+}

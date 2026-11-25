@@ -13,11 +13,11 @@
 export interface ByteInbound {
   /** Bytes from the peer, split at any boundary. The core copies what it keeps, so the transport may reuse the chunk. */
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views are mutable; the core copies what it keeps.
-  bytes(chunk: Readonly<Uint8Array>): void;
+  bytes(this: void, chunk: Readonly<Uint8Array>): void;
   /** The peer finished sending, or the connection closed. */
-  end(reason?: Readonly<Error>): void;
+  end(this: void, reason?: Readonly<Error>): void;
   /** The transport broke. */
-  fail(error: Readonly<Error>): void;
+  fail(this: void, error: Readonly<Error>): void;
 }
 
 export interface OpenContext {

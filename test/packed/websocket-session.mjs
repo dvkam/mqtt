@@ -1,5 +1,5 @@
 import { createBrowserClient } from 'mqtt/browser';
-import { openMqttWebSocket } from 'mqtt/websocket';
+import { openNativeWebSocket } from './native-websocket.mjs';
 import { encodePacket, PacketDecoder } from 'mqtt/codec';
 
 /** @param {string} url */
@@ -119,7 +119,7 @@ export async function mqttSession(url, packets) {
     }
   }
 
-  const socket = await openMqttWebSocket(url);
+  const socket = await openNativeWebSocket(url);
   const closed = new Promise((resolve) => {
     socket.addEventListener('close', resolve, { once: true });
   });

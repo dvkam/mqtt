@@ -1,6 +1,6 @@
 # Byte transport and transport core
 
-The supported TCP, `ws` and browser clients run on a byte-level transport contract and a shared transport core. Both are private for now, and step 5 of [#171](https://github.com/dvkam/mqtt/issues/171) makes the contract public. The decisions behind this shape are in [design-decisions.md](design-decisions.md).
+The supported TCP, `ws` and browser clients run on a byte-level transport contract and a shared transport core. Custom transports use the same contract through `createTransportClient` from `mqtt` or `mqtt/portable`. The core is private. The decisions behind this shape are in [design-decisions.md](design-decisions.md).
 
 ## Contract
 

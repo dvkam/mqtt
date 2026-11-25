@@ -33,7 +33,15 @@ export function createByteClient<Bytes extends Uint8Array>(
   return {
     // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
     connect() {
-      connection ??= connectOverBytes(transport, options, platform);
+      if (connection) return connection;
+      let start = () => {};
+      connection = new Promise((resolve, reject) => {
+        start = () => {
+          void connectOverBytes(transport, options, platform).then(resolve, reject);
+        };
+      });
+      // The opener can call connect() before it returns its writer.
+      start();
       return connection;
     },
   };
@@ -94,6 +102,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
     teardown(reason);
   };
   const abort = () => {
+    release();
     const reason = input.retire('abort', abortReason()) ?? abortReason();
     teardown(reason);
   };

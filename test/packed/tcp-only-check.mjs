@@ -10,8 +10,13 @@ await assert.rejects(import('ws'), missingWs, 'ws must not be installed for this
 
 const root = await import('mqtt');
 assert.equal(typeof root.createTcpClient, 'function');
+assert.equal(typeof root.createTransportClient, 'function');
 assert.equal('createWebSocketClient' in root, false, 'the root entry must not export the ws client');
-for (const entry of ['mqtt/browser', 'mqtt/codec', 'mqtt/portable', 'mqtt/websocket']) await import(entry);
+for (const entry of ['mqtt/browser', 'mqtt/codec']) await import(entry);
+const portable = await import('mqtt/portable');
+assert.equal(typeof portable.createTransportClient, 'function');
+assert.equal('connectPortable' in portable, false, 'mqtt/portable must expose the byte transport');
+assert.deepEqual(Object.keys(await import('mqtt/websocket')), [], 'mqtt/websocket must export types only');
 assert.equal('openBrowserTransport' in (await import('mqtt/browser')), false, 'mqtt/browser must not export openBrowserTransport');
 
 await assert.rejects(import('mqtt/ws'), missingWs, 'mqtt/ws must fail to load without ws');

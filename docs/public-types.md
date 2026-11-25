@@ -15,9 +15,9 @@ Use `import type` for the named contracts. TypeScript 7.0.2 is the supported com
 | `ClientSession`                                                                   | Both client entries                     | Subscribe, unsubscribe, text publish, ping and disconnect promises                                                                           |
 | `BrowserSession`                                                                  | `mqtt/browser`                          | Alias for `ClientSession`                                                                                                                    |
 | `PublishOptions`, `SubscribeOptions`                                              | Both client entries                     | QoS options. Only QoS 1 publish accepts a cancellation signal.                                                                               |
-| `WebSocketOptions`                                                                | `mqtt/websocket`                        | Timeout and cancellation for opening a native MQTT WebSocket                                                                                 |
-| `PortableOptions`, `PacketTransport`                                              | `mqtt/portable`                         | Experimental generic client and custom transport options. The packet contract uses the codec's packet model. See [custom transport contract](#custom-transport-contract).                                 |
-| `ProtocolInputError`, `ProtocolInputCode`                                         | `mqtt/portable`                         | Decoder rejection passed to the optional transport protocol-error callback. Its readonly code is 0x81, 0x82 or 0x94. A custom transport can construct one. |
+| `WebSocketOptions`                                                                | `mqtt/websocket`                        | Type for native WebSocket timeout and cancellation options                                                                                 |
+| `ByteClientOptions`, `ByteTransport`, `ByteInbound`, `ByteWriter`, `OpenContext` | `mqtt`, `mqtt/portable` | Session options and the [custom transport contract](#custom-transport-contract) |
+| `ProtocolInputError`, `ProtocolInputCode`                                         | `mqtt/portable`                         | Decoder rejection and its reason code, 0x81, 0x82 or 0x94 |
 
 `onMessage` handles QoS 0. Register `onQosOneMessage` before requesting a QoS 1 subscription. Its message adds a packet identifier and a DUP flag, with the same platform-specific payload type. The client acknowledges the delivery after that handler succeeds. See [inbound QoS 1 delivery](qos1-receive.md).
 
@@ -67,77 +67,28 @@ On Node, `payload` and `correlationData` are views of the one allocation the dec
 
 The old map kept the order of values under one key but lost the order between keys. The pairs keep the order the broker sent, which MQTT 5 requires a forwarder to keep (MQTT-3.3.2-18).
 
-## Removed browser transport
-
-Step 4 of [#171](https://github.com/dvkam/mqtt/issues/171) removed `openBrowserTransport` and its types `BrowserTransport`, `BrowserTransportOptions`, `BrowserCloseKind` and `WriteTraffic` from `mqtt/browser`. Use `createBrowserClient` for an MQTT session. For raw bytes, open the socket with `openMqttWebSocket` from `mqtt/websocket` and encode and decode with `mqtt/codec`. Step 5 makes the byte transport public and adds a migration table for every removed seam.
-
 ## Custom transport contract
 
-`PacketTransport` speaks the packet model of `mqtt/codec`, so a custom transport can encode with `encodePacket` and decode with `PacketDecoder` without a translation layer.
+Call `createTransportClient(transport, options).connect()`. Import it from `mqtt` for Buffer messages or from `mqtt/portable` for Uint8Array messages and a browser bundle. Both entries export the transport types. The factory caches one connection attempt. Create a new factory to retry.
 
-- `send(packet)` receives a `ClientPacket`: CONNECT, SUBSCRIBE, UNSUBSCRIBE, PUBLISH, PUBACK, PINGREQ or DISCONNECT. `encodePacket` accepts every one. A PUBLISH payload is a `Uint8Array`, because the session encodes a string payload once.
-- Set `supportsSharedSubscriptions: false` unless the transport passes `{ sharedSubscriptions: true }` to `encodePacket`. The session then refuses a `$share/` filter locally. Otherwise the encoder throws inside `send` and the session ends.
-- `listen(onPacket, onClose, onProtocolError)` delivers `ReceivedPacket`: CONNACK, PUBACK, SUBACK, UNSUBACK, PINGRESP and DISCONNECT as the codec decodes them, and PUBLISH as a flat received message. The types leave out broker CONNECT, SUBSCRIBE, UNSUBSCRIBE and PINGREQ, so the transport rejects them itself.
-- Pass a `ProtocolInputError` to `onProtocolError`, the third `listen` argument, for a malformed or wrong-direction packet. The session then sends DISCONNECT with its code once active. `PacketDecoder.pushBatch` returns its decode errors as `ProtocolInputError` where MQTT 5 assigns a reason code. Pass any other error to `onClose`.
-- `PacketTransport`, `PortableOptions` and `connectPortable` take a byte type parameter instead of a message type. `PacketTransport<Buffer>` delivers Node Buffers, and the default is `Uint8Array`.
-- `mqtt/portable` exports the `ProtocolInputError` class and the types `ClientPacket`, `BrokerPacket`, `ReceivedPacket`, `PublishMessage`, `MessageProperties` and `QosOneMessage`.
+- `ByteTransport.open(inbound, context)` opens one connection. Install readers before returning its writer. If `context.signal` aborts during the open, release the connection and reject. Apply `context.timeoutMs` to the open.
+- Pass received bytes to `inbound.bytes(chunk)` at any chunk boundary. Pass a peer end to `inbound.end()` and a transport error to `inbound.fail(error)`. The core copies the bytes it keeps and owns framing, decoding, and MQTT validation.
+- Return a `ByteWriter` whose `bufferedBytes` reports accepted bytes that have yet to flush. Use `frameOverhead(length)` when the transport adds bytes per write. Hand each chunk to the transport in call order and settle `write` when the transport takes it.
+- `close(false)` closes gracefully. `close(true)` releases the transport promptly, settles pending writes, and makes later writes reject. Close must accept repeated calls. Each transport owns its close deadline and any limits on its own messages, including WebSocket messages.
+- Set `supportsSharedSubscriptions` or `supportsPassword` to `false` if the transport cannot support that option. Both default to `true`. The built-in browser client disables both.
 
-`test/types/custom-transport.ts` compiles this example against the built declarations.
+See [Using a custom transport](recipes/using-custom-transports.md) for a Node `Duplex` example and [Byte transport and transport core](byte-transport.md) for lifecycle details.
 
-```ts
-import { encodePacket, PacketDecoder } from 'mqtt/codec';
-import { connectPortable, ProtocolInputError, type PacketTransport } from 'mqtt/portable';
+## Migrate removed transport hooks
 
-const decoder = new PacketDecoder();
-const transport: PacketTransport = {
-  // encodePacket refuses $share/ filters unless asked, so the session refuses them locally first.
-  supportsSharedSubscriptions: false,
-  async send(packet) {
-    await channel.write(encodePacket(packet));
-  },
-  listen(onPacket, onClose, onProtocolError) {
-    // A protocol error lets the session send DISCONNECT with its reason code. Any other error closes the session.
-    const fail = (error: Error) => {
-      if (error instanceof ProtocolInputError && onProtocolError) onProtocolError(error);
-      else onClose(error);
-    };
-    return channel.onData((chunk) => {
-      const batch = decoder.pushBatch(chunk);
-      const packets = Array.isArray(batch) ? batch : batch.packets;
-      for (const packet of packets) {
-        if (packet.cmd === 'connect' || packet.cmd === 'subscribe' || packet.cmd === 'unsubscribe' || packet.cmd === 'pingreq') {
-          fail(new ProtocolInputError('Unexpected MQTT packet from broker: ' + packet.cmd.toUpperCase(), 0x82));
-          return;
-        }
-        if (packet.cmd !== 'publish') onPacket(packet);
-        else if (packet.qos === 1) onPacket({ ...packet, dup: packet.dup ?? false, retain: packet.retain ?? false });
-        else onPacket({ ...packet, qos: 0, dup: false, retain: packet.retain ?? false });
-      }
-      if (!Array.isArray(batch)) fail(batch.error);
-    }, onClose);
-  },
-  close: async (force) => channel.close(force),
-};
-const session = await connectPortable(transport, { clientId: 'sensor-7' });
-```
-
-### Change from the mqtt-packet contract
-
-This is a breaking change to the experimental `mqtt/portable` contract. Before, `send` and `listen` used mqtt-packet's `Packet` declarations.
-
-| Before | After |
+| Previous API | Replacement |
 | --- | --- |
-| `PacketTransport<Message>`, `PortableOptions<Message>` | `PacketTransport<Bytes>`, `PortableOptions<Bytes>` |
-| CONNECT `clean`, `keepalive`, `properties.receiveMaximum`, `protocolVersion`, `protocolId` | `cleanStart`, `keepAlive`, `receiveMaximum`. The codec fixes MQTT 5. |
-| SUBSCRIBE `subscriptions: [{ topic, qos }]` | `topics: [topic]`, `qos` |
-| UNSUBSCRIBE `unsubscriptions` | `topics` |
-| PUBLISH `payload` as a string | `payload` as a `Uint8Array`. A QoS 0 PUBLISH has no `qos` or `dup` field. |
-| CONNACK and acknowledgment `properties.*` | The same names as top-level fields |
-| User Properties as a map | Ordered `[key, value]` pairs |
-| PUBACK `reasonCode` optional | Required |
-| AUTH, PUBREC, PUBREL and PUBCOMP delivered to the session | Not part of the contract. The Node adapters reject AUTH with 0x82 and drop the QoS 2 handshake packets, as the session did. |
-| `username` and `password` typed from mqtt-packet | `username?: string`, `password?: Uint8Array`. A `Buffer` still fits. |
-| A delivered packet's `length` | Removed |
+| `connectPortable` and `PortableOptions` from `mqtt/portable` | Call `createTransportClient(transport, options).connect()`. Use `ByteClientOptions<Buffer>` in Node or `ByteClientOptions` for `Uint8Array` callbacks. |
+| `PacketTransport` from `mqtt/portable` | Implement `ByteTransport`. Pass bytes, end, and error events through `ByteInbound`. Move packet encoding, decoding, and validation out of the adapter. |
+| `openBrowserTransport`, `BrowserTransport`, `BrowserTransportOptions`, `BrowserCloseKind`, and `WriteTraffic` from `mqtt/browser` | Use `createBrowserClient` for a standard MQTT WebSocket session or implement `ByteTransport` for your own connection. |
+| `openMqttWebSocket` from `mqtt/websocket` | Use `createBrowserClient` for a session on a native WebSocket. For raw frames, open a native `WebSocket` with the `mqtt` subprotocol and set `binaryType` to `arraybuffer`. `mqtt/websocket` still exports the `WebSocketOptions` type. |
+
+`mqtt/portable` still exports the packet types and `ProtocolInputError` for code that works with the codec directly.
 
 ## Packed verification
 
@@ -149,7 +100,7 @@ Refs #50.
 
 ## Session end
 
-Set `onSessionEnd` on a TCP, Node WebSocket, browser or portable client to observe its first MQTT retirement. The observer runs after pending protocol work has been retired. It can run during MQTT connection setup if the transport has already reached the portable session. Use the `connect()` rejection for failures before that point.
+Set `onSessionEnd` on a TCP, Node WebSocket, browser or custom transport client to observe its first MQTT retirement. The observer runs after pending protocol work has been retired. It can run during MQTT connection setup if the transport has already reached the portable session. Use the `connect()` rejection for failures before that point.
 
 - `{ kind: 'disconnect' }` means the local MQTT DISCONNECT write completed and won the retirement race. An application queue can drain its admitted messages. The native socket may still be closing, so await `disconnect()` for that result.
 - `{ kind: 'error', error }` carries the original Error used to retire protocol work. A broker DISCONNECT, transport close, cancellation and protocol failure can all produce this outcome. Treat the error as application data. Use `onDiagnostic` for redacted command and state metadata.
