@@ -128,7 +128,7 @@ test('times out a stalled opening and leaves no handshake listeners', async () =
   try {
     const opening = openMqttWebSocket('ws://127.0.0.1', { timeoutMs: 50 });
     const result = (async () => {
-      await expect(opening).rejects.toThrow('handshake timed out');
+      await expect(opening).rejects.toMatchObject({ message: 'MQTT WebSocket handshake timed out', code: 'ERR_MQTT_TIMEOUT' });
     })();
     await vi.advanceTimersByTimeAsync(50);
     await result;

@@ -1,7 +1,10 @@
 import { expect, test } from 'vitest';
+import { createTcpClient } from '../src/tcpClient.js';
+import { startTcpPacketPeer } from './experiments/tcp-packet-peer.js';
 import type { UserProperty } from '../src/codec.js';
 import { isMqttError, MqttError, type MqttErrorCode } from '../src/mqttError.js';
 import { connectPortable, type PacketTransport } from '../src/portable.js';
+import type { SessionEnd } from '../src/session.js';
 
 // What a test needs to answer a sent packet. Missing identifiers and QoS read as zero.
 type Sent = Readonly<{ cmd: string; messageId: number; qos: number }>;
@@ -169,4 +172,17 @@ test('isMqttError narrows by class and code', () => {
   expect(isMqttError(new Error('full'))).toBe(false);
   expect(error).toBeInstanceOf(Error);
   expect(error).not.toHaveProperty('reasonCode');
+});
+
+test('a peer that closes the TCP connection ends the session with a transport error', async () => {
+  const peer = await startTcpPacketPeer('close-after-connack');
+  let ended = (_end: SessionEnd) => {};
+  const end = new Promise<SessionEnd>((resolve) => {
+    ended = resolve;
+  });
+  const options = { host: peer.host, port: peer.port, clientId: 'closed', onSessionEnd: ended };
+  const client = await createTcpClient(options).connect();
+  await peer.close();
+  expect(await end).toEqual({ kind: 'error', error: coded('ERR_MQTT_TRANSPORT', true) });
+  await expect(client.ping()).rejects.toEqual(coded('ERR_MQTT_TRANSPORT', true));
 });

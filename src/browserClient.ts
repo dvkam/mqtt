@@ -9,6 +9,7 @@ import type { SubscriptionLimits } from './subscriptionExchanges.js';
 import { createByteClient } from './transportCore.js';
 import { openMqttWebSocket } from './websocket.js';
 import { resolveWebSocketMessageLimit } from './websocketLimits.js';
+import { MqttError } from './mqttError.js';
 
 export type BrowserMessage = PublishMessage;
 
@@ -63,7 +64,7 @@ async function openBrowserSocket(options: BrowserClientOptions, inbound: ByteInb
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
   const message = (event: MessageEvent) => {
     if (!(event.data instanceof ArrayBuffer)) {
-      inbound.fail(new Error('MQTT WebSocket requires binary messages'));
+      inbound.fail(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket requires binary messages', { fatal: true }));
       return;
     }
     if (event.data.byteLength > maxWebSocketMessageBytes) {
@@ -73,7 +74,7 @@ async function openBrowserSocket(options: BrowserClientOptions, inbound: ByteInb
     inbound.bytes(new Uint8Array(event.data));
   };
   const errored = () => {
-    inbound.fail(new Error('MQTT WebSocket failed'));
+    inbound.fail(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket failed', { fatal: true }));
   };
   // Stop listening once the socket closes or the core closes it, so a late event reaches nothing.
   const detach = () => {
@@ -86,7 +87,7 @@ async function openBrowserSocket(options: BrowserClientOptions, inbound: ByteInb
     socket.removeEventListener('close', nativeClosed);
     detach();
     try {
-      inbound.end(new Error('MQTT WebSocket closed'));
+      inbound.end(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket closed', { fatal: true }));
     } finally {
       closeSeen();
     }
@@ -100,7 +101,7 @@ async function openBrowserSocket(options: BrowserClientOptions, inbound: ByteInb
     // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- A closed socket must reject through the writer's promise. The native socket keeps the encoded bytes.
     async write(bytes) {
       // send() on a closing socket drops the data without an error.
-      if (socket.readyState !== WebSocket.OPEN) throw new Error('MQTT WebSocket closed');
+      if (socket.readyState !== WebSocket.OPEN) throw new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket closed', { fatal: true });
       socket.send(bytes);
     },
     async close(force) {

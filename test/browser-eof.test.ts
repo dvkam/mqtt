@@ -88,7 +88,7 @@ test('clean remote EOF retains the transport close reason', async () => {
   const client = await createBrowserClient({ url: 'ws://localhost', clientId: 'clean-end' }).connect();
   const rejected = client.ping().catch((error: unknown) => error);
   ScriptedSocket.instance.remoteClose();
-  await expect(rejected).resolves.toMatchObject({ message: 'MQTT WebSocket closed' });
+  await expect(rejected).resolves.toMatchObject({ message: 'MQTT WebSocket closed', code: 'ERR_MQTT_TRANSPORT' });
   expect(finish).toHaveBeenCalledTimes(1);
 });
 

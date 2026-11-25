@@ -88,7 +88,7 @@ test('TLS handshake timeout closes the socket and removes cancellation ownership
     peer = acceptedSocket;
     peer.on('error', () => {});
     vi.advanceTimersByTime(2000);
-    expect(await opening).toMatchObject({ message: 'TLS connection timed out' });
+    expect(await opening).toMatchObject({ message: 'TLS connection timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
     expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
   } finally {
     controller.abort();

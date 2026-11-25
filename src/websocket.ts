@@ -1,5 +1,6 @@
 import { resolveTimeout } from './timeout.js';
 import type { WebSocketOptions } from './websocketOptions.js';
+import { MqttError } from './mqttError.js';
 
 /** Open a binary MQTT WebSocket. The returned socket retains native send and close semantics. */
 export async function openMqttWebSocket(
@@ -10,7 +11,8 @@ export async function openMqttWebSocket(
 ) {
   if (signal?.aborted === true) throw signal.reason;
   resolveTimeout(timeoutMs);
-  if (typeof WebSocket === 'undefined') throw new Error('MQTT WebSocket requires a native WebSocket implementation');
+  if (typeof WebSocket === 'undefined')
+    throw new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket requires a native WebSocket implementation', { fatal: true });
 
   const socket = new WebSocket(url, 'mqtt');
   socket.binaryType = 'arraybuffer';
@@ -29,21 +31,21 @@ export async function openMqttWebSocket(
       reject(reason);
     };
     const failed = () => {
-      fail(new Error('MQTT WebSocket handshake failed'));
+      fail(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket handshake failed', { fatal: true }));
     };
     const aborted = () => {
       fail(signal?.reason);
     };
     const opened = () => {
       if (socket.protocol !== 'mqtt') {
-        fail(new Error('MQTT WebSocket subprotocol was not negotiated'));
+        fail(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket subprotocol was not negotiated', { fatal: true }));
         return;
       }
       cleanup();
       resolve(socket);
     };
     const timer = setTimeout(() => {
-      fail(new Error('MQTT WebSocket handshake timed out'));
+      fail(new MqttError('ERR_MQTT_TIMEOUT', 'MQTT WebSocket handshake timed out', { fatal: true }));
     }, timeoutMs);
     socket.addEventListener('open', opened);
     socket.addEventListener('close', failed);
