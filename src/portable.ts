@@ -553,8 +553,9 @@ class PortableClient<Bytes extends Uint8Array> {
     }
   }
 
-  private fail(error: Readonly<Error>, kind: 'error' | 'disconnect' = 'error'): void {
+  private fail(cause: Readonly<Error>, kind: 'error' | 'disconnect' = 'error'): void {
     if (this.failure) return;
+    const error = endingError(cause);
     this.failure = error;
     this.stopKeepAlive();
     this.nextInbound = undefined;
@@ -587,6 +588,13 @@ function protocolError(message: string, reasonCode?: number): MqttError {
 
 function invalidArgument(message: string): MqttError {
   return new MqttError('ERR_MQTT_INVALID_ARGUMENT', message, { fatal: false });
+}
+
+// A non-fatal rejection, such as one an onQosOneMessage handler rethrows, keeps its code but reports the session end.
+function endingError(error: Readonly<Error>): Readonly<Error> {
+  if (!(error instanceof MqttError) || error.fatal) return error;
+  const { code, message, reasonCode, reasonString, userProperties } = error;
+  return new MqttError(code, message, { fatal: true, reasonCode, reasonString, userProperties, cause: error });
 }
 
 // A transport rejected with a value that is not an Error.

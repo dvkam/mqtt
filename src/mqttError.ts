@@ -21,6 +21,8 @@ export interface MqttErrorDetails {
   readonly reasonString?: string;
   /** The MQTT 5 User Properties the broker sent, in wire order. */
   readonly userProperties?: readonly UserProperty[];
+  /** The error that led to this one. */
+  readonly cause?: unknown;
 }
 
 /** A client rejection with a stable `code`. */
@@ -30,6 +32,7 @@ export class MqttError extends Error {
   readonly reasonCode?: number;
   readonly reasonString?: string;
   readonly userProperties?: readonly UserProperty[];
+  readonly cause?: unknown;
 
   constructor(code: MqttErrorCode, message: string, details: Readonly<MqttErrorDetails>) {
     super(message);
@@ -39,6 +42,7 @@ export class MqttError extends Error {
     if (details.reasonCode !== undefined) this.reasonCode = details.reasonCode;
     if (details.reasonString !== undefined) this.reasonString = details.reasonString;
     if (details.userProperties !== undefined) this.userProperties = details.userProperties;
+    if (details.cause !== undefined) this.cause = details.cause;
   }
 }
 
