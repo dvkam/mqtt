@@ -293,6 +293,8 @@ function properties(
     packet.reasonString !== undefined
   )
     parts.push(Uint8Array.of(0x1f), utf8(packet.reasonString));
+  // MQTT encodes an empty property section as one byte with value zero.
+  if (parts.length === 0) return new Uint8Array(1);
   const body = join(parts);
   return join([variable(body.length), body]);
 }
