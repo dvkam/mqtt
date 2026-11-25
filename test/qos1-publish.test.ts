@@ -96,7 +96,7 @@ test('uses a broker quota of two and handles a negative PUBACK without closing t
   try {
     expect(broker.published()).toHaveLength(2);
     broker.receive({ cmd: 'puback', messageId: 2, reasonCode: 0x97 });
-    await expect(second).rejects.toMatchObject({ code: 0x97 });
+    await expect(second).rejects.toMatchObject({ code: 'ERR_MQTT_REFUSED', reasonCode: 0x97 });
     expect(broker.published()[2]).toMatchObject({ qos: 1, messageId: 3, topic: 'c' });
     broker.receive({ cmd: 'puback', messageId: 1, reasonCode: 0 });
     broker.receive({ cmd: 'puback', messageId: 3, reasonCode: 0x10 });

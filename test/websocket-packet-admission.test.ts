@@ -111,7 +111,10 @@ test.each(['eof-ping', 'eof-body'])('WS %s reports truncated MQTT input', async 
 test('WS refusal keeps its reason ahead of partial input at close', async () => {
   const peer = await startWebSocketPacketPeer('refusal-partial');
   try {
-    await expect(createWebSocketClient({ ...peer, clientId: 'refused' }).connect()).rejects.toMatchObject({ code: 135 });
+    await expect(createWebSocketClient({ ...peer, clientId: 'refused' }).connect()).rejects.toMatchObject({
+      code: 'ERR_MQTT_REFUSED',
+      reasonCode: 135,
+    });
   } finally {
     await peer.close();
   }

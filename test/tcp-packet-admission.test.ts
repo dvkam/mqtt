@@ -110,7 +110,10 @@ test.each(['eof-ping', 'eof-body'])('TCP %s reports truncation to the pending op
 test('TCP refusal retains its reason code ahead of trailing partial input', async () => {
   const peer = await startTcpPacketPeer('refusal-partial');
   try {
-    await expect(createTcpClient({ ...peer, clientId: 'refusal' }).connect()).rejects.toMatchObject({ code: 135 });
+    await expect(createTcpClient({ ...peer, clientId: 'refusal' }).connect()).rejects.toMatchObject({
+      code: 'ERR_MQTT_REFUSED',
+      reasonCode: 135,
+    });
   } finally {
     await peer.close();
   }

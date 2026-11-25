@@ -176,7 +176,7 @@ test('validates unsubscribe filters locally and preserves a broker refusal', asy
   await expect(broker.client.unsubscribe('a/#/b')).rejects.toThrow('Invalid MQTT topic filter');
   const first = broker.client.unsubscribe('a');
   broker.receive({ cmd: 'unsuback', messageId: 1, granted: [0x87] });
-  await expect(first).rejects.toMatchObject({ code: 0x87 });
+  await expect(first).rejects.toMatchObject({ code: 'ERR_MQTT_REFUSED', reasonCode: 0x87 });
   await broker.client.ping();
   await broker.client.disconnect();
 });

@@ -1,4 +1,5 @@
 import { notifyObserver, packetReceiver, packetSender, type DiagnosticObserver } from './diagnostics.js';
+import { MqttError } from './mqttError.js';
 import { ProtocolInputError } from './protocolInputError.js';
 import type { PublishMessage } from './messageProperties.js';
 import type { BrokerPacket, ClientPacket } from './wireCodec.js';
@@ -146,7 +147,14 @@ class PortableClient<Bytes extends Uint8Array> {
             }
           }
           if (packet.cmd === 'disconnect') {
-            void this.abort(Object.assign(new Error('MQTT broker disconnected'), { code: packet.reasonCode ?? 0 })).catch(() => {});
+            void this.abort(
+              new MqttError('ERR_MQTT_BROKER_DISCONNECT', 'MQTT broker disconnected', {
+                fatal: true,
+                reasonCode: packet.reasonCode ?? 0,
+                reasonString: packet.reasonString,
+                userProperties: packet.userProperties,
+              }),
+            ).catch(() => {});
             return;
           }
           if (packet.cmd === 'suback' || packet.cmd === 'unsuback') {
@@ -159,11 +167,11 @@ class PortableClient<Bytes extends Uint8Array> {
           if (packet.cmd === 'puback') {
             const { messageId, reasonCode: code } = packet;
             if (!Number.isInteger(messageId) || messageId < 1 || messageId > 65_535) {
-              void this.abort(new Error('Invalid PUBACK packet identifier')).catch(() => {});
+              void this.abort(protocolError('Invalid PUBACK packet identifier')).catch(() => {});
               return;
             }
             if (!isPubackReason(code)) {
-              void this.abort(new Error('Invalid PUBACK reason code')).catch(() => {});
+              void this.abort(protocolError('Invalid PUBACK reason code')).catch(() => {});
               return;
             }
             this.outbound?.accept(messageId, code);
@@ -174,7 +182,7 @@ class PortableClient<Bytes extends Uint8Array> {
           if (packet.qos === 1 && this.onQosOneMessage) {
             const { messageId, dup } = packet;
             if (!Number.isInteger(messageId) || messageId < 1 || messageId > 65_535 || typeof dup !== 'boolean') {
-              void this.abort(new Error('Invalid inbound QoS 1 PUBLISH')).catch(() => {});
+              void this.abort(protocolError('Invalid inbound QoS 1 PUBLISH')).catch(() => {});
               return;
             }
             this.receiveQosOne({ ...packet, qos: 1, messageId, dup });
@@ -217,11 +225,11 @@ class PortableClient<Bytes extends Uint8Array> {
       },
     );
     if (this.failure) throw this.failure;
-    if (reply.cmd !== 'connack') throw new Error('Expected CONNACK');
+    if (reply.cmd !== 'connack') throw protocolError('Expected CONNACK');
     const { receiveMaximum = 65_535, maximumQoS, serverKeepAlive = 0 } = reply;
     if (!Number.isInteger(receiveMaximum) || receiveMaximum < 1 || receiveMaximum > 65_535)
-      throw new Error('Invalid broker Receive Maximum');
-    if (maximumQoS !== undefined && maximumQoS !== 0 && maximumQoS !== 1) throw new Error('Invalid broker Maximum QoS');
+      throw protocolError('Invalid broker Receive Maximum');
+    if (maximumQoS !== undefined && maximumQoS !== 0 && maximumQoS !== 1) throw protocolError('Invalid broker Maximum QoS');
     if (maximumQoS !== 0) {
       this.outbound = new OutboundQosOne(receiveMaximum, this.identifiers, this.transmitQosOne.bind(this));
     }
@@ -233,13 +241,13 @@ class PortableClient<Bytes extends Uint8Array> {
   }
 
   async changeSubscription(topic: string, command: 'subscribe' | 'unsubscribe', qos = 0): Promise<void> {
-    if (this.closing) throw new Error('Client is closing');
+    if (this.closing) throw closingError();
     if (this.failure) throw this.failure;
-    if (!validateTopic(topic)) throw new Error('Invalid MQTT topic filter');
+    if (!validateTopic(topic)) throw invalidArgument('Invalid MQTT topic filter');
     if (this.transport.supportsSharedSubscriptions === false && topic.startsWith('$share/'))
-      throw new Error('Unsupported shared subscription');
-    if (qos !== 0 && qos !== 1) throw new RangeError('Unsupported MQTT subscription QoS');
-    if (qos === 1 && !this.onQosOneMessage) throw new Error('QoS 1 subscription requires onQosOneMessage');
+      throw invalidArgument('Unsupported shared subscription');
+    if (qos !== 0 && qos !== 1) throw invalidArgument('Unsupported MQTT subscription QoS');
+    if (qos === 1 && !this.onQosOneMessage) throw invalidArgument('QoS 1 subscription requires onQosOneMessage');
     const subscribing = command === 'subscribe';
     const reservation = this.subscriptions.reserve(topic, subscribing ? 'suback' : 'unsuback', qos);
     const { messageId } = reservation;
@@ -250,8 +258,7 @@ class PortableClient<Bytes extends Uint8Array> {
       try {
         const sent = this.sendIdentified(packet, subscribing ? 'MQTT subscription send failed' : 'MQTT unsubscribe send failed');
         const [code] = await Promise.all([reservation.acknowledged, sent]);
-        if (code !== 0 && code !== (subscribing ? qos : 17))
-          throw Object.assign(new Error('MQTT acknowledgment refused'), { code });
+        if (code !== 0 && code !== (subscribing ? qos : 17)) throw refusedError(code, false);
       } finally {
         reservation.release();
       }
@@ -261,7 +268,7 @@ class PortableClient<Bytes extends Uint8Array> {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The handler receives the adapter's mutable packet payload.
   private receiveQosOne(packet: QosOneMessage<PublishMessage<Bytes>>): void {
     if (this.activation === 'opening') {
-      void this.abort(new Error('Inbound QoS 1 PUBLISH arrived before CONNACK')).catch(() => {});
+      void this.abort(protocolError('Inbound QoS 1 PUBLISH arrived before CONNACK')).catch(() => {});
       return;
     }
     const canWait = this.activation === 'accepted' || this.inboundPhase === 'acknowledging';
@@ -270,7 +277,7 @@ class PortableClient<Bytes extends Uint8Array> {
       return;
     }
     if (canWait || this.inboundPhase) {
-      void this.abort(Object.assign(new Error('MQTT Receive Maximum exceeded'), { code: 0x93 }), 0x93).catch(() => {});
+      void this.abort(protocolError('MQTT Receive Maximum exceeded', 0x93), 0x93).catch(() => {});
       return;
     }
     this.inboundPhase = 'handling';
@@ -307,18 +314,18 @@ class PortableClient<Bytes extends Uint8Array> {
     payload: string,
     options?: Readonly<{ qos?: 0 | 1; signal?: Readonly<AbortSignal> }>,
   ): Promise<void> {
-    if (this.closing) throw new Error('Client is closing');
+    if (this.closing) throw closingError();
     if (this.failure) throw this.failure;
-    if (topic.includes('+') || topic.includes('#') || !validateTopic(topic)) throw new Error('Invalid MQTT topic name');
+    if (topic.includes('+') || topic.includes('#') || !validateTopic(topic)) throw invalidArgument('Invalid MQTT topic name');
     const { qos = 0, signal } = options ?? {};
-    if (![0, 1].includes(qos)) throw new RangeError('Unsupported MQTT publish QoS');
+    if (![0, 1].includes(qos)) throw invalidArgument('Unsupported MQTT publish QoS');
     if (qos === 1) {
       signal?.throwIfAborted();
-      if (!this.outbound) throw new Error('Broker does not support QoS 1');
+      if (!this.outbound) throw invalidArgument('Broker does not support QoS 1');
       await this.outbound.enqueue(topic, payload, this.publications.reserve(topic, payload, qos), signal);
       return;
     }
-    if (signal !== undefined) throw new Error('Publish cancellation requires QoS 1');
+    if (signal !== undefined) throw invalidArgument('Publish cancellation requires QoS 1');
     const release = this.publications.reserve(topic, payload);
     await this.run(async () => {
       try {
@@ -364,12 +371,12 @@ class PortableClient<Bytes extends Uint8Array> {
   }
 
   async ping(): Promise<void> {
-    if (this.closing) throw new Error('Client is closing');
+    if (this.closing) throw closingError();
     await (this.automaticPing ?? this.exchangePing());
   }
 
   private async exchangePing(background = false): Promise<void> {
-    if (this.closing) throw new Error('Client is closing');
+    if (this.closing) throw closingError();
     await this.exchange({ cmd: 'pingreq' }, (ack) => ack.cmd === 'pingresp', { background });
   }
 
@@ -398,7 +405,7 @@ class PortableClient<Bytes extends Uint8Array> {
           return;
         }
         if (this.pendingAck) {
-          void this.abort(new Error('MQTT Keep Alive deadline expired')).catch(() => {});
+          void this.abort(new MqttError('ERR_MQTT_TIMEOUT', 'MQTT Keep Alive deadline expired', { fatal: true })).catch(() => {});
           return;
         }
         // Starting the automatic PINGREQ begins the next interval.
@@ -428,7 +435,7 @@ class PortableClient<Bytes extends Uint8Array> {
     if (this.closing === undefined) {
       this.closing = Promise.resolve().then(this.end.bind(this));
       this.stopKeepAlive();
-      this.outbound?.stop(new Error('Client is closing'));
+      this.outbound?.stop(closingError());
       this.nextInbound = undefined;
     }
     return this.closing;
@@ -473,7 +480,7 @@ class PortableClient<Bytes extends Uint8Array> {
       await this.abort(error instanceof Error ? error : new Error('MQTT disconnect failed')).catch(() => {});
       throw error;
     }
-    this.fail(new Error('Client disconnected'), 'disconnect');
+    this.fail(new MqttError('ERR_MQTT_CLOSING', 'Client disconnected', { fatal: true }), 'disconnect');
     await this.transport.close();
   }
 
@@ -485,13 +492,13 @@ class PortableClient<Bytes extends Uint8Array> {
   ): Promise<Acknowledgment> {
     const failureBeforeExchange = this.failure;
     if (failureBeforeExchange) throw failureBeforeExchange;
-    if (this.pendingAck) throw new Error('Another acknowledgment is pending');
+    if (this.pendingAck) throw new MqttError('ERR_MQTT_CAPACITY', 'Another acknowledgment is pending', { fatal: false });
     const ping = packet.cmd === 'pingreq';
     const ack = new Promise<Acknowledgment>((resolve) => {
       this.pendingAck = (reply) => {
         if (matches(reply)) {
           if (reply.cmd === 'connack' && reply.reasonCode !== 0) {
-            this.fail(Object.assign(new Error('MQTT acknowledgment refused'), { code: reply.reasonCode }));
+            this.fail(refusedError(reply.reasonCode, true));
           }
           if (reply.cmd === 'connack') {
             if (reply.reasonCode === 0) this.activation = 'accepted';
@@ -513,8 +520,7 @@ class PortableClient<Bytes extends Uint8Array> {
         const [received] = await Promise.all([ack, onSent ? sent.then(onSent) : sent]);
         return received;
       }, !background);
-      if (reply.cmd === 'connack' && reply.reasonCode !== 0)
-        throw Object.assign(new Error('MQTT acknowledgment refused'), { code: reply.reasonCode });
+      if (reply.cmd === 'connack' && reply.reasonCode !== 0) throw refusedError(reply.reasonCode, true);
       return reply;
     } catch (error) {
       // Retire before freeing the acknowledgment slot. PINGRESP has no request ID.
@@ -536,7 +542,7 @@ class PortableClient<Bytes extends Uint8Array> {
       this.pendingOperations.add(reject);
       timer = setTimeout(() => {
         if (this.failure || (!timeoutWhileClosing && this.closing)) return;
-        void this.abort(new Error('MQTT operation timed out')).catch(() => {});
+        void this.abort(new MqttError('ERR_MQTT_TIMEOUT', 'MQTT operation timed out', { fatal: true })).catch(() => {});
       }, this.timeoutMs);
     });
     try {
@@ -573,6 +579,23 @@ class PortableClient<Bytes extends Uint8Array> {
     if (this.onDiagnostic) void notifyObserver(this.onDiagnostic, { kind: 'connection', state });
     return this.failure;
   }
+}
+
+function protocolError(message: string, reasonCode?: number): MqttError {
+  return new MqttError('ERR_MQTT_PROTOCOL', message, reasonCode === undefined ? { fatal: true } : { fatal: true, reasonCode });
+}
+
+function invalidArgument(message: string): MqttError {
+  return new MqttError('ERR_MQTT_INVALID_ARGUMENT', message, { fatal: false });
+}
+
+function closingError(): MqttError {
+  return new MqttError('ERR_MQTT_CLOSING', 'Client is closing', { fatal: true });
+}
+
+// A refused CONNACK ends the session. A refused SUBACK or UNSUBACK leaves it usable.
+function refusedError(reasonCode: number, fatal: boolean): MqttError {
+  return new MqttError('ERR_MQTT_REFUSED', 'MQTT acknowledgment refused', { fatal, reasonCode });
 }
 
 export async function connectPortable<Bytes extends Uint8Array = Uint8Array>(

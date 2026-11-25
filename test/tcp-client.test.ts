@@ -66,7 +66,11 @@ test('reasoned broker DISCONNECT rejects ping and closes TCP before fixture clea
   try {
     const client = await createTcpClient(peer.options).connect();
     const closed = once(peer.events, 'peer-close');
-    await expect(client.ping()).rejects.toMatchObject({ message: 'MQTT broker disconnected', code: 0x8e });
+    await expect(client.ping()).rejects.toMatchObject({
+      message: 'MQTT broker disconnected',
+      code: 'ERR_MQTT_BROKER_DISCONNECT',
+      reasonCode: 0x8e,
+    });
     await closed;
     expect(peer.commands).toEqual(['connect', 'pingreq']);
   } finally {
@@ -166,7 +170,7 @@ test('preserves a CONNACK refusal code and closes without DISCONNECT', async () 
   );
   try {
     const closed = once(peer.events, 'peer-close');
-    await expect(createTcpClient(peer.options).connect()).rejects.toMatchObject({ code: 0x87 });
+    await expect(createTcpClient(peer.options).connect()).rejects.toMatchObject({ code: 'ERR_MQTT_REFUSED', reasonCode: 0x87 });
     await closed;
     expect(peer.commands).toEqual(['connect']);
   } finally {

@@ -210,7 +210,7 @@ test.each(['handling', 'acknowledging'] as const)('bounds retained inbound messa
     broker.receive(publication(2));
     if (phase === 'acknowledging') broker.receive(publication(3));
     await setImmediate();
-    await expect(broker.client.ping()).rejects.toMatchObject({ code: 0x93 });
+    await expect(broker.client.ping()).rejects.toMatchObject({ code: 'ERR_MQTT_PROTOCOL', reasonCode: 0x93 });
     expect(broker.sent[broker.sent.length - 1]).toMatchObject({ cmd: 'disconnect', reasonCode: 0x93 });
     expect(broker.closes).toEqual([true]);
     expect(received).toEqual([1]);
@@ -307,7 +307,7 @@ test('bounds the protocol-error report if its transport write stays pending', as
   try {
     broker.receive(publication(7));
     broker.receive(publication(8));
-    await expect(broker.client.ping()).rejects.toMatchObject({ code: 0x93 });
+    await expect(broker.client.ping()).rejects.toMatchObject({ code: 'ERR_MQTT_PROTOCOL', reasonCode: 0x93 });
     await expect.poll(() => broker.closes).toEqual([true]);
     expect(broker.sent[broker.sent.length - 1]).toMatchObject({ cmd: 'disconnect', reasonCode: 0x93 });
   } finally {

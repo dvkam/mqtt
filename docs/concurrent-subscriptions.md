@@ -30,7 +30,7 @@ Import `createTcpClient` from `mqtt`. Use the same limits with `createWebSocketC
 
 Both values must be safe integers within their stated range. The byte limit must be positive. Factories validate and capture the values when connection starts, before native resource acquisition. Mutating the caller's settings during opening does not change them. Custom byte transport factories validate before calling `open`.
 
-An excess request rejects with a RangeError whose message is `MQTT subscription capacity exceeded`. It reserves no identifier, creates no operation timer and does not call the packet transport. There is no waiting queue. Other exchanges continue, and the caller may retry when capacity becomes available.
+An excess request rejects with an `MqttError` whose code is `ERR_MQTT_CAPACITY` and whose `fatal` is `false`. It reserves no identifier, creates no operation timer and does not call the packet transport. There is no waiting queue. Other exchanges continue, and the caller may retry when capacity becomes available.
 
 Ordinary filter validation runs first. An established terminal failure or an already-started disconnect retains its existing precedence. Validation can allocate temporary encoded strings and filter levels. These limits describe retained encoded request bytes and exchange count, not JavaScript heap usage or total allocation.
 

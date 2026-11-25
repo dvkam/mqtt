@@ -144,7 +144,7 @@ test('an empty requested ID preserves a refusal instead of requiring assignment'
   const peer = decodedPeer();
   const opening = connectPortable(peer.transport, { clientId: '' }).catch((reason: unknown) => reason);
   peer.receive()?.({ cmd: 'connack', reasonCode: 0x85, sessionPresent: false });
-  expect(await opening).toMatchObject({ message: 'MQTT acknowledgment refused', code: 0x85 });
+  expect(await opening).toMatchObject({ message: 'MQTT acknowledgment refused', code: 'ERR_MQTT_REFUSED', reasonCode: 0x85 });
 });
 
 function assignment(value: string): number[] {
@@ -185,7 +185,7 @@ test('a refused empty-ID CONNACK owns failure before later AUTH', async () => {
   const opening = connectPortable(peer.transport, { clientId: '' }).catch((reason: unknown) => reason);
   peer.receive()?.({ cmd: 'connack', reasonCode: 0x85, sessionPresent: false });
   peer.rejectAuth();
-  expect(await opening).toMatchObject({ message: 'MQTT acknowledgment refused', code: 0x85 });
+  expect(await opening).toMatchObject({ message: 'MQTT acknowledgment refused', code: 'ERR_MQTT_REFUSED', reasonCode: 0x85 });
   expect(peer.sent).toEqual(['connect']);
 });
 
@@ -301,7 +301,7 @@ test.each(adapters)('%s retains an empty-ID refusal', async (adapter) => {
         : adapter === 'browser'
           ? createBrowserClient({ ...peer, ...options })
           : createWebSocketClient({ ...peer, ...options });
-    await expect(factory.connect()).rejects.toMatchObject({ code: 0x85 });
+    await expect(factory.connect()).rejects.toMatchObject({ code: 'ERR_MQTT_REFUSED', reasonCode: 0x85 });
     await expect.poll(peer.connections).toBe(0);
   } finally {
     await peer.close();

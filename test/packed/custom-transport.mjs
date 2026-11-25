@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { promisify } from 'node:util';
 import { createConnection } from 'node:net';
-import { createTransportClient } from 'mqtt';
+import { createTransportClient, isMqttError, MqttError } from 'mqtt';
 
 /** @param {import('node:stream').Duplex} stream @returns {import('mqtt').ByteTransport} */
 // prettier-ignore
@@ -54,8 +54,13 @@ try {
   assert.ok(Buffer.isBuffer(message.payload));
   assert.equal(message.topic, 'ci/duplex');
   assert.equal(message.payload.toString(), 'hello');
+  await assert.rejects(
+    client.subscribe('ci/duplex/#/invalid'),
+    (error) => isMqttError(error, 'ERR_MQTT_INVALID_ARGUMENT') && !error.fatal,
+  );
   await client.disconnect();
-  console.log('Packed custom Duplex completed CONNECT, SUBSCRIBE, publish echo, PING and DISCONNECT');
+  await assert.rejects(client.ping(), (error) => error instanceof MqttError && error.code === 'ERR_MQTT_CLOSING' && error.fatal);
+  console.log('Packed custom Duplex completed CONNECT, SUBSCRIBE, publish echo, PING and DISCONNECT with coded rejections');
 } finally {
   socket.destroy();
 }

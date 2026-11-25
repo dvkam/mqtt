@@ -1,4 +1,5 @@
 import type { IdentifierLease, PacketIdentifiers } from './packetIdentifiers.js';
+import { MqttError } from './mqttError.js';
 
 interface Publication {
   readonly topic: string;
@@ -137,7 +138,8 @@ export class OutboundQosOne {
     const { publication, identifier } = exchange;
     try {
       const code = await this.transmit(publication.topic, publication.payload, identifier.messageId, acknowledgment);
-      if (code >= 128) publication.reject(Object.assign(new Error('MQTT publication refused'), { code }));
+      if (code >= 128)
+        publication.reject(new MqttError('ERR_MQTT_REFUSED', 'MQTT publication refused', { fatal: false, reasonCode: code }));
       else publication.resolve();
     } catch (reason) {
       publication.reject(reason);

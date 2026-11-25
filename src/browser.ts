@@ -12,3 +12,5 @@ export type {
   SubscribeOptions,
 } from './session.js';
 export type { ClientDiagnostic, DiagnosticObserver } from './diagnostics.js';
+export { MqttError, isMqttError } from './mqttError.js';
+export type { MqttErrorCode, MqttErrorDetails } from './mqttError.js';
