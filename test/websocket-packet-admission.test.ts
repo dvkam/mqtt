@@ -278,7 +278,10 @@ test('WS text rejection keeps its reason ahead of remote close', async () => {
   const peer = await startWebSocketPacketPeer('text');
   try {
     const client = await createWebSocketClient({ ...peer, clientId: 'text' }).connect();
-    await expect(client.ping()).rejects.toThrow('MQTT WebSocket requires binary messages');
+    await expect(client.ping()).rejects.toMatchObject({
+      message: 'MQTT WebSocket requires binary messages',
+      code: 'ERR_MQTT_TRANSPORT',
+    });
   } finally {
     await peer.close();
   }

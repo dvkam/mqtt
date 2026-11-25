@@ -28,6 +28,9 @@ MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputErr
 | `ERR_MQTT_PROTOCOL` | Malformed or out-of-profile broker input. The error is a `ProtocolInputError`, and an active session sends DISCONNECT with its reason code. | `true` | 0x81, 0x82 or 0x94 |
 | `ERR_MQTT_PROTOCOL` | The broker broke a session rule, such as an invalid PUBACK identifier, an invalid CONNACK limit, or more inbound QoS 1 messages than Receive Maximum allows | `true` | 0x93 for Receive Maximum. None otherwise. |
 | `ERR_MQTT_CLOSING` | The call came after `disconnect()` | `true` | None |
+| `ERR_MQTT_TIMEOUT` | The TCP or TLS connection, or the native WebSocket handshake, did not open within `timeoutMs` | `true` | None |
+| `ERR_MQTT_TRANSPORT` | The socket or WebSocket closed, a WebSocket handshake or subprotocol check failed, a text WebSocket message arrived, or no native WebSocket exists | `true` | None |
+| `ERR_MQTT_ABORTED` | The signal aborted with a reason that is not an Error. The error's `name` is `AbortError`. | `true` | None |
 
 ## Not yet coded
 
@@ -35,5 +38,7 @@ These still reject with their existing errors. Code them before treating the lis
 
 - Codec failures that MQTT 5 gives no reason code, such as many property defects and packets over `maxPacketBytes`, are plain `Error` or `RangeError` values.
 - Option validation before connecting, such as `timeoutMs` or publication limits, throws `RangeError`.
-- Transport failures, write budget refusals and native socket errors keep their transport's error.
-- An abort rejects with the signal's own reason, or an `AbortError` when the reason is not an Error. This stays as it is.
+- Native socket and `ws` errors pass through unchanged, as do custom transport errors.
+- A write budget refusal is a plain `Error`. Whether it ends the session depends on the packet, so it needs a separate decision.
+- The browser receive message limit is a `RangeError`.
+- An abort whose reason is an Error rejects with that Error unchanged.

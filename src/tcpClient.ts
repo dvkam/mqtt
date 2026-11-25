@@ -6,6 +6,7 @@ import type { PortableOptions } from './portable.js';
 import type { ClientFactory } from './session.js';
 import { nodePlatform } from './nodePlatform.js';
 import { createByteClient } from './transportCore.js';
+import { MqttError } from './mqttError.js';
 
 export type TcpTlsOptions = Pick<ConnectionOptions, 'ca' | 'cert' | 'key' | 'servername'>;
 
@@ -57,14 +58,14 @@ async function openTcpSocket(options: Readonly<TcpClientOptions>, inbound: ByteI
   const closed = new Promise<void>((resolve) => {
     socket.once('close', () => {
       try {
-        inbound.end(new Error(connectionLabel + ' socket closed'));
+        inbound.end(new MqttError('ERR_MQTT_TRANSPORT', connectionLabel + ' socket closed', { fatal: true }));
       } finally {
         resolve();
       }
     });
   });
   socket.once('end', () => {
-    inbound.end(new Error(connectionLabel + ' socket closed'));
+    inbound.end(new MqttError('ERR_MQTT_TRANSPORT', connectionLabel + ' socket closed', { fatal: true }));
   });
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
   socket.on('data', (chunk) => {
@@ -98,7 +99,7 @@ async function openTcpSocket(options: Readonly<TcpClientOptions>, inbound: ByteI
   };
   context.signal.addEventListener('abort', cancel, { once: true });
   const timer = setTimeout(() => {
-    socket.destroy(new Error(connectionLabel + ' connection timed out'));
+    socket.destroy(new MqttError('ERR_MQTT_TIMEOUT', connectionLabel + ' connection timed out', { fatal: true }));
   }, context.timeoutMs);
   return new Promise<ByteWriter>((resolve, reject) => {
     const settle = () => {
@@ -113,7 +114,7 @@ async function openTcpSocket(options: Readonly<TcpClientOptions>, inbound: ByteI
     const failed = () => {
       socket.off(connectionEvent, connected);
       settle();
-      reject(new Error(connectionLabel + ' socket closed before connecting'));
+      reject(new MqttError('ERR_MQTT_TRANSPORT', connectionLabel + ' socket closed before connecting', { fatal: true }));
     };
     socket.once(connectionEvent, connected);
     socket.once('close', failed);

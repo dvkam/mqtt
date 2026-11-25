@@ -8,6 +8,8 @@ export type MqttErrorCode =
   | 'ERR_MQTT_PROTOCOL'
   | 'ERR_MQTT_BROKER_DISCONNECT'
   | 'ERR_MQTT_CLOSING'
+  | 'ERR_MQTT_TRANSPORT'
+  | 'ERR_MQTT_ABORTED'
   | 'ERR_MQTT_INVALID_ARGUMENT';
 
 export interface MqttErrorDetails {

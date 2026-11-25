@@ -22,6 +22,8 @@ export function retryable(error: unknown): boolean {
     case 'ERR_MQTT_PROTOCOL':
     case 'ERR_MQTT_BROKER_DISCONNECT':
     case 'ERR_MQTT_CLOSING':
+    case 'ERR_MQTT_TRANSPORT':
+    case 'ERR_MQTT_ABORTED':
     case 'ERR_MQTT_INVALID_ARGUMENT':
       return false;
     default: {

@@ -54,6 +54,7 @@ describe('changes from the ws client on main', () => {
     await expect(createWebSocketClient({ ...options, signal: controller.signal }).connect()).rejects.toMatchObject({
       name: 'AbortError',
       message: 'WebSocket connection aborted',
+      code: 'ERR_MQTT_ABORTED',
     });
   });
 
