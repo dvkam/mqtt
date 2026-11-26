@@ -339,6 +339,10 @@ class PortableClient<Bytes extends Uint8Array> {
     const { connection } = reply;
     const { receiveMaximum, maximumQos, serverKeepAlive } = connection;
     this.retainAvailable = connection.retainAvailable;
+    if (connection.maximumPacketSize !== undefined) {
+      this.publications.limitPacketSize(connection.maximumPacketSize);
+      this.subscriptions.limitPacketSize(connection.maximumPacketSize);
+    }
     if (maximumQos !== 0) {
       this.outbound = new OutboundQosOne<OutgoingPublication>(receiveMaximum, this.identifiers, this.transmitQosOne.bind(this));
     }

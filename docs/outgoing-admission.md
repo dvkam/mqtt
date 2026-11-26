@@ -13,6 +13,12 @@ For example, pass `maxPendingPublishes: 8` and `maxPendingPublishBytes: 262144` 
 
 The byte count includes the first header byte, Remaining Length encoding, two-byte Topic Name length, UTF-8 Topic Name, the property section with its length and the payload. QoS 1 adds two identifier bytes. The client encodes a string payload once, before admission, and counts the encoded bytes. A string with more code units than the byte limit is rejected with `ERR_MQTT_CAPACITY` without encoding it. A string with an unpaired surrogate is rejected with `ERR_MQTT_INVALID_ARGUMENT`. Ordinary topic validation still occurs first.
 
+## Maximum Packet Size
+
+A broker can set Maximum Packet Size in CONNACK, and MQTT 5 section 3.2.2.3.6 forbids the client to send a larger packet. Admission compares the PUBLISH size it counts above with that limit. A PUBLISH one byte larger rejects with `ERR_MQTT_CAPACITY`, `fatal: false` and the message `MQTT packet exceeds the Maximum Packet Size`. The rejection comes before the publication takes a slot or a Packet Identifier and before anything is written, so the session stays usable. A SUBSCRIBE or UNSUBSCRIBE whose topic filter makes it larger than the limit rejects the same way. Without the property, the limit is 268,435,460 bytes, the largest packet MQTT can frame. `session.connection.maximumPacketSize` holds the broker's value.
+
+The client sends CONNECT before CONNACK arrives, so the limit does not apply to CONNECT or its Will. PINGREQ, DISCONNECT and the client's PUBACK are at most four bytes.
+
 A reservation starts synchronously before transport work, including reentrant callbacks. For QoS 0 it ends when that actual send promise settles or the send throws. QoS 1 retains its reservation through queueing, actual send and matching acknowledgment. The [QoS 1 guide](qos1-publish.md) covers cancellation and teardown. A timeout retires the session while a still-pending send keeps its reservation. A late completion releases only its original reservation. Applications can retry after capacity returns and create a new factory after terminal failure.
 
 Publication reservations do not consume the client's subscription registry, unnumbered ping slot or disconnect path. A full publication pool therefore permits core control work. Native TCP and WebSocket writes retain their existing ordering; this change adds no scheduler and lets no control packet overtake a partial native write.

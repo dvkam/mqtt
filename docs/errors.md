@@ -24,7 +24,7 @@ MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputErr
 | Code | Cause | `fatal` | `reasonCode` |
 | --- | --- | --- | --- |
 | `ERR_MQTT_INVALID_ARGUMENT` | Invalid topic or filter, unsupported QoS, QoS 1 without a broker or handler that supports it, a `$share/` filter the transport cannot send, an invalid publish payload, PUBLISH property or publish signal, `retain` when the broker does not allow it, an invalid Will, a password over 65,535 bytes or of another type, or an invalid `disconnect()` option | `false` | None |
-| `ERR_MQTT_CAPACITY` | The publication or subscription limit is full, all 65,535 packet identifiers are in use, or another ping awaits PINGRESP | `false` | None |
+| `ERR_MQTT_CAPACITY` | The publication or subscription limit is full, a PUBLISH, SUBSCRIBE or UNSUBSCRIBE is larger than the broker's Maximum Packet Size from CONNACK, all 65,535 packet identifiers are in use, or another ping awaits PINGRESP | `false` | None |
 | `ERR_MQTT_REFUSED` | The broker refused CONNACK | `true` | The CONNACK reason code |
 | `ERR_MQTT_REFUSED` | The broker refused SUBACK, UNSUBACK or PUBACK | `false` | The acknowledgment's reason code |
 | `ERR_MQTT_TIMEOUT` | An operation passed `timeoutMs`, or a Server Keep Alive deadline passed while an acknowledgment was pending | `true` | None |

@@ -19,10 +19,18 @@ export function resolvePublicationLimits(options: Readonly<PublicationLimits>) {
   return { maxPendingPublishes, maxPendingPublishBytes };
 }
 
+/** The largest packet MQTT can frame, with a four-byte Remaining Length of 268,435,455. */
+export const maxMqttPacketBytes = 268_435_460;
+
+export function oversizedPacket(): MqttError {
+  return new MqttError('ERR_MQTT_CAPACITY', 'MQTT packet exceeds the Maximum Packet Size');
+}
+
 export class PublicationAdmission {
   private readonly limits: ReturnType<typeof resolvePublicationLimits>;
   private items = 0;
   private bytes = 0;
+  private maximumPacketSize = maxMqttPacketBytes;
 
   constructor(options: Readonly<PublicationLimits>) {
     this.limits = resolvePublicationLimits(options);
@@ -31,6 +39,10 @@ export class PublicationAdmission {
   /** The byte limit for pending publications. A larger publication can never be admitted. */
   get byteLimit(): number {
     return this.limits.maxPendingPublishBytes;
+  }
+
+  limitPacketSize(maximumPacketSize: number): void {
+    this.maximumPacketSize = Math.min(maximumPacketSize, maxMqttPacketBytes);
   }
 
   /** `propertyBytes` is the encoded property section with its length. An empty section is one byte. */
@@ -43,7 +55,8 @@ export class PublicationAdmission {
     let lengthBytes = 1;
     for (let value = remaining; value >= 128; value = Math.floor(value / 128)) lengthBytes++;
     const size = 1 + lengthBytes + remaining;
-    if (remaining > 268_435_455 || size > available) throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT publication capacity exceeded');
+    if (size > this.maximumPacketSize) throw oversizedPacket();
+    if (size > available) throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT publication capacity exceeded');
     this.items++;
     this.bytes += size;
     let released = false;

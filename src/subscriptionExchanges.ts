@@ -1,6 +1,7 @@
 import { isSubscriptionReason, type SubscriptionAckKind } from './subscriptionReason.js';
 import { PacketIdentifiers, type IdentifierLease } from './packetIdentifiers.js';
 import { MqttError } from './mqttError.js';
+import { maxMqttPacketBytes, oversizedPacket } from './publicationAdmission.js';
 import { copyUserProperties } from './userProperties.js';
 import type { UserProperty } from './wireProperties.js';
 
@@ -41,6 +42,7 @@ export class SubscriptionExchanges {
   private readonly entries = new Map<number, Entry>();
   private readonly identifiers: Readonly<Pick<PacketIdentifiers, 'reserve'>>;
   private bytes = 0;
+  private maximumPacketSize = maxMqttPacketBytes;
   private failure?: Error;
 
   constructor(
@@ -49,6 +51,10 @@ export class SubscriptionExchanges {
   ) {
     this.limits = resolveSubscriptionLimits(options);
     this.identifiers = identifiers;
+  }
+
+  limitPacketSize(maximumPacketSize: number): void {
+    this.maximumPacketSize = Math.min(maximumPacketSize, maxMqttPacketBytes);
   }
 
   reserve(topic: string, kind: SubscriptionAckKind = 'suback', requestedQos: 0 | 1 = 0) {
@@ -66,6 +72,7 @@ export class SubscriptionExchanges {
     let lengthBytes = 1;
     for (let value = remaining; value >= 128; value = Math.floor(value / 128)) lengthBytes++;
     const bytes = 1 + lengthBytes + remaining;
+    if (bytes > this.maximumPacketSize) throw oversizedPacket();
     if (bytes > available) throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT subscription capacity exceeded');
     const identifier = this.identifiers.reserve();
     const { messageId } = identifier;
