@@ -31,15 +31,15 @@ writeFileSync(resolve(root, 'duplex.ts'), readExample(duplexRecipe, 'ts'));
 cpSync(new URL('../../sample/sample.ts', import.meta.url), resolve(root, 'echo-node.ts'));
 
 for (const [file, types, lib] of [
-  ['echo-node.ts', ['node'], ['ES2022']],
-  ['duplex.ts', ['node'], ['ES2022']],
-  ['echo-browser.ts', [], ['ES2022', 'DOM']],
+  ['echo-node.ts', ['node'], ['ES2025']],
+  ['duplex.ts', ['node'], ['ES2025']],
+  ['echo-browser.ts', [], ['ES2025', 'DOM']],
 ] as const) {
   const config = resolve(root, file + '.json');
   writeFileSync(
     config,
     JSON.stringify({
-      compilerOptions: { module: 'NodeNext', target: 'ES2022', types, lib, strict: true, noEmit: true },
+      compilerOptions: { module: 'NodeNext', target: 'ES2025', types, lib, strict: true, noEmit: true },
       files: [file],
     }),
   );
