@@ -370,7 +370,7 @@ describe('the core over a transport it closes', () => {
       code: 'ERR_MQTT_REFUSED',
       reasonCode: 0x87,
     });
-    expect(peer.closes).toContain(true);
+    expect(peer.closes).toEqual([true]);
     expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
   });
 
@@ -412,7 +412,50 @@ describe('the core over a transport it closes', () => {
       },
     }).connect();
     await expect(connecting).rejects.toBe(reason);
-    expect(peer.closes).toContain(true);
+    expect(peer.closes).toEqual([true]);
+  });
+
+  test('joins transport failure and disconnect on one forced close', async () => {
+    const { peer, writer } = memoryPeer();
+    const controller = new AbortController();
+    const { ended, onSessionEnd } = sessionEnd();
+    const client = await nodeClient(peer.transport, {
+      clientId: 'write-during-close',
+      signal: controller.signal,
+      onSessionEnd,
+    }).connect();
+    let releaseClose = () => {};
+    const closed = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
+    const close = writer.close.bind(writer);
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The writer receives the encoded bytes by identity.
+    writer.write = async (bytes) => {
+      expect(bytes[0]).toBe(0xe0);
+      await closed;
+    };
+    writer.close = async (force) => {
+      await close(force);
+      await closed;
+    };
+    const failure = new Error('transport failed during disconnect');
+    const disconnecting = client.disconnect();
+    const disconnected = vi.fn<(reason: unknown) => void>();
+    const outcome = disconnecting.catch(disconnected);
+    try {
+      await setImmediate();
+      peer.fail(failure);
+      peer.fail(new Error('later failure'));
+      controller.abort(new Error('later cancellation'));
+      await setImmediate();
+      expect(disconnected).not.toHaveBeenCalled();
+      expect(endError(await ended)).toBe(failure);
+      expect(peer.closes).toEqual([true]);
+    } finally {
+      releaseClose();
+      await outcome;
+    }
+    expect(disconnected).toHaveBeenCalledExactlyOnceWith(failure);
   });
 
   test('writes nothing once the transport ended', async () => {
@@ -469,6 +512,89 @@ describe('the core over a transport it closes', () => {
     peer.end();
     expect(peer.closes).toEqual([false]);
   });
+});
+
+test('rejects an invalid Will topic before opening the transport', async () => {
+  const { peer } = memoryPeer();
+  const factory = createTransportClient(peer.transport, {
+    clientId: 'invalid-will',
+    will: { topic: 'status/+', payload: 'offline' },
+  });
+  await expect(factory.connect()).rejects.toThrow('Invalid MQTT Will topic');
+  expect(peer.opens()).toBe(0);
+});
+
+test('the packet limit getter can abort without opening, sending CONNECT, or delivering input', async () => {
+  const { peer } = memoryPeer();
+  const controller = new AbortController();
+  const error = new Error('aborted while reading the packet limit');
+  const factory = createTransportClient(peer.transport, {
+    clientId: 'pre-open-abort',
+    signal: controller.signal,
+    get maxPacketBytes() {
+      controller.abort(error);
+      return 4096;
+    },
+  });
+  await expect(factory.connect()).rejects.toBe(error);
+  expect(peer.opens()).toBe(0);
+  expect(peer.received).toEqual([]);
+});
+
+test('captures Will bytes and user properties before opening the transport', async () => {
+  const packets: Packet[] = [];
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The reference parser and peer use mutable packet and transport objects.
+  const { peer } = memoryPeer((packet, target) => {
+    packets.push(packet);
+    broker(packet, target);
+  });
+  const payload = Uint8Array.of(0, 255);
+  const correlationData = Uint8Array.of(7);
+  const userProperties: [string, string][] = [['origin', 'original']];
+  const transport: ByteTransport = {
+    ...peer.transport,
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Forward the native inbound interface and abort signal by identity.
+    async open(inbound, context) {
+      payload.fill(4);
+      correlationData.fill(5);
+      userProperties[0]![1] = 'changed';
+      return peer.transport.open(inbound, context);
+    },
+  };
+  const factory = createTransportClient(transport, {
+    clientId: 'will-snapshot',
+    will: { topic: 'status/a', payload, qos: 1, retain: true, correlationData, userProperties },
+  });
+  await (await factory.connect()).disconnect();
+  expect(packets[0]).toMatchObject({
+    cmd: 'connect',
+    will: {
+      topic: 'status/a',
+      payload: Buffer.from([0, 255]),
+      qos: 1,
+      retain: true,
+      properties: { correlationData: Buffer.from([7]), userProperties: { origin: 'original' } },
+    },
+  });
+});
+
+test.each([
+  [0x9a, 'MQTT broker does not support a retained Will'],
+  [0x9b, 'MQTT broker does not support the requested Will QoS'],
+] as const)('keeps Will refusal %s as the opening error', async (code, message) => {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The scripted peer uses the reference parser's mutable packet contract.
+  const { peer } = memoryPeer((packet, target) => {
+    if (packet.cmd === 'connect') target.send({ cmd: 'connack', reasonCode: code, sessionPresent: false });
+  });
+  const { ended, onSessionEnd } = sessionEnd();
+  const result = createTransportClient(peer.transport, {
+    clientId: 'will-refused',
+    will: { topic: 'status/a', payload: 'offline', qos: 1, retain: true },
+    onSessionEnd,
+  }).connect();
+  await expect(result).rejects.toMatchObject({ code: 'ERR_MQTT_REFUSED', reasonCode: code, message });
+  await expect(result).rejects.toBe(endError(await ended));
+  expect(peer.closes).toEqual([true]);
 });
 
 describe('the core and shared subscriptions', () => {

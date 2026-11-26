@@ -14,7 +14,7 @@ export type MqttErrorCode =
 
 export interface MqttErrorDetails {
   /**
-   * Whether the session ended. A rejection with `fatal: false` leaves an active session usable. Defaults to false for
+   * Whether this error ended the session. A rejection with `fatal: false` leaves an active session usable. Defaults to false for
    * `ERR_MQTT_CAPACITY` and `ERR_MQTT_INVALID_ARGUMENT` and to true for every other code.
    */
   readonly fatal?: boolean;

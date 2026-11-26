@@ -3,9 +3,14 @@ import {
   createTransportClient,
   type ByteTransport,
   type ClientDiagnostic,
+  type ConnectionInfo,
   type DiagnosticObserver,
+  type DisconnectOptions,
   type NodeQosOneMessage,
   type SessionEnd,
+  type SubscribeResult,
+  type UnsubscribeResult,
+  type WillOptions,
 } from 'mqtt';
 import { createWebSocketClient } from 'mqtt/ws';
 export type { ClientFactory, ClientSession, NodeMessage, PublishOptions, TcpClientOptions } from 'mqtt';
@@ -53,13 +58,28 @@ export type TransportPayloadIsSpecific = RequireFalse<IsAny<TransportPayload>>;
 export type TransportPayloadIsBuffer = RequireTrue<TransportPayload extends Buffer ? true : false>;
 
 export async function checkDeclarations(transport: Readonly<ByteTransport>) {
-  const portable = await createTransportClient(transport, { clientId: 'consumer' }).connect();
-  await portable.subscribe('consumer/test');
-  await portable.unsubscribe('consumer/test');
+  const will: WillOptions = { topic: 'consumer/status', payload: Buffer.from('offline'), qos: 1 };
+  const portable = await createTransportClient(transport, { clientId: 'consumer', will }).connect();
+  const connection: ConnectionInfo = portable.connection;
+  const subscribed: SubscribeResult = await portable.subscribe('consumer/test');
+  const unsubscribed: UnsubscribeResult = await portable.unsubscribe('consumer/test');
+  void [connection, subscribed.grantedQos, unsubscribed.reasonCode];
   await portable.publish('consumer/test', 'hello');
   // @ts-expect-error The client accepts string payloads.
   await portable.publish('consumer/test', 42);
-  await portable.disconnect();
+  const options: DisconnectOptions = { drainTimeoutMs: 1000, reasonCode: 4 };
+  await portable.disconnect(options);
+  // @ts-expect-error The client only sends normal disconnection or disconnection with Will.
+  await portable.disconnect({ reasonCode: 1 });
+}
+
+export function checkWillOptionTypes() {
+  const options = { host: 'localhost', clientId: 'will-consumer' };
+  createTcpClient({ ...options, will: { topic: 'status', payload: 'offline', qos: 2 } });
+  // @ts-expect-error The Will requires text or a Uint8Array.
+  createTcpClient({ ...options, will: { topic: 'status', payload: 12 } });
+  // @ts-expect-error MQTT reserves the QoS 3 flag pattern.
+  createTcpClient({ ...options, will: { topic: 'status', payload: 'offline', qos: 3 } });
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.

@@ -9,12 +9,17 @@ import type {
   ClientDiagnostic,
   ClientFactory,
   DiagnosticObserver,
+  DisconnectOptions,
   ClientSession,
+  ConnectionInfo,
   PublishOptions,
   QosOneMessage,
   SessionEnd,
   SessionEndObserver,
   SubscribeOptions,
+  SubscribeResult,
+  UnsubscribeResult,
+  WillOptions,
 } from 'mqtt/browser';
 
 type RequireTrue<Value extends true> = Value;
@@ -78,10 +83,32 @@ export async function checkPublishOptions(client: Readonly<ClientSession>) {
   await client.publish('packed/qos1', 'payload', publish);
 }
 
+export async function checkDisconnect(client: Readonly<ClientSession>) {
+  const options: DisconnectOptions = { drain: false };
+  await client.disconnect(options);
+}
+
+export async function checkBrowserResults(client: Readonly<ClientSession>) {
+  const connection: ConnectionInfo = client.connection;
+  // @ts-expect-error The negotiated client identifier is read-only.
+  connection.clientId = 'different';
+  const subscribed: SubscribeResult = await client.subscribe('sensor/status');
+  const unsubscribed: UnsubscribeResult = await client.unsubscribe('sensor/status');
+  return { clientId: connection.clientId, grantedQos: subscribed.grantedQos, reason: unsubscribed.reasonCode };
+}
+
 export function checkDecoderCompletion() {
   const decoder = new PacketDecoder();
   decoder.push(Uint8Array.of(0xd0, 0));
   decoder.finish();
+}
+
+export function checkBrowserWillOptions(): ClientFactory {
+  const will: WillOptions = { topic: 'sensor/status', payload: Uint8Array.of(1), qos: 2 };
+  const options = { url: 'ws://localhost/mqtt', clientId: 'browser-will' };
+  // @ts-expect-error A Byte view is required for binary Correlation Data.
+  createBrowserClient({ ...options, will: { ...will, correlationData: 'token' } });
+  return createBrowserClient({ ...options, will });
 }
 
 export function checkNativeWebSocketOptions(): WebSocketOptions {

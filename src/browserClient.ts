@@ -10,6 +10,7 @@ import { createByteClient } from './transportCore.js';
 import { openMqttWebSocket } from './websocket.js';
 import { resolveWebSocketMessageLimit } from './websocketLimits.js';
 import { MqttError } from './mqttError.js';
+import type { WillOptions } from './will.js';
 
 export type BrowserMessage = PublishMessage;
 
@@ -25,6 +26,7 @@ export interface BrowserClientOptions extends PublicationLimits, SubscriptionLim
   timeoutMs?: number;
   maxPacketBytes?: number;
   maxWebSocketMessageBytes?: number;
+  will?: WillOptions;
   onDiagnostic?: DiagnosticObserver;
   onSessionEnd?: SessionEndObserver;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
@@ -55,7 +57,7 @@ export function createBrowserClient(options: BrowserClientOptions): ClientFactor
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
 async function openBrowserSocket(options: BrowserClientOptions, inbound: ByteInbound, context: OpenContext): Promise<ByteWriter> {
   const { timeoutMs } = context;
-  const maxWebSocketMessageBytes = resolveWebSocketMessageLimit(options.maxWebSocketMessageBytes);
+  const maxWebSocketMessageBytes = resolveWebSocketMessageLimit(context.maxPacketBytes, options.maxWebSocketMessageBytes);
   const socket = await openMqttWebSocket(options.url, { signal: context.signal, timeoutMs });
   let closeSeen = () => {};
   const closed = new Promise<void>((resolve) => {

@@ -12,6 +12,11 @@ unset MQTT_TEST_HOST MQTT_TEST_WS_URL MQTT_TEST_TLS MQTT_TEST_CA MQTT_TEST_CERT 
 
 baseline=$(realpath "$1")
 candidate=$(realpath "$2")
+if [[ ! -f "$baseline/node_modules/mqtt/package.json" || ! -f "$candidate/node_modules/mqtt/package.json" ||
+      $(realpath -e "$baseline/node_modules/mqtt") == "$(realpath -e "$candidate/node_modules/mqtt")" ]]; then
+  echo 'Install mqtt into each consumer directory independently' >&2
+  exit 2
+fi
 runner=$(realpath "$(dirname "$0")/../packed/broker.mjs")
 fixture_baseline="$baseline/.mqtt-benchmark-echo.mjs"
 fixture_candidate="$candidate/.mqtt-benchmark-echo.mjs"

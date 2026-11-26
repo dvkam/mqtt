@@ -1,5 +1,13 @@
 # Outbound QoS 1 publishing
 
+## Disconnect with active publications
+
+`disconnect()` rejects queued publications and stops admitting new work. It waits for active QoS 1 writes and their PUBACKs before it sends DISCONNECT. A successful PUBACK settles the publication normally. A refused PUBACK keeps its broker reason.
+
+Set `disconnect({ drainTimeoutMs: 1000 })` to give the drain its own deadline. The default is the connection's operation timeout. After expiry, the client preserves any matching PUBACK it already received. Publications whose PUBACK is still missing reject with `MQTT QoS 1 drain expired. Delivery outcome is unknown`. The session then tries to send DISCONNECT under its ordinary write deadline. Check your application's delivery record before retrying those publications.
+
+Keep Alive continues during the drain. Use `disconnect({ drain: false })` to start the DISCONNECT write without waiting. This can leave earlier publications unacknowledged. A transport failure during either form of shutdown keeps its original error. Only the first valid `disconnect()` call chooses the options. `reasonCode: 4` asks the broker to publish its configured Will. The default reason is normal disconnection. [#147](https://github.com/dvkam/mqtt/issues/147)
+
 Pass `{ qos: 1 }` as the third argument to `publish` to wait for the broker's PUBACK. The two-argument form uses QoS 0. The same interface works through the TCP, Node WebSocket, browser and portable packet clients.
 
 ```ts

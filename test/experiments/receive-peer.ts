@@ -32,8 +32,12 @@ export async function startReceivePeer() {
         socket.send(mode === 'suback-overflow' ? Buffer.concat([reply, publication]) : reply);
       }
       if (packet.cmd === 'pingreq') {
+        if (mode === 'small-default-message-overflow') {
+          socket.send(Uint8Array.from([0xd0, 0, ...publication, ...publication]));
+          return;
+        }
         if (mode === 'default-overflow') {
-          const batch = new Uint8Array(1024 * 1024 + 2);
+          const batch = new Uint8Array(2 * 1024 * 1024 + 2);
           batch.set([0xd0, 0]);
           for (let offset = 2; offset < batch.length; offset += publication.length) batch.set(publication, offset);
           socket.send(batch);
@@ -55,7 +59,13 @@ export async function startReceivePeer() {
         } else socket.send(Uint8Array.of(0xd0, 0));
       }
       if (packet.cmd === 'publish') {
-        if (mode === 'mqtt-split') {
+        if (mode === 'batch-of-large-packets') {
+          const payload = Buffer.alloc(600 * 1024, 0x61);
+          const packet = { cmd: 'publish', qos: 0, retain: false, dup: false, payload } as const;
+          const first = generate({ ...packet, topic: 'first' }, { protocolVersion: 5 });
+          const second = generate({ ...packet, topic: 'second' }, { protocolVersion: 5 });
+          socket.send(Buffer.concat([first, second]));
+        } else if (mode === 'mqtt-split') {
           socket.send(publication.subarray(0, 4));
           socket.send(publication.subarray(4));
         } else if (mode === 'ws-fragments') {

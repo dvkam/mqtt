@@ -10,7 +10,8 @@
       "/probe.js": ["./packed/websocket-browser.mjs"],
       "/session.js": ["./packed/websocket-session.mjs"],
       "/streams.js": ["./packed/stream-comparison.ts"],
-      "/receive.js": ["./packed/receive-client.ts"]
+      "/receive.js": ["./packed/receive-client.ts"],
+      "/broker-echo.js": ["./bench/browser-broker-workload.ts"]
     }
   },
   "include": [

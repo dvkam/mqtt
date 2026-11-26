@@ -16,9 +16,16 @@ interface Exchange {
   readonly identifier: IdentifierLease;
   readonly acknowledge: (code: number) => void;
   readonly rejectAck: (reason: Readonly<Error>) => void;
+  acknowledgmentCode: number | undefined;
 }
 
 type Transmit = (topic: string, payload: string, messageId: number, acknowledgment: Readonly<Promise<number>>) => Promise<number>;
+
+function reportAcknowledgment(publication: Readonly<Publication>, code: number): void {
+  if (code >= 128)
+    publication.reject(new MqttError('ERR_MQTT_REFUSED', 'MQTT publication refused', { fatal: false, reasonCode: code }));
+  else publication.resolve();
+}
 
 export class OutboundQosOne {
   private readonly queued = new Set<Publication>();
@@ -27,6 +34,7 @@ export class OutboundQosOne {
   private readonly identifiers: Readonly<Pick<PacketIdentifiers, 'reserve'>>;
   private readonly transmit: Transmit;
   private stopped?: Readonly<Error>;
+  private activeSettled?: () => void;
   private draining = false;
 
   constructor(quota: number, identifiers: Readonly<Pick<PacketIdentifiers, 'reserve'>>, transmit: Transmit) {
@@ -77,7 +85,14 @@ export class OutboundQosOne {
   }
 
   accept(messageId: number, code: number): void {
-    this.active.get(messageId)?.acknowledge(code);
+    const exchange = this.active.get(messageId);
+    if (exchange === undefined || exchange.acknowledgmentCode !== undefined) return;
+    exchange.acknowledgmentCode = code;
+    exchange.acknowledge(code);
+  }
+
+  get hasActive(): boolean {
+    return this.active.size > 0;
   }
 
   stop(reason: Readonly<Error>): void {
@@ -92,13 +107,45 @@ export class OutboundQosOne {
 
   retire(reason: Readonly<Error>): void {
     this.stop(reason);
-    for (const { publication, identifier, rejectAck } of this.active.values()) {
+    this.finishActive(reason, false);
+  }
+
+  private finishActive(reason: Readonly<Error>, preserveAcknowledgments: boolean): void {
+    for (const { publication, identifier, rejectAck, acknowledgmentCode } of this.active.values()) {
       publication.detach();
-      publication.reject(reason);
+      if (preserveAcknowledgments && acknowledgmentCode !== undefined) reportAcknowledgment(publication, acknowledgmentCode);
+      else publication.reject(reason);
       rejectAck(reason);
       identifier.release();
     }
     this.active.clear();
+    this.reportActiveSettled();
+  }
+
+  /** Call after stop(), so no new exchanges can join the set being drained. */
+  async waitForActive(timeoutMs: number): Promise<void> {
+    if (!this.hasActive) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await new Promise<void>((resolve) => {
+        this.activeSettled = resolve;
+        timer = setTimeout(() => {
+          const expired = new MqttError('ERR_MQTT_TIMEOUT', 'MQTT QoS 1 drain expired. Delivery outcome is unknown', {
+            fatal: false,
+          });
+          this.finishActive(expired, true);
+        }, timeoutMs);
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private reportActiveSettled(): void {
+    const settled = this.activeSettled;
+    if (settled === undefined || this.hasActive) return;
+    this.activeSettled = undefined;
+    settled();
   }
 
   private drain(): void {
@@ -125,7 +172,7 @@ export class OutboundQosOne {
           acknowledge = resolve;
           rejectAck = reject;
         });
-        const exchange = { publication, identifier, acknowledge, rejectAck };
+        const exchange: Exchange = { publication, identifier, acknowledge, rejectAck, acknowledgmentCode: undefined };
         this.active.set(identifier.messageId, exchange);
         void this.complete(exchange, acknowledgment);
       }
@@ -138,9 +185,7 @@ export class OutboundQosOne {
     const { publication, identifier } = exchange;
     try {
       const code = await this.transmit(publication.topic, publication.payload, identifier.messageId, acknowledgment);
-      if (code >= 128)
-        publication.reject(new MqttError('ERR_MQTT_REFUSED', 'MQTT publication refused', { fatal: false, reasonCode: code }));
-      else publication.resolve();
+      reportAcknowledgment(publication, code);
     } catch (reason) {
       publication.reject(reason);
     } finally {
@@ -148,6 +193,7 @@ export class OutboundQosOne {
       publication.releaseBudget();
       if (this.active.get(identifier.messageId) === exchange) this.active.delete(identifier.messageId);
       identifier.release();
+      if (this.activeSettled !== undefined) this.reportActiveSettled();
       this.drain();
     }
   }

@@ -37,6 +37,26 @@ node .type-fixtures/mixed-probe/test/bench/mixed-traffic.js
 
 The parent starts six fresh child processes, alternating TCP/WS order across three repetitions. Run sequentially without tests, builds or formal checks alongside it. The entry locates repository metadata through package self-resolution and gives child processes that directory. Results include the source commit and runtime environment.
 
+For an installed comparison, copy the emitted `test/bench` and `test/experiments` directories into each clean tarball consumer, preserving their sibling layout. The runner imports the installed `mqtt` and `mqtt/ws`. Install the pinned `mqtt-packet` development peer for the scripted broker in the consumer. Supply the package digest or source reference as `MQTT_BENCH_REVISION`. Repeat each transport with both packages in alternating order.
+
+```sh
+MQTT_BENCH_REVISION=<source-or-package-digest> MQTT_MIXED_REPETITIONS=5 MQTT_MIXED_ROUNDS=250 \
+  node --expose-gc bench/mixed-traffic.js tcp 1
+```
+
+## Installed comparison after TCP batching
+
+Five pairs per transport on 25 November 2026 compared the pre-batching and TCP-only batching tarballs. Node 26.13.0 ran V8 14.6.202.34-node.40. The scripted peer used mqtt-packet 9.0.2 and ws 8.22.1. Each process attempted 4,000 publications in 250 rounds. All 2,000 admitted publications echoed, all 2,000 deliberate rejections sent no bytes, all 250 control operations completed, and the round ledger ended empty.
+
+| Transport and package | Echo p50 ms | p90 ms | p95 ms | p99 ms | Event-loop p99 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| TCP before | 5.323 | 8.921 | 9.660 | 10.929 (10.481 to 11.304) | 1.833 |
+| TCP after | 5.274 | 8.936 | 9.749 | 11.489 (11.035 to 15.030) | 1.976 |
+| WebSocket before | 5.411 | 9.049 | 9.784 | 11.133 (10.776 to 12.449) | 1.978 |
+| WebSocket after | 5.419 | 9.039 | 9.786 | 11.208 (10.763 to 14.386) | 1.974 |
+
+Each entry is a median of five runs. The TCP echo ranges overlap while the scripted read and echo delays dominate the round. The runner also records send, control, observer, and event-loop p50, p90, p95, and p99, process CPU and memory before setup and after a final forced GC. Median post-GC growth on TCP was 8.95 MB before and 8.97 MB after. The corresponding external memory growth was 1.14 MB and 1.13 MB. This comparison includes the peer, V8 initialization, and the fixture in a single process. [Independent broker burst measurements](baseline/tcp-burst.md)
+
 ## Review and verification
 
 Regression tests cover exact payloads, duplicates, missing echoes, round cleanup, latency ranks, fixed observer work, native write observation, memory interval samples and cleanup failures. Seven restored-source faults each fail a targeted regression. They omit round clearing, miscalculate p99, omit payload comparison, omit observer work, erase the native peak, omit interval sampling or break cleanup after a final memory-read failure.

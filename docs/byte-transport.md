@@ -2,6 +2,8 @@
 
 The supported TCP, `ws` and browser clients run on a byte-level transport contract and a shared transport core. Custom transports use the same contract through `createTransportClient` from `mqtt` or `mqtt/portable`. The core is private. The decisions behind this shape are in [design-decisions.md](design-decisions.md).
 
+The [ownership map](transport-ownership.md) links connection, packet, exchange, and close behavior to the source and its checks.
+
 ## Contract
 
 `src/byteTransport.ts` defines it. A transport has a `name`, an optional `supportsSharedSubscriptions` that defaults to true, and an `open(inbound, context)` function. When `supportsSharedSubscriptions` is false, the session refuses a `$share/` filter before it writes anything. An optional `supportsPassword`, also true by default, says whether CONNECT carries the `password` option. The browser sets it to false.
@@ -30,7 +32,7 @@ Only an end, a failure or fatal input during the open is kept for the session. A
 - It validates the options before it opens anything.
 - It frames and checks inbound packets with the framer the platform supplies, and applies the inbound rules.
 - It applies the write budget: `bufferedBytes` plus `frameOverhead` must fit before a write. A refusal rejects with `<name> write budget exceeded`, and a refused QoS 1 publication leaves the session usable.
-- It handles the caller's abort signal and force-closes the writer after a remote end, a transport failure, rejected input or an abort. It releases the caller's signal once a close settles, also when a writer stopped waiting for the peer. A transport failure force-closes the writer even after a graceful close started.
+- It handles the caller's abort signal and force-closes the writer after a remote end, a transport failure, rejected input or an abort. It starts one forced close per writer and shares its settlement with session shutdown. It removes the signal listener when a forced close starts or a graceful close settles. A transport failure can escalate a graceful close.
 - If the open rejects, it reports the first failure the transport delivered to `inbound`, and otherwise the rejection.
 
 The TCP opener in `src/tcpClient.ts` creates the socket, maps its `data`, `end`, `close` and `error` events to `ByteInbound`, and owns the connection timeout and the messages that name TCP or TLS. The `ws` opener in `src/websocketClient.ts` creates the WebSocket with the `mqtt` subprotocol, maps `message`, `close` and `error`, rejects text messages and owns the close deadline. `ws` itself refuses a handshake response without the `mqtt` subprotocol. The browser opener in `src/browserClient.ts` opens the native WebSocket through `openMqttWebSocket`, maps `message`, `error` and `close`, checks the message limit, rejects text messages and stops listening once the socket or the core closes it. Its writer rejects a write on a socket that is not open, because `WebSocket.send()` on a closing socket drops data silently, and it owns its close deadline: a graceful close the peer does not finish within the operation timeout stops waiting. It reports no frame overhead, as the browser client before it did not.

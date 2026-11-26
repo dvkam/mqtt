@@ -37,6 +37,44 @@ The implementation departs from the #155 proposal in the places below. They were
 
 What follows: the errors listed in [docs/errors.md](errors.md#gaps). One #155 acceptance item is also open. Some tests still assert only the message of a rejection that now has a code, and no check fails when `src/` adds an uncoded error.
 
+## Drain active QoS 1 exchanges before disconnect
+
+Proposed implementation on 25 November 2026 for [#147](https://github.com/dvkam/mqtt/issues/147). Pending review.
+
+Question: what should happen to publications already waiting for PUBACK when the caller disconnects?
+
+| Option | Trade-off |
+| --- | --- |
+| Send DISCONNECT immediately | Shutdown starts at once. Earlier publications can lose their broker outcome even if PUBACK is about to arrive. |
+| Drain every queued and active publication | Attempts to complete more work. The client can start new sends after the caller requests shutdown. |
+| Drain active exchanges within a deadline | Preserves known broker outcomes and prevents dispatch of queued work. The connection can stay open until the drain deadline. |
+
+The implementation uses the active exchange registry. The drain has its own timeout and preserves negotiated Keep Alive until the client is ready to send DISCONNECT. The caller can still choose immediate disconnect. [Disconnect options and outcomes](qos1-publish.md#disconnect-with-active-publications)
+
+## Derive the default WebSocket message limit from the packet limit
+
+Proposed implementation on 25 November 2026 for [#150](https://github.com/dvkam/mqtt/issues/150). Pending review.
+
+A WebSocket message can contain several MQTT packets. The adapter defaults the message limit to twice the validated packet limit so two individually valid packets can share one message. The packet limit still applies to each MQTT packet.
+
+An explicit message limit can remain smaller than the packet limit. A broker can split an MQTT packet across several WebSocket messages, and existing tests cover that case. Rejecting the configuration would remove a supported way to bound native message assembly. [Independent limits](websocket-packet-input.md#independent-limits)
+
+## Register a Will in CONNECT
+
+Proposed implementation on 25 November 2026 for [#161](https://github.com/dvkam/mqtt/issues/161). Pending review.
+
+TCP, Node WebSocket, browser and custom byte factories accept `WillOptions`. The byte core validates and captures the option before opening the transport. The codec encodes the Will in CONNECT and exposes a byte payload in the decoded `WillMessage`.
+
+The broker owns delivery of the registered Will, including Will QoS 2. Active publish and receive still use the existing session QoS profile. Normal `disconnect()` discards the Will. Reason 4 requests it. [Will messages](will-message.md) · [Session QoS profile](codec.md#supported-profile)
+
+## Return the connection and subscription acknowledgment results
+
+Proposed implementation on 25 November 2026 for [#152](https://github.com/dvkam/mqtt/issues/152). Pending review.
+
+The session exposes `connection` as a frozen snapshot of an accepted CONNACK. The snapshot carries the effective client identifier and the broker capabilities, including MQTT defaults. `subscribe()` and `unsubscribe()` return their successful broker results. The subscription registry retains acknowledgment ownership and the write still has to settle before the result resolves.
+
+Callers that type these operations as `Promise<void>` need to await the result in a void-returning callback. [Public types](public-types.md#broker-acknowledgment-results)
+
 ## Browser client takes on the Node inbound rules
 
 Decided on 16 November 2026 (UTC), for [#171](https://github.com/dvkam/mqtt/issues/171). Status: step 4 of the #171 plan, not merged when this entry was written.

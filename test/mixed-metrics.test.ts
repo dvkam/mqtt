@@ -5,6 +5,10 @@ import { afterEach, expect, test, vi } from 'vitest';
 import * as metrics from './experiments/mixed-traffic-metrics.js';
 import * as peers from './experiments/mixed-traffic-peer.js';
 import { runMixedTrafficProbe } from './experiments/mixed-traffic.js';
+import { createTcpClient } from '../src/tcpClient.js';
+import { createWebSocketClient } from '../src/websocketClient.js';
+
+const factories = { createTcpClient, createWebSocketClient };
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -36,7 +40,7 @@ test('metric shutdown failure preserves its cause and still closes the peer', as
     };
   });
   try {
-    await expect(runMixedTrafficProbe({ transport: 'tcp', rounds: 1, observerIterations: 0 })).rejects.toBe(marker);
+    await expect(runMixedTrafficProbe({ transport: 'tcp', rounds: 1, observerIterations: 0 }, factories)).rejects.toBe(marker);
     expect(close).toHaveBeenCalledTimes(1);
   } finally {
     if (peer) await peer.close();
@@ -51,10 +55,10 @@ test('metric setup failure leaves native write ownership available for another r
     throw marker;
   });
   try {
-    await expect(runMixedTrafficProbe({ transport: 'tcp', rounds: 1, observerIterations: 0 })).rejects.toBe(marker);
+    await expect(runMixedTrafficProbe({ transport: 'tcp', rounds: 1, observerIterations: 0 }, factories)).rejects.toBe(marker);
     observe.mockRestore();
     expect(Socket.prototype.write === original).toBe(true);
-    const result = await runMixedTrafficProbe({ transport: 'tcp', rounds: 1, observerIterations: 0 });
+    const result = await runMixedTrafficProbe({ transport: 'tcp', rounds: 1, observerIterations: 0 }, factories);
     expect(result.accepted).toBe(8);
   } finally {
     Socket.prototype.write = original;

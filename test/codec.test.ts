@@ -128,6 +128,184 @@ test('preserves UTF-8 supplementary characters and BOM characters', () => {
   expect(new PacketDecoder().push(encodePacket(packet))[0]).toMatchObject(packet);
 });
 
+test('encodes the CONNECT Will Flag and the empty Will property section', () => {
+  const connect: WirePacket = {
+    cmd: 'connect',
+    clientId: 'c',
+    will: { topic: 't', payload: Uint8Array.of(0x70) },
+  };
+  const bytes = Uint8Array.of(0x10, 21, 0, 4, 0x4d, 0x51, 0x54, 0x54, 5, 0x06, 0, 0, 0, 0, 1, 0x63, 0, 0, 1, 0x74, 0, 1, 0x70);
+  expect(encodePacket(connect)).toEqual(bytes);
+  expect(new PacketDecoder().push(bytes)).toEqual([
+    {
+      cmd: 'connect',
+      clientId: 'c',
+      cleanStart: true,
+      keepAlive: 0,
+      will: { topic: 't', payload: Uint8Array.of(0x70), qos: 0, retain: false },
+    },
+  ]);
+});
+
+test('encodes Will properties before the topic, payload, and credentials', () => {
+  const will = {
+    topic: 't',
+    payload: Uint8Array.of(0, 255),
+    qos: 1,
+    retain: true,
+    delayInterval: 3,
+    messageExpiryInterval: 42,
+    contentType: 'b',
+    responseTopic: 'r',
+    correlationData: Uint8Array.of(8),
+    payloadFormatIndicator: 0,
+    userProperties: [
+      ['k', '1'],
+      ['k', '2'],
+    ],
+  } as const;
+  const packet: WirePacket = { cmd: 'connect', clientId: 'c', username: 'u', password: Uint8Array.of(0xaa), will };
+  const properties = [
+    0x26, 0, 1, 0x6b, 0, 1, 0x31, 0x26, 0, 1, 0x6b, 0, 1, 0x32, 0x18, 0, 0, 0, 3, 0x01, 0, 0x02, 0, 0, 0, 42, 0x03, 0, 1, 0x62,
+    0x08, 0, 1, 0x72, 0x09, 0, 1, 8,
+  ];
+  const bytes = Uint8Array.of(
+    0x10,
+    66,
+    0,
+    4,
+    0x4d,
+    0x51,
+    0x54,
+    0x54,
+    5,
+    0xee,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0x63,
+    38,
+    ...properties,
+    0,
+    1,
+    0x74,
+    0,
+    2,
+    0,
+    0xff,
+    0,
+    1,
+    0x75,
+    0,
+    1,
+    0xaa,
+  );
+  expect(encodePacket(packet)).toEqual(bytes);
+  expect(new PacketDecoder().push(bytes)).toMatchObject([packet]);
+  const reference: Packet[] = [];
+  const decoder = parser({ protocolVersion: 5 });
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Preserve the reference parser's packet and Buffer for the wire assertions.
+  decoder.on('packet', (decoded) => {
+    reference.push(decoded);
+  });
+  decoder.parse(Buffer.from(bytes));
+  expect(reference[0]).toMatchObject({
+    cmd: 'connect',
+    username: 'u',
+    password: Buffer.from([0xaa]),
+    will: {
+      topic: 't',
+      qos: 1,
+      retain: true,
+      payload: Buffer.from([0, 255]),
+      properties: {
+        willDelayInterval: 3,
+        messageExpiryInterval: 42,
+        contentType: 'b',
+        responseTopic: 'r',
+        correlationData: Buffer.from([8]),
+        payloadFormatIndicator: false,
+        userProperties: { k: ['1', '2'] },
+      },
+    },
+  });
+});
+
+test.each([0x07, 0x0a, 0x22, 0x1e])('rejects invalid CONNECT Will flags %s', (flags) => {
+  const bytes = Uint8Array.of(0x10, 21, 0, 4, 0x4d, 0x51, 0x54, 0x54, 5, flags, 0, 0, 0, 0, 1, 0x63, 0, 0, 1, 0x74, 0, 1, 0x70);
+  expect(() => new PacketDecoder().push(bytes)).toThrow('Unsupported CONNECT flags');
+});
+
+test('a Will can request QoS 2 from the broker', () => {
+  const will = { topic: 't', payload: Uint8Array.of(0x70), qos: 2 } as const;
+  const wire = encodePacket({ cmd: 'connect', clientId: 'c', will });
+  expect(wire[9]).toBe(0x16);
+  expect(new PacketDecoder().push(wire)[0]).toMatchObject({ cmd: 'connect', will });
+});
+
+test('rejects invalid bytes flagged as a UTF-8 Will payload', () => {
+  expect(() =>
+    encodePacket({
+      cmd: 'connect',
+      clientId: 'c',
+      will: { topic: 't', payload: Uint8Array.of(0xff), payloadFormatIndicator: 1 },
+    }),
+  ).toThrow('Invalid MQTT Will UTF-8 payload');
+  const bytes = Uint8Array.of(
+    0x10,
+    23,
+    0,
+    4,
+    0x4d,
+    0x51,
+    0x54,
+    0x54,
+    5,
+    0x06,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0x63,
+    2,
+    1,
+    1,
+    0,
+    1,
+    0x74,
+    0,
+    1,
+    0xff,
+  );
+  expect(() => new PacketDecoder().push(bytes)).toThrow('Invalid MQTT Will UTF-8 payload');
+});
+
+test('reads the Will topic and byte payload once before validating the encoded values', () => {
+  let topicReads = 0;
+  let payloadReads = 0;
+  const wire = encodePacket({
+    cmd: 'connect',
+    clientId: 'c',
+    will: {
+      get topic() {
+        return ++topicReads === 1 ? 'status/a' : 'status/+';
+      },
+      get payload() {
+        return Uint8Array.of(++payloadReads === 1 ? 0x61 : 0xff);
+      },
+      payloadFormatIndicator: 1,
+    },
+  });
+  expect({ topicReads, payloadReads }).toEqual({ topicReads: 1, payloadReads: 1 });
+  expect(new PacketDecoder().push(wire)[0]).toMatchObject({
+    cmd: 'connect',
+    will: { topic: 'status/a', payload: Uint8Array.of(0x61) },
+  });
+});
+
 test.each([
   [0xe0, 0],
   [0xe0, 1, 0],
@@ -138,7 +316,11 @@ test.each([
 
 test('rejects unsupported encoder fields instead of silently changing protocol semantics', () => {
   const publish = { cmd: 'publish' as const, topic: 'a', payload: new Uint8Array(), topicAlias: 7 };
-  const connect = { cmd: 'connect' as const, clientId: 'c', will: { topic: 'offline', payload: 'lost' } };
+  const connect = {
+    cmd: 'connect' as const,
+    clientId: 'c',
+    will: { topic: 'offline', payload: Uint8Array.of(0), unknownField: 1 },
+  };
   const disconnect = { cmd: 'disconnect' as const, sessionExpiryInterval: 5 };
   expect(() => encodePacket(publish)).toThrow('Unsupported');
   expect(() => encodePacket(connect)).toThrow('Unsupported');

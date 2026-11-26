@@ -5,6 +5,7 @@ import { createByteClient, type ByteClientOptions } from './transportCore.js';
 
 export type { ByteInbound, ByteTransport, ByteWriter, OpenContext } from './byteTransport.js';
 export type { ByteClientOptions } from './transportCore.js';
+export type { WillOptions } from './will.js';
 export type { ClientDiagnostic, DiagnosticObserver } from './diagnostics.js';
 export { MqttError, isMqttError } from './mqttError.js';
 export type { MqttErrorCode, MqttErrorDetails } from './mqttError.js';
@@ -12,7 +13,17 @@ export type { MessageProperties, PublishMessage } from './messageProperties.js';
 export type { ReceivedPacket } from './portable.js';
 export { ProtocolInputError } from './protocolInputError.js';
 export type { ProtocolInputCode } from './protocolInputError.js';
-export type { ClientFactory, ClientSession, QosOneMessage, SessionEnd, SessionEndObserver } from './session.js';
+export type {
+  ClientFactory,
+  ClientSession,
+  ConnectionInfo,
+  DisconnectOptions,
+  QosOneMessage,
+  SessionEnd,
+  SessionEndObserver,
+  SubscribeResult,
+  UnsubscribeResult,
+} from './session.js';
 export type { BrokerPacket, ClientPacket } from './wireCodec.js';
 
 /** Create a one-shot MQTT client with Uint8Array payloads over a custom transport. */

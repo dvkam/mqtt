@@ -44,6 +44,10 @@ export class PacketInput<Bytes extends Uint8Array> {
     return this.terminal?.owner === 'input' ? this.terminal.reason : undefined;
   }
 
+  get maxPacketBytes(): number {
+    return this.decoder.maxPacketBytes;
+  }
+
   listen(
     onPacket: PacketSink<Bytes>,
     onClose: FailureSink<Bytes>,

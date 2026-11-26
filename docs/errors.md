@@ -27,6 +27,7 @@ MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputErr
 | `ERR_MQTT_REFUSED` | The broker refused SUBACK, UNSUBACK or PUBACK | `false` | The acknowledgment's reason code |
 | `ERR_MQTT_TIMEOUT` | An operation passed `timeoutMs`, or a Server Keep Alive deadline passed while an acknowledgment was pending | `true` | None |
 | `ERR_MQTT_TIMEOUT` | The TCP or TLS connection, or the native WebSocket handshake, did not open within `timeoutMs` | `true` | None |
+| `ERR_MQTT_TIMEOUT` | The disconnect drain passed `drainTimeoutMs` without a PUBACK. The publication outcome is unknown and DISCONNECT proceeds. | `false` | None |
 | `ERR_MQTT_BROKER_DISCONNECT` | The broker sent DISCONNECT | `true` | The DISCONNECT reason code, 0 when omitted |
 | `ERR_MQTT_PROTOCOL` | Malformed or out-of-profile broker input, such as a PUBACK with packet identifier 0. The error is a `ProtocolInputError`, and an active session sends DISCONNECT with its reason code. | `true` | 0x81, 0x82 or 0x94 |
 | `ERR_MQTT_PROTOCOL` | The broker sent more inbound QoS 1 messages than the client's Receive Maximum allows | `true` | 0x93 |
@@ -45,7 +46,7 @@ These rejections have no code yet, or lack a field that #155 asks for.
 - Codec failures that are not a `ProtocolInputError` are plain `Error` or `RangeError` values. Examples are invalid fixed-header flags, a malformed Remaining Length, a truncated field, many property defects such as a CONNACK Receive Maximum of 0 or Maximum QoS of 2, and a packet over `maxPacketBytes`. MQTT 5 treats most of them as Malformed Packet 0x81.
 - An inbound QoS 2 PUBLISH, when an `onQosOneMessage` handler is set, ends the session with a plain `Error`.
 - A QoS 0 publish write and the transport `close` during `disconnect()` reject with the transport's own value, even when it is not an Error.
-- Option validation before connecting, such as `timeoutMs` or publication limits, throws `RangeError`.
+- Invalid options such as `timeoutMs`, publication limits or `drainTimeoutMs` throw `RangeError`.
 - Custom transport errors pass through unchanged.
 - A write budget refusal is a plain `Error`. It leaves the session usable when it refuses a publication and ends the session when it refuses a control packet.
 - The browser receive message limit is a `RangeError`.

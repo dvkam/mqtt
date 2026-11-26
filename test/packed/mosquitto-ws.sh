@@ -73,6 +73,7 @@ fi
 grep -Ei 'certificate.required|handshake.failure|socket hang up|alert' "$broker_dir/tcp-no-client-cert.log"
 echo 'packed TCP TLS and mTLS checks passed'
 run_session ws://127.0.0.1:18884/mqtt
+MQTT_TEST_WS_URL=ws://127.0.0.1:18884/mqtt timeout 20 node "$consumer/will.mjs"
 run_session wss://localhost:18885/mqtt "$broker_dir/ca.pem"
 if run_session wss://localhost:18885/mqtt > "$broker_dir/unknown-ca.log" 2>&1; then
   echo 'Expected WSS to reject the unknown CA' >&2
@@ -116,7 +117,8 @@ if NODE_EXTRA_CA_CERTS="$broker_dir/ca.pem" timeout 20 node "$session" "$consume
 fi
 grep -q 'MQTT WebSocket handshake failed' "$broker_dir/native-hostname.log"
 if [[ ${MQTT_TEST_CHROMIUM:-0} == 1 ]]; then
-  timeout 30 node "$session" "$consumer" ws://127.0.0.1:18884/mqtt chromium
+  timeout 30 node test/packed/quickstart-check.ts "$consumer" --browser-only --chromium
+  MQTT_TEST_WILL=1 timeout 30 node "$session" "$consumer" ws://127.0.0.1:18884/mqtt chromium
   chromium_home=$(mktemp -d)
   mkdir -p "$chromium_home/.pki/nssdb"
   "${CERTUTIL_BIN:-certutil}" -N -d "sql:$chromium_home/.pki/nssdb" --empty-password

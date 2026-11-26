@@ -14,10 +14,16 @@ import type { ClientFactory, ClientSession } from './session.js';
 import { resolveSubscriptionLimits } from './subscriptionExchanges.js';
 import { resolveTimeout } from './timeout.js';
 import { MqttError, transportFailure } from './mqttError.js';
+import { captureWill, type WillOptions } from './will.js';
 
-export interface ByteClientOptions<Bytes extends Uint8Array = Uint8Array> extends PortableOptions<Bytes>, NativeWriteLimits {
+export const flushNativeWrites = Symbol('flushNativeWrites');
+export type ByteWriterWithFlush = ByteWriter & { [flushNativeWrites]?(): void };
+
+export interface ByteClientOptions<Bytes extends Uint8Array = Uint8Array>
+  extends Omit<PortableOptions<Bytes>, 'will'>, NativeWriteLimits {
   signal?: AbortSignal;
   maxPacketBytes?: number;
+  will?: WillOptions;
 }
 
 /**
@@ -74,14 +80,39 @@ async function connectOverBytes<Bytes extends Uint8Array>(
   const subscriptionLimits = resolveSubscriptionLimits(options);
   const writeLimits = resolveNativeWriteLimits(options);
   const input = new PacketInput(options.maxPacketBytes, platform);
+  let will;
+  try {
+    will = captureWill(options.will);
+  } catch (error) {
+    if (isAborted()) throw abortReason();
+    throw error;
+  }
 
   // Cancels the open while no writer exists.
   const opening = new AbortController();
-  let writer: ByteWriter | undefined;
+  let writer: ByteWriterWithFlush | undefined;
+  let forcedClose: Promise<void> | undefined;
   // Whether the transport reported its end, a failure or input the core rejected.
   let inputEnded = false;
   const release = () => {
     signal?.removeEventListener('abort', abort);
+  };
+  const forceClose = async (opened: Readonly<ByteWriter>): Promise<void> => {
+    if (forcedClose) return forcedClose;
+    let start = () => {};
+    forcedClose = new Promise<void>((resolve, reject) => {
+      start = () => {
+        try {
+          resolve(opened.close(true));
+        } catch (error) {
+          // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- A custom writer's synchronous throw has the same outcome as its rejected close promise.
+          reject(error);
+        }
+      };
+    });
+    // A writer can report end or failure synchronously while closing.
+    start();
+    await forcedClose;
   };
   // Between the open resolving and `writer` being set, neither branch reaches the transport. The session's `listen` then
   // reports the recorded failure at once, and the core closes the writer when `connectPortable` rejects.
@@ -90,13 +121,8 @@ async function connectOverBytes<Bytes extends Uint8Array>(
       opening.abort(reason);
       return;
     }
-    // The input already holds the outcome, so a failing close has nothing left to report. Catch a synchronous throw
-    // too, because it would otherwise escape from the transport's event handler.
-    try {
-      writer.close(true).catch(() => {});
-    } catch {
-      // See above.
-    }
+    // The input already holds the outcome, so a failing close has nothing left to report.
+    void forceClose(writer).catch(() => {});
   };
   const finish = (reason: Readonly<Error> | undefined) => {
     release();
@@ -136,8 +162,9 @@ async function connectOverBytes<Bytes extends Uint8Array>(
   };
 
   try {
+    if (isAborted()) throw abortReason();
     try {
-      writer = await transport.open(inbound, { signal: opening.signal, timeoutMs });
+      writer = await transport.open(inbound, { signal: opening.signal, timeoutMs, maxPacketBytes: input.maxPacketBytes });
     } catch (error) {
       throw input.reason ?? transportFailure(error, name + ' open failed');
     }
@@ -149,20 +176,41 @@ async function connectOverBytes<Bytes extends Uint8Array>(
         const bytes = encodePacket(packet, { sharedSubscriptions: supportsSharedSubscriptions });
         const wireBytes = bytes.length + (opened.frameOverhead?.(bytes.length) ?? 0);
         const traffic = packet.cmd === 'publish' ? 'publication' : 'control';
-        if (!allowsNativeWrite(writeLimits, opened.bufferedBytes, wireBytes, traffic)) {
+        let allowed = allowsNativeWrite(writeLimits, opened.bufferedBytes, wireBytes, traffic);
+        if (!allowed && opened[flushNativeWrites] !== undefined) {
+          opened[flushNativeWrites]();
+          allowed = allowsNativeWrite(writeLimits, opened.bufferedBytes, wireBytes, traffic);
+        }
+        if (!allowed) {
           throw recordNativeBudgetFailure(packet, new Error(name + ' write budget exceeded'));
         }
-        await opened.write(bytes);
+        try {
+          await opened.write(bytes);
+        } catch (cause) {
+          if (packet.cmd === 'connect') {
+            // A failed CONNECT write must stop accepted input before the exchange unwinds.
+            if (cause instanceof Error) input.retire('error', cause);
+            else input.detachCore();
+          }
+          throw cause;
+        }
       },
       listen(onPacket, onClose, onProtocolError) {
         return input.listen(onPacket, onClose, onQosOneMessage !== undefined, onProtocolError);
       },
       async close(force) {
         input.detachCore();
-        if (force === true) release();
-        await opened.close(force === true);
-        // The writer settles once closed, or once it stopped waiting for the peer, so nothing is left to abort.
-        release();
+        try {
+          if (force === true) {
+            release();
+            await forceClose(opened);
+          } else {
+            if (forcedClose === undefined) await opened.close(false);
+            if (forcedClose !== undefined) await forcedClose;
+          }
+        } finally {
+          release();
+        }
       },
     };
     // If the transport ended or failed while it opened, `listen` reports that at once and the session fails before it writes.
@@ -171,6 +219,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
         clientId: options.clientId,
         username: options.username,
         password: supportsPassword ? options.password : undefined,
+        will,
         onMessage: options.onMessage,
         onDiagnostic,
         onSessionEnd,

@@ -1,4 +1,17 @@
 const topicEncoder = new TextEncoder();
+const maxTopicBytes = 65_535;
+const unpairedSurrogate = /[\uD800-\uDFFF]/u;
+
+function validateTopicString(topic: string): boolean {
+  const { length } = topic;
+  if (length === 0 || length > maxTopicBytes || topic.includes('\u0000') || unpairedSurrogate.test(topic)) return false;
+  // A UTF-16 code unit uses at most three UTF-8 bytes. A surrogate pair uses four bytes across two units.
+  return length <= maxTopicBytes / 3 || topicEncoder.encode(topic).byteLength <= maxTopicBytes;
+}
+
+export function validateTopicName(topic: string): boolean {
+  return !topic.includes('+') && !topic.includes('#') && validateTopicString(topic);
+}
 
 /**
  * Validate a Topic Filter's MQTT string and wildcard syntax.
@@ -20,15 +33,8 @@ const topicEncoder = new TextEncoder();
  * @returns {Boolean} If the topic is valid, returns true. Otherwise, returns false.
  */
 export function validateTopic(topic: string) {
-  if (
-    topic.length === 0 ||
-    topic.length > 65_535 ||
-    topic.includes('\u0000') ||
-    /[\uD800-\uDFFF]/u.test(topic) ||
-    topicEncoder.encode(topic).byteLength > 65_535
-  ) {
-    return false;
-  }
+  if (!validateTopicString(topic)) return false;
+  if (!topic.includes('+') && !topic.includes('#')) return true;
   const levels: string[] = topic.split('/');
 
   for (const [levelIndex, level] of levels.entries()) {
