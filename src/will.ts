@@ -1,6 +1,6 @@
 import type { MessageProperties } from './messageProperties.js';
 import type { UserProperty } from './wireProperties.js';
-import { validateTopicName } from './util/validateTopic.js';
+import { validateMqttString, validateTopicName } from './util/validateTopic.js';
 
 export interface WillMessage<Payload extends string | Uint8Array = Uint8Array> extends Omit<
   MessageProperties,
@@ -37,7 +37,8 @@ function copyUserProperty(value: unknown): UserProperty {
   if (!Array.isArray(value) || value.length !== 2) throw new TypeError('Invalid MQTT Will User Property');
   const pair: readonly unknown[] = value;
   const [key, content] = pair;
-  if (typeof key !== 'string' || typeof content !== 'string') throw new TypeError('Invalid MQTT Will User Property');
+  if (typeof key !== 'string' || typeof content !== 'string' || !validateMqttString(key) || !validateMqttString(content))
+    throw new TypeError('Invalid MQTT Will User Property');
   return [key, content];
 }
 
@@ -85,7 +86,8 @@ export function captureWill(options: Readonly<WillOptions> | undefined, textPayl
   if (retain !== undefined && typeof retain !== 'boolean') throw new TypeError('Invalid MQTT Will Retain flag');
   if (payloadFormatIndicator !== undefined && payloadFormatIndicator !== 0 && payloadFormatIndicator !== 1)
     throw new RangeError('Invalid MQTT Will Payload Format Indicator');
-  if (contentType !== undefined && typeof contentType !== 'string') throw new TypeError('Invalid MQTT Will Content Type');
+  if (contentType !== undefined && (typeof contentType !== 'string' || !validateMqttString(contentType)))
+    throw new TypeError('Invalid MQTT Will Content Type');
   if (responseTopic !== undefined && (typeof responseTopic !== 'string' || !validateTopicName(responseTopic)))
     throw new Error('Invalid MQTT Will Response Topic');
   if (textPayload && typeof payload === 'string' && payload.length > maxBinaryBytes)

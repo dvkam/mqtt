@@ -2,11 +2,16 @@ const topicEncoder = new TextEncoder();
 const maxTopicBytes = 65_535;
 const unpairedSurrogate = /[\uD800-\uDFFF]/u;
 
-function validateTopicString(topic: string): boolean {
-  const { length } = topic;
-  if (length === 0 || length > maxTopicBytes || topic.includes('\u0000') || unpairedSurrogate.test(topic)) return false;
+/** Whether `value` is an MQTT 5 UTF-8 string: at most 65,535 bytes, with no U+0000 and no unpaired surrogate. */
+export function validateMqttString(value: string): boolean {
+  const { length } = value;
+  if (length > maxTopicBytes || value.includes('\u0000') || unpairedSurrogate.test(value)) return false;
   // A UTF-16 code unit uses at most three UTF-8 bytes. A surrogate pair uses four bytes across two units.
-  return length <= maxTopicBytes / 3 || topicEncoder.encode(topic).byteLength <= maxTopicBytes;
+  return length <= maxTopicBytes / 3 || topicEncoder.encode(value).byteLength <= maxTopicBytes;
+}
+
+function validateTopicString(topic: string): boolean {
+  return topic.length !== 0 && validateMqttString(topic);
 }
 
 export function validateTopicName(topic: string): boolean {

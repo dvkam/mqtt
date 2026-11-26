@@ -527,6 +527,21 @@ test('rejects an invalid Will topic before opening the transport', async () => {
   expect(peer.opens()).toBe(0);
 });
 
+test.each([
+  ['a Content Type over 65,535 bytes', { contentType: 'c'.repeat(70_000) }, 'Invalid MQTT Will Content Type'],
+  ['a Content Type with U+0000', { contentType: 'a\u0000b' }, 'Invalid MQTT Will Content Type'],
+  ['a User Property key over 65,535 bytes', { userProperties: [['k'.repeat(70_000), 'v']] }, 'Invalid MQTT Will User Property'],
+  ['a User Property value with an unpaired surrogate', { userProperties: [['k', '\uD800']] }, 'Invalid MQTT Will User Property'],
+] as const)('rejects a Will with %s before opening the transport', async (_name, fields, message) => {
+  const { peer } = memoryPeer();
+  const factory = createTransportClient(peer.transport, {
+    clientId: 'invalid-will-string',
+    will: { topic: 'status/a', payload: 'offline', ...fields },
+  });
+  await expect(factory.connect()).rejects.toMatchObject({ message, code: 'ERR_MQTT_INVALID_ARGUMENT' });
+  expect(peer.opens()).toBe(0);
+});
+
 test('the packet limit getter can abort without opening, sending CONNECT, or delivering input', async () => {
   const { peer } = memoryPeer();
   const controller = new AbortController();
