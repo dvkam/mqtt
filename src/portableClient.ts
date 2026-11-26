@@ -25,8 +25,18 @@ export type {
   SessionEndObserver,
   SubscribeOptions,
   SubscribeResult,
+  UncertainPublication,
   UnsubscribeResult,
 } from './session.js';
+export { createReconnectingClient } from './reconnect.js';
+export type {
+  Reconnectable,
+  ReconnectEvent,
+  ReconnectingClient,
+  ReconnectOptions,
+  SubscriptionIntent,
+  SubscriptionRestore,
+} from './reconnect.js';
 export type { BrokerPacket, ClientPacket } from './wireCodec.js';
 
 /** Create a one-shot MQTT client with Uint8Array payloads over a custom transport. */

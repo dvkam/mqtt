@@ -1,6 +1,6 @@
 # Design decisions
 
-This file records decisions about the public API and the package layout. The repository owner, dvkam, made each choice or accepted it by asking for the reviewed work to be merged, as the entry says. The questions were put to the owner in a working session outside GitHub, so this file is the first written record of the options and the trade-offs listed with them. In each table, "recommended" marks the option the question recommended. Nine of the ten choices with a recommendation followed it. The four entries for #147, #150, #161 and #152 were decided together. The three entries of 16 November were answered together, so their order among themselves means nothing.
+This file records decisions about the public API and the package layout. The repository owner, dvkam, made each choice or accepted it by asking for the reviewed work to be merged, as the entry says. The questions were put to the owner in a working session outside GitHub, so this file is the first written record of the options and the trade-offs listed with them. In each table, "recommended" marks the option the question recommended. Ten of the eleven choices with a recommendation followed it. The four entries for #147, #150, #161 and #152 were decided together. The three entries of 16 November were answered together, so their order among themselves means nothing.
 
 Each entry gives the question, the options, the choice, the stated reason, any consequences the author of this file adds, and what follows. Several entries describe steps of the [#171 plan](https://github.com/dvkam/mqtt/issues/171#issuecomment-6912613511) that had not been merged when the entry was written. The status line says which.
 
@@ -10,6 +10,24 @@ Two terms used below:
 
 - The inbound rules are what the client does with each packet the broker sends: which packet types it accepts, how it shapes QoS 0 and QoS 1 messages, how it handles AUTH, and how it closes. At 351f172 the Node clients apply them in `src/nodePacketListener.ts` and `src/nodePacketInput.ts`, and the browser client has its own in `src/browserClient.ts` and `src/browserTransport.ts`.
 - A packet-level seam is a public hook for a custom transport that sends and receives decoded MQTT packets instead of bytes.
+
+## Reconnect with a supervisor that builds a factory per attempt
+
+Decided on 26 November 2026 (UTC), for [#12](https://github.com/dvkam/mqtt/issues/12). The owner asked in a working session for reconnect to be built and merged once review and CI passed. Status: in the pull request for `feat/reconnect`, not merged when this entry was written.
+
+Question: how does a caller keep a connection when each factory opens one session?
+
+| Option | Trade-off |
+| --- | --- |
+| `createReconnectingClient(create, options, reconnect)`, which calls a factory function for each attempt and hands out each session (chosen, recommended) | The factories and their promise identity stay unchanged, and a connected session adds no work per publish. A caller must call `session()` again after an end. |
+| A stable facade that forwards `publish` and the other calls to the current session | One object to hold, but every call goes through a wrapper, session boundaries are hidden, and calls made while disconnected need a new error code. |
+| Let a factory's `connect()` open again after its session ends | Breaks the documented rule that repeated `connect()` calls return the same promise. |
+
+Reason given: #12 asks for explicit session outcomes and no replacement publish, which a facade would hide.
+
+Consequences: `SessionEnd` gains an optional `uncertain` list of QoS 1 publications that were in flight, without their payloads, so the event stays readonly. The retry and stop lists in [reconnecting](reconnect.md) are this file's author's choice, and the owner accepted them by asking for the reviewed work to be merged. Every attempt opens a clean session.
+
+What follows: resuming a session with Clean Start false is #14. Page lifecycle events in the browser are #32.
 
 ## Publish takes bytes, retain and the MQTT 5 PUBLISH properties
 

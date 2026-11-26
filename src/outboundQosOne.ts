@@ -18,6 +18,16 @@ interface Exchange<Item> {
   acknowledgmentCode: number | undefined;
 }
 
+/** A publication that was written but not settled when the session ended. */
+export interface InFlight<Item> {
+  readonly outgoing: Item;
+  readonly messageId: number;
+  /** The PUBACK arrived before the write settled. */
+  readonly acknowledged: boolean;
+}
+
+const noneInFlight: readonly never[] = [];
+
 type Transmit<Item> = (outgoing: Item, messageId: number, acknowledgment: Readonly<Promise<number>>) => Promise<number>;
 
 function reportAcknowledgment<Item>(publication: Readonly<Publication<Item>>, code: number): void {
@@ -105,9 +115,14 @@ export class OutboundQosOne<Item> {
     this.queued.clear();
   }
 
-  retire(reason: Readonly<Error>): void {
+  /** Rejects every publication with `reason` and returns the ones that were in flight, which have an unknown outcome. */
+  retire(reason: Readonly<Error>): readonly InFlight<Item>[] {
     this.stop(reason);
+    let inFlight: InFlight<Item>[] | undefined;
+    for (const [messageId, { publication, acknowledgmentCode }] of this.active)
+      (inFlight ??= []).push({ outgoing: publication.outgoing, messageId, acknowledged: acknowledgmentCode !== undefined });
     this.finishActive(reason, false);
+    return inFlight ?? noneInFlight;
   }
 
   private finishActive(reason: Readonly<Error>, preserveAcknowledgments: boolean): void {

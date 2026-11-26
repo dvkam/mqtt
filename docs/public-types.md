@@ -10,7 +10,8 @@ Use `import type` for the named contracts. TypeScript 7.0.2 is the supported com
 | `BrowserClientOptions`                                                            | `mqtt/browser`                          | URL, session options, cancellation and independent byte and packet budgets                                                                   |
 | `BrowserMessage`, `BrowserQosOneMessage`                                          | `mqtt/browser`                          | Received QoS 0 and 1 PUBLISH as a flat object with a mutable Uint8Array payload                                                              |
 | `ClientDiagnostic`, `DiagnosticObserver`                                          | Both client entries and `mqtt/portable` | Optional packet command and connection state metadata                                                                                        |
-| `SessionEnd`, `SessionEndObserver`                                                | Both client entries and `mqtt/portable` | First logical retirement and its optional observer                                                                                           |
+| `SessionEnd`, `SessionEndObserver`, `UncertainPublication` | Both client entries and `mqtt/portable` | First logical retirement, the QoS 1 publications in flight at that point, and its optional observer |
+| `createReconnectingClient`, `ReconnectOptions`, `ReconnectEvent`, `ReconnectingClient`, `Reconnectable`, `SubscriptionIntent`, `SubscriptionRestore` | Both client entries and `mqtt/portable` | A client that opens a new session after each failure. See [reconnecting](reconnect.md). |
 | `ClientFactory`                                                                   | Both client entries                     | One cached connection attempt through `connect()`                                                                                            |
 | `ClientSession`                                                                   | Both client entries                     | Subscribe, unsubscribe, text and byte publish, ping and disconnect promises |
 | `BrowserSession`                                                                  | `mqtt/browser`                          | Alias for `ClientSession`                                                                                                                    |
@@ -25,7 +26,7 @@ Use `import type` for the named contracts. TypeScript 7.0.2 is the supported com
 
 `onMessage` handles QoS 0. Register `onQosOneMessage` before requesting a QoS 1 subscription. Its message adds a packet identifier and a DUP flag, with the same platform-specific payload type. The client acknowledges the delivery after that handler succeeds. See [inbound QoS 1 delivery](qos1-receive.md).
 
-Node and browser factories share a session interface. Repeated `connect()` calls return the same promise. Browser declarations compile using DOM libraries with no Node ambient types. Factory options hold the requested client identifier. `session.connection.clientId` exposes the identifier accepted for that connection. Reconnect and identity continuity remain under #12 and #19.
+Node and browser factories share a session interface. Repeated `connect()` calls return the same promise. Browser declarations compile using DOM libraries with no Node ambient types. Factory options hold the requested client identifier. `session.connection.clientId` exposes the identifier accepted for that connection. `createReconnectingClient` builds a new factory for each attempt, so this promise identity holds for each factory. Session resumption and identity continuity remain under #14 and #19.
 
 ## Broker acknowledgment results
 

@@ -1,4 +1,4 @@
-import { createBrowserClient } from 'mqtt/browser';
+import { createBrowserClient, createReconnectingClient } from 'mqtt/browser';
 import type { BrowserClientOptions, BrowserSession, ClientFactory, ClientSession } from 'mqtt/browser';
 
 const namedOptions: BrowserClientOptions = {
@@ -64,5 +64,11 @@ export async function publishBrowserBytes(session: Readonly<BrowserSession>): Pr
     signal: AbortSignal.timeout(1000),
   });
 }
+
+export const reconnectingBrowser = createReconnectingClient(
+  createBrowserClient,
+  { url: 'wss://localhost/mqtt', clientId: 'reconnecting' },
+  { subscriptions: [{ topic: 'alerts' }] },
+);
 
 export * from '../../packed/browser/consumer.js';
