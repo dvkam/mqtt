@@ -1,6 +1,6 @@
 import type { MessageProperties } from './messageProperties.js';
 import type { UserProperty } from './wireProperties.js';
-import { intrinsicByteLength, isBytes } from './util/bytes.js';
+import { copyBinaryData, maxBinaryBytes } from './util/bytes.js';
 import { validateMqttString, validateTopicName } from './util/validateTopic.js';
 
 export interface WillMessage<Payload extends string | Uint8Array = Uint8Array> extends Omit<
@@ -18,13 +18,12 @@ export type WillOptions = WillMessage<string | Uint8Array>;
 
 const willEncoder = new TextEncoder();
 const willDecoder = new TextDecoder('utf-8', { fatal: true });
-const maxBinaryBytes = 65_535;
 
 function copyBytes(value: unknown, field: string): Uint8Array<ArrayBuffer> {
-  if (!isBytes(value)) throw new TypeError('MQTT Will ' + field + ' must be a Uint8Array');
-  const length = intrinsicByteLength(value);
-  if (typeof length !== 'number' || length > maxBinaryBytes) throw new RangeError('MQTT Will ' + field + ' exceeds 65,535 bytes');
-  return new Uint8Array(value);
+  const copy = copyBinaryData(value);
+  if (copy === 'not bytes') throw new TypeError('MQTT Will ' + field + ' must be a Uint8Array');
+  if (copy === 'too long') throw new RangeError('MQTT Will ' + field + ' exceeds 65,535 bytes');
+  return copy;
 }
 
 function copyUserProperty(value: unknown): UserProperty {

@@ -30,7 +30,7 @@ Construction performs no I/O. Repeated `connect` calls on one factory return the
 
 ## Credentials
 
-Pass `username` and `password` to authenticate. `password` is a string, which the client sends as its UTF-8 bytes, or a `Uint8Array`, which it copies when `connect()` starts. MQTT 5 allows a password without a username. A password over 65,535 bytes rejects `connect()` with `ERR_MQTT_INVALID_ARGUMENT` before the socket opens. A broker that refuses the credentials rejects it with `ERR_MQTT_REFUSED`. `reasonCode` holds the broker's reason, such as 0x86 for a bad user name or password or 0x87 for not authorized.
+Pass `username` and `password` to authenticate. `password` is a string, which the client sends as its UTF-8 bytes, or a `Uint8Array`, which it copies when `connect()` starts. MQTT 5 allows a password without a username. A password over 65,535 bytes rejects `connect()` with `ERR_MQTT_INVALID_ARGUMENT` before the socket opens. A broker that refuses the credentials rejects it with `ERR_MQTT_REFUSED`. `reasonCode` holds the broker's reason, such as 0x86, Bad User Name or Password, or 0x87, Not authorized.
 
 ```ts
 const client = await createBrowserClient({ url: 'wss://broker.example/mqtt', clientId: 'example', username: 'sensor-7', password: token }).connect();

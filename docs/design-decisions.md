@@ -1,6 +1,6 @@
 # Design decisions
 
-This file records decisions about the public API and the package layout. The repository owner, dvkam, made each choice. The questions were put to the owner in a working session outside GitHub, so this file is the first written record of the options and the trade-offs listed with them. In each table, "recommended" marks the option the question recommended. Nine of the ten choices followed that recommendation. The four entries for #147, #150, #161 and #152 were decided together. The three entries of 16 November were answered together, so their order among themselves means nothing.
+This file records decisions about the public API and the package layout. The repository owner, dvkam, made each choice. The questions were put to the owner in a working session outside GitHub, so this file is the first written record of the options and the trade-offs listed with them. In each table, "recommended" marks the option the question recommended. Eight of the ten choices followed that recommendation. The four entries for #147, #150, #161 and #152 were decided together. The three entries of 16 November were answered together, so their order among themselves means nothing.
 
 Each entry gives the question, the options, the choice, the stated reason, any consequences the author of this file adds, and what follows. Several entries describe steps of the [#171 plan](https://github.com/dvkam/mqtt/issues/171#issuecomment-6912613511) that had not been merged when the entry was written. The status line says which.
 
@@ -13,18 +13,18 @@ Two terms used below:
 
 ## Every client accepts a text or byte password
 
-Decided on 26 November 2026 (UTC), for [#146](https://github.com/dvkam/mqtt/issues/146). The owner's comment on #146 described the change. On 26 November, in a working session, the owner asked for the work to be merged once review and CI passed. Status: in the pull request for `feat/browser-password`, not merged when this entry was written.
+Decided on 26 November 2026 (UTC), for [#146](https://github.com/dvkam/mqtt/issues/146). The owner's comment on #146 described the browser change only. Widening the Node and custom transport types goes further than that comment and was not put to the owner as a separate question. On 26 November, in a working session, the owner asked for the work to be merged once review and CI passed. Status: in the pull request for `feat/browser-password`, not merged when this entry was written.
 
 Question: how does a browser application pass a password, and where is it checked?
 
 | Option | Trade-off |
 | --- | --- |
-| Add `password: string \| Uint8Array` to the browser options only | The smallest change, but the browser converts text on its own and the Node clients still check the length only in the encoder, after the socket opens. |
-| Accept text or bytes in the shared core for every client and check it before `open` (chosen, recommended) | One rule for TCP, `ws`, the browser and custom transports. `TcpClientOptions`, `WebSocketClientOptions` and `ByteClientOptions` widen from `Uint8Array` to `string \| Uint8Array`. |
+| Add `password: string \| Uint8Array` to the browser options only (recommended in the #146 comment) | The smallest change, but the browser converts text on its own and the Node clients still check the length only in the encoder, after the socket opens. |
+| Accept text or bytes in the shared core for every client and check it before `open` (chosen) | One rule for TCP, `ws`, the browser and custom transports. `TcpClientOptions`, `WebSocketClientOptions` and `ByteClientOptions` widen from `Uint8Array` to `string \| Uint8Array`. |
 
-Reason given: #146 asks for text and byte passwords in the browser, and the core already owns the other option checks that run before I/O.
+Reason given: the core already owns the other option checks that run before I/O, and one accepted type for every client is simpler than a browser-only conversion.
 
-Consequences: a password over 65,535 bytes or of another type rejects `connect()` with `ERR_MQTT_INVALID_ARGUMENT` before the transport opens. The core copies the bytes, so a later change to the caller's array does not reach the wire. MQTT 5 allows a password without a user name, and the client sends it that way.
+Consequences: a password over 65,535 bytes or of another type rejects `connect()` with `ERR_MQTT_INVALID_ARGUMENT` before the transport opens. The core copies the bytes, so a later change to the caller's array does not reach the wire. MQTT 5 allows a password without a username, and the client sends it that way.
 
 What follows: nothing for this decision.
 
