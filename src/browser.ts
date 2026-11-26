@@ -15,8 +15,18 @@ export type {
   SessionEndObserver,
   SubscribeOptions,
   SubscribeResult,
+  UncertainPublication,
   UnsubscribeResult,
 } from './session.js';
+export { createReconnectingClient } from './reconnect.js';
+export type {
+  Reconnectable,
+  ReconnectEvent,
+  ReconnectingClient,
+  ReconnectOptions,
+  SubscriptionIntent,
+  SubscriptionRestore,
+} from './reconnect.js';
 export type { ClientDiagnostic, DiagnosticObserver } from './diagnostics.js';
 export { MqttError, isMqttError } from './mqttError.js';
 export type { MqttErrorCode, MqttErrorDetails } from './mqttError.js';

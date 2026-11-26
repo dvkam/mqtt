@@ -9,9 +9,11 @@ import type {
   DisconnectOptions,
   PublishOptions,
   QosOneMessage,
+  SessionEnd,
   SessionEndObserver,
   SubscribeOptions,
   SubscribeResult,
+  UncertainPublication,
   UnsubscribeResult,
 } from './session.js';
 import { validateTopic, validateTopicName } from './util/validateTopic.js';
@@ -708,7 +710,7 @@ class PortableClient<Bytes extends Uint8Array> {
     this.stopKeepAlive();
     this.nextInbound = undefined;
     this.subscriptions.retire(error);
-    this.outbound?.retire(error);
+    const uncertain = this.outbound?.retire(error, uncertainPublication);
     this.qosZeroWrites.retire(error);
     for (const reject of this.pendingOperations) reject(error);
     try {
@@ -718,7 +720,7 @@ class PortableClient<Bytes extends Uint8Array> {
       const observer = this.onSessionEnd;
       if (observer !== undefined) {
         queueMicrotask(() => {
-          void notifyObserver(observer, kind === 'disconnect' ? { kind } : { kind, error });
+          void notifyObserver(observer, kind === 'disconnect' ? { kind } : sessionError(error, uncertain));
         });
       }
     }
@@ -765,6 +767,18 @@ function publishPacket({ topic, payload, retain, properties: p }: OutgoingPublic
     correlationData: p.correlationData,
     userProperties: p.userProperties,
   };
+}
+
+function uncertainPublication(
+  { topic }: Readonly<Pick<OutgoingPublication, 'topic'>>,
+  messageId: number,
+  acknowledged: boolean,
+): UncertainPublication {
+  return { topic, messageId, acknowledged };
+}
+
+function sessionError(error: Readonly<Error>, uncertain: readonly UncertainPublication[] | undefined): SessionEnd {
+  return uncertain === undefined || uncertain.length === 0 ? { kind: 'error', error } : { kind: 'error', error, uncertain };
 }
 
 function closingError(): MqttError {
