@@ -13,8 +13,8 @@ import { resolvePublicationLimits } from './publicationAdmission.js';
 import type { ClientFactory, ClientSession } from './session.js';
 import { resolveSubscriptionLimits } from './subscriptionExchanges.js';
 import { resolveTimeout } from './timeout.js';
-import { MqttError, transportFailure } from './mqttError.js';
-import { captureWill, type WillOptions } from './will.js';
+import { invalidOption, MqttError, transportFailure } from './mqttError.js';
+import { captureWill, type WillMessage, type WillOptions } from './will.js';
 
 export const flushNativeWrites = Symbol('flushNativeWrites');
 export type ByteWriterWithFlush = ByteWriter & { [flushNativeWrites]?(): void };
@@ -80,12 +80,12 @@ async function connectOverBytes<Bytes extends Uint8Array>(
   const subscriptionLimits = resolveSubscriptionLimits(options);
   const writeLimits = resolveNativeWriteLimits(options);
   const input = new PacketInput(options.maxPacketBytes, platform);
-  let will;
+  let will: WillMessage | undefined;
   try {
     will = captureWill(options.will);
   } catch (error) {
     if (isAborted()) throw abortReason();
-    throw error;
+    throw invalidOption(error, 'Invalid MQTT Will');
   }
 
   // Cancels the open while no writer exists.

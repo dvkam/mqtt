@@ -520,7 +520,10 @@ test('rejects an invalid Will topic before opening the transport', async () => {
     clientId: 'invalid-will',
     will: { topic: 'status/+', payload: 'offline' },
   });
-  await expect(factory.connect()).rejects.toThrow('Invalid MQTT Will topic');
+  await expect(factory.connect()).rejects.toMatchObject({
+    message: 'Invalid MQTT Will topic',
+    code: 'ERR_MQTT_INVALID_ARGUMENT',
+  });
   expect(peer.opens()).toBe(0);
 });
 

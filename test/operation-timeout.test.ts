@@ -133,7 +133,7 @@ test('sequential QoS 0 writes share a timer and a later stalled write keeps its 
     expect(peer.close).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
     const reason = await stalled;
-    expect(reason).toMatchObject({ message: 'MQTT operation timed out' });
+    expect(reason).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
     expect(peer.close).toHaveBeenCalledExactlyOnceWith(true);
     expect(vi.getTimerCount()).toBe(0);
     await expect(client.publish('a', 'later')).rejects.toBe(reason);
@@ -160,7 +160,7 @@ test('an expired QoS 0 write retires a later write that completes before the sha
     now.mockReturnValue(160.5);
     peer.writes[2]!.resolve();
     const reason = await later;
-    expect(reason).toMatchObject({ message: 'MQTT operation timed out' });
+    expect(reason).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
     await expect(stalled).resolves.toBe(reason);
     expect(peer.close).toHaveBeenCalledExactlyOnceWith(true);
   } finally {

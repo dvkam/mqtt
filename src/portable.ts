@@ -1,5 +1,5 @@
 import { notifyObserver, packetReceiver, packetSender, type DiagnosticObserver } from './diagnostics.js';
-import { endingFailure, MqttError, transportFailure } from './mqttError.js';
+import { endingFailure, invalidOption, MqttError, transportFailure } from './mqttError.js';
 import { ProtocolInputError } from './protocolInputError.js';
 import type { PublishMessage } from './messageProperties.js';
 import type { BrokerPacket, ClientPacket } from './wireCodec.js';
@@ -156,7 +156,9 @@ class PortableClient<Bytes extends Uint8Array> {
             try {
               this.receiveConnack(packet);
             } catch (cause) {
-              void this.abort(cause instanceof Error ? cause : new Error('Invalid MQTT connection metadata')).catch(() => {});
+              void this.abort(
+                cause instanceof Error ? cause : new MqttError('ERR_MQTT_PROTOCOL', 'Invalid MQTT connection metadata', { cause }),
+              ).catch(() => {});
             }
             return;
           }
@@ -176,7 +178,11 @@ class PortableClient<Bytes extends Uint8Array> {
               if (code !== undefined)
                 this.rejectProtocolInput(new ProtocolInputError('Invalid MQTT subscription acknowledgment', code));
             } catch (cause) {
-              void this.abort(cause instanceof Error ? cause : new Error('Invalid MQTT subscription metadata')).catch(() => {});
+              void this.abort(
+                cause instanceof Error
+                  ? cause
+                  : new MqttError('ERR_MQTT_PROTOCOL', 'Invalid MQTT subscription metadata', { cause }),
+              ).catch(() => {});
             }
             return;
           }
@@ -566,9 +572,7 @@ class PortableClient<Bytes extends Uint8Array> {
     } catch (cause) {
       if (!this.failure) {
         this.closing = undefined;
-        rejectClose(
-          cause instanceof Error ? cause : new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'Invalid MQTT disconnect options', { cause }),
-        );
+        rejectClose(invalidOption(cause, 'Invalid MQTT disconnect options'));
         return closing;
       }
     }

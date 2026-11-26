@@ -5,6 +5,7 @@ import { expect, test, vi } from 'vitest';
 import { connectPortable, type PacketTransport, type PortableOptions } from '../src/portable.js';
 import { PublicationAdmission } from '../src/publicationAdmission.js';
 import { PacketIdentifiers } from '../src/packetIdentifiers.js';
+import { MqttError } from '../src/mqttError.js';
 
 const qosOne = { qos: 1 } as const;
 
@@ -214,7 +215,7 @@ test('disconnect fences queued dispatch before sending DISCONNECT', async () => 
     try {
       await setImmediate();
       expect(broker.published()).toHaveLength(1);
-      await expect(second).rejects.toThrow('Client is closing');
+      await expect(second).rejects.toMatchObject({ message: 'Client is closing', code: 'ERR_MQTT_CLOSING' });
       closeWrite.release();
       await closing;
     } finally {
@@ -237,7 +238,7 @@ test('disconnect sends DISCONNECT after the last active publication is acknowled
   try {
     await setImmediate();
     expect(broker.commands()).toEqual(['connect', 'publish']);
-    await expect(queued).resolves.toMatchObject({ message: 'Client is closing' });
+    await expect(queued).resolves.toMatchObject({ message: 'Client is closing', code: 'ERR_MQTT_CLOSING' });
     broker.receive({ cmd: 'puback', messageId: 1, reasonCode: 0 });
     await admitted;
     await closing;
@@ -259,7 +260,7 @@ test('disconnect drain timeout reports an unknown delivery and still sends DISCO
     await vi.advanceTimersByTimeAsync(50);
     await expect(publication).resolves.toMatchObject({
       code: 'ERR_MQTT_TIMEOUT',
-      fatal: false,
+      fatal: true,
       message: 'MQTT QoS 1 drain expired. Delivery outcome is unknown',
     });
     await closing;
@@ -275,7 +276,7 @@ test('immediate disconnect skips the drain and can ask the broker to publish its
   const publication = broker.client.publish('a', 'unacknowledged', qosOne).catch((error: unknown) => error);
   await broker.client.disconnect({ drain: false, reasonCode: 4 });
   expect(broker.packets[broker.packets.length - 1]).toEqual({ cmd: 'disconnect', reasonCode: 4 });
-  await expect(publication).resolves.toMatchObject({ message: 'Client disconnected' });
+  await expect(publication).resolves.toMatchObject({ message: 'Client disconnected', code: 'ERR_MQTT_CLOSING' });
 });
 
 test('a connection failure during the drain wins and prevents DISCONNECT', async () => {
@@ -290,9 +291,23 @@ test('a connection failure during the drain wins and prevents DISCONNECT', async
   expect(broker.commands()).toEqual(['connect', 'publish']);
 });
 
+test('an unsupported DISCONNECT reason code is an invalid argument and leaves the session usable', async () => {
+  const broker = await peer();
+  // @ts-expect-error The test sends a reason code that the DisconnectOptions type does not allow.
+  await expect(broker.client.disconnect({ reasonCode: 1 })).rejects.toMatchObject({
+    code: 'ERR_MQTT_INVALID_ARGUMENT',
+    fatal: false,
+    message: 'Unsupported MQTT disconnect reason code',
+  });
+  await broker.client.ping();
+  await broker.client.disconnect();
+});
+
 test('an invalid drain timeout rejects without starting a disconnect', async () => {
   const broker = await peer();
-  await expect(broker.client.disconnect({ drainTimeoutMs: 0 })).rejects.toBeInstanceOf(RangeError);
+  const failure: unknown = await broker.client.disconnect({ drainTimeoutMs: 0 }).catch((error: unknown) => error);
+  expect(failure).toMatchObject({ code: 'ERR_MQTT_INVALID_ARGUMENT', fatal: false });
+  expect(failure instanceof MqttError && failure.cause instanceof RangeError).toBe(true);
   await broker.client.ping();
   await broker.client.disconnect();
   expect(broker.commands()).toEqual(['connect', 'pingreq', 'disconnect']);

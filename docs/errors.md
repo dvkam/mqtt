@@ -21,13 +21,13 @@ MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputErr
 
 | Code | Cause | `fatal` | `reasonCode` |
 | --- | --- | --- | --- |
-| `ERR_MQTT_INVALID_ARGUMENT` | Invalid topic or filter, unsupported QoS, QoS 1 without a broker or handler that supports it, a `$share/` filter the transport cannot send, or a publish signal without QoS 1 | `false` | None |
+| `ERR_MQTT_INVALID_ARGUMENT` | Invalid topic or filter, unsupported QoS, QoS 1 without a broker or handler that supports it, a `$share/` filter the transport cannot send, a publish signal without QoS 1, an invalid Will, or an invalid `disconnect()` option | `false` | None |
 | `ERR_MQTT_CAPACITY` | The publication or subscription limit is full, all 65,535 packet identifiers are in use, or another ping awaits PINGRESP | `false` | None |
 | `ERR_MQTT_REFUSED` | The broker refused CONNACK | `true` | The CONNACK reason code |
 | `ERR_MQTT_REFUSED` | The broker refused SUBACK, UNSUBACK or PUBACK | `false` | The acknowledgment's reason code |
 | `ERR_MQTT_TIMEOUT` | An operation passed `timeoutMs`, or a Server Keep Alive deadline passed while an acknowledgment was pending | `true` | None |
 | `ERR_MQTT_TIMEOUT` | The TCP or TLS connection, or the native WebSocket handshake, did not open within `timeoutMs` | `true` | None |
-| `ERR_MQTT_TIMEOUT` | The disconnect drain passed `drainTimeoutMs` without a PUBACK. The publication outcome is unknown and DISCONNECT proceeds. | `false` | None |
+| `ERR_MQTT_TIMEOUT` | The disconnect drain passed `drainTimeoutMs` without a PUBACK. The publication outcome is unknown and DISCONNECT proceeds. | `true` | None |
 | `ERR_MQTT_BROKER_DISCONNECT` | The broker sent DISCONNECT | `true` | The DISCONNECT reason code, 0 when omitted |
 | `ERR_MQTT_PROTOCOL` | Malformed or out-of-profile broker input, such as a PUBACK with packet identifier 0. The error is a `ProtocolInputError`, and an active session sends DISCONNECT with its reason code. | `true` | 0x81, 0x82 or 0x94 |
 | `ERR_MQTT_PROTOCOL` | The broker sent more inbound QoS 1 messages than the client's Receive Maximum allows | `true` | 0x93 |
@@ -46,7 +46,7 @@ These rejections have no code yet, or lack a field that #155 asks for.
 - Codec failures that are not a `ProtocolInputError` are plain `Error` or `RangeError` values. Examples are invalid fixed-header flags, a malformed Remaining Length, a truncated field, many property defects such as a CONNACK Receive Maximum of 0 or Maximum QoS of 2, and a packet over `maxPacketBytes`. MQTT 5 treats most of them as Malformed Packet 0x81.
 - An inbound QoS 2 PUBLISH, when an `onQosOneMessage` handler is set, ends the session with a plain `Error`.
 - A QoS 0 publish write and the transport `close` during `disconnect()` reject with the transport's own value, even when it is not an Error.
-- Invalid options such as `timeoutMs`, publication limits or `drainTimeoutMs` throw `RangeError`.
+- Invalid client options such as `timeoutMs` or publication limits throw `RangeError`. The Will and the `disconnect()` options are the exception: they reject with `ERR_MQTT_INVALID_ARGUMENT`, and the original error is the cause.
 - Custom transport errors pass through unchanged.
 - A write budget refusal is a plain `Error`. It leaves the session usable when it refuses a publication and ends the session when it refuses a control packet.
 - The browser receive message limit is a `RangeError`.

@@ -14,7 +14,7 @@ export type MqttErrorCode =
 
 export interface MqttErrorDetails {
   /**
-   * Whether this error ended the session. A rejection with `fatal: false` leaves an active session usable. Defaults to false for
+   * Whether the session ended. A rejection with `fatal: false` leaves an active session usable. Defaults to false for
    * `ERR_MQTT_CAPACITY` and `ERR_MQTT_INVALID_ARGUMENT` and to true for every other code.
    */
   readonly fatal?: boolean;
@@ -74,4 +74,13 @@ export function endingFailure(error: Readonly<Error>): Readonly<Error> {
   if (!(error instanceof MqttError) || error.fatal) return error;
   const { code, message, reasonCode, reasonString, userProperties } = error;
   return new MqttError(code, message, { fatal: true, reasonCode, reasonString, userProperties, cause: error });
+}
+
+/**
+ * A validation failure for an option that has its own code, such as the Will or the disconnect() options. The message stays
+ * the same, and the original error is the cause.
+ */
+export function invalidOption(cause: unknown, fallback: string): MqttError {
+  if (cause instanceof MqttError) return cause;
+  return new MqttError('ERR_MQTT_INVALID_ARGUMENT', cause instanceof Error ? cause.message : fallback, { cause });
 }

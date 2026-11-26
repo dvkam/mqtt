@@ -130,9 +130,8 @@ export class OutboundQosOne {
       await new Promise<void>((resolve) => {
         this.activeSettled = resolve;
         timer = setTimeout(() => {
-          const expired = new MqttError('ERR_MQTT_TIMEOUT', 'MQTT QoS 1 drain expired. Delivery outcome is unknown', {
-            fatal: false,
-          });
+          // disconnect() started the drain, so the session no longer accepts work.
+          const expired = new MqttError('ERR_MQTT_TIMEOUT', 'MQTT QoS 1 drain expired. Delivery outcome is unknown');
           this.finishActive(expired, true);
         }, timeoutMs);
       });
