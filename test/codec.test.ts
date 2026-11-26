@@ -532,6 +532,19 @@ test('never emits a frame with a stale length if a Subscription Identifier gette
   ).toThrow(new RangeError('MQTT bytes changed during encoding'));
 });
 
+test('encodes User Properties and Subscription Identifiers passed as a Set by a JavaScript caller', () => {
+  const packet: Record<string, unknown> = {
+    cmd: 'publish',
+    topic: 'a',
+    payload: Uint8Array.of(1),
+    userProperties: new Set([['k', 'v']]),
+    subscriptionIdentifiers: new Set([3]),
+  };
+  expect(Reflect.apply(encodePacket, undefined, [packet])).toEqual(
+    Uint8Array.of(0x30, 14, 0, 1, 97, 9, 0x26, 0, 1, 107, 0, 1, 118, 0x0b, 3, 1),
+  );
+});
+
 test('treats a null User Property list from a JavaScript caller as empty', () => {
   const packet: Record<string, unknown> = { cmd: 'publish', topic: 'a', payload: Uint8Array.of(1), userProperties: null };
   expect(Reflect.apply(encodePacket, undefined, [packet])).toEqual(Uint8Array.of(0x30, 5, 0, 1, 97, 0, 1));
