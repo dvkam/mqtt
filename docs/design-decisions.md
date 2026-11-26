@@ -11,6 +11,40 @@ Two terms used below:
 - The inbound rules are what the client does with each packet the broker sends: which packet types it accepts, how it shapes QoS 0 and QoS 1 messages, how it handles AUTH, and how it closes. At 351f172 the Node clients apply them in `src/nodePacketListener.ts` and `src/nodePacketInput.ts`, and the browser client has its own in `src/browserClient.ts` and `src/browserTransport.ts`.
 - A packet-level seam is a public hook for a custom transport that sends and receives decoded MQTT packets instead of bytes.
 
+## Check a reconnecting client from an optional page lifecycle adapter
+
+Decided on 26 November 2026 (UTC), for [#32](https://github.com/dvkam/mqtt/issues/32). The options below were not put to the owner as a question, and the owner did not choose among them. The pull request author chose the API. The owner accepted the choice by asking for the reviewed work to be merged. This entry and the next were decided together. Status: in the pull request for `feat/page-lifecycle`, not merged when this entry was written.
+
+Question: how does a reconnecting client in a browser notice a stale connection, and skip its backoff, when the page comes back?
+
+| Option | Trade-off |
+| --- | --- |
+| `watchPageLifecycle(client, options)` in `mqtt/browser`, which pings on return and calls a new `retryNow()` (chosen) | The clients listen for no page event, and a bundle without the import does not grow. `ReconnectingClient` gains one method. A stale session ends only at its ping deadline. |
+| The reconnecting client listens for page events itself | No extra import, but every browser bundle and every Node process carries browser event code. |
+| The application aborts the client's `signal` on hide and builds a new client on return | No API change, but each return opens a new client, and the subscriptions and uncertain publications of the old one are reported elsewhere. |
+
+Reason given by the pull request author: #32 asks to keep page and navigation events in the playground or an optional browser adapter. A ping is the only check that works without knowing how long the device slept, because `performance.now()` can leave sleep out.
+
+Consequences: `retryNow()` counts its attempt toward `maxAttempts` and does nothing unless the client waits for its timer. The adapter reports each return to `onReturn` with the elapsed monotonic time. [Page lifecycle](page-lifecycle.md) lists what was checked in Chromium and the gaps.
+
+What follows: Firefox and WebKit lifecycle tests, and the playground panel in #191.
+
+## Leave the connection open when the page enters the back-forward cache
+
+Decided on 26 November 2026 (UTC), for [#32](https://github.com/dvkam/mqtt/issues/32), together with the previous entry and accepted the same way. Status: in the pull request for `feat/page-lifecycle`, not merged when this entry was written.
+
+Question: what does the adapter do on a `pagehide` whose `persisted` is true?
+
+| Option | Trade-off |
+| --- | --- |
+| Leave the connection, and check it on `pageshow` (chosen) | The adapter keeps the reconnecting client. Chromium 158 keeps the page in the cache with its WebSocket and fails the socket on restore. The broker counts the client as connected until then, and publishes the Will when the connection ends. |
+| Disconnect on `pagehide` | The broker receives DISCONNECT. A reconnecting client cannot connect again after a disconnect, so the adapter would have to build a new client on `pageshow`. |
+| Abort the connection on `pagehide` and resume on `pageshow` | Needs a pause state in the reconnecting client, which has none. |
+
+Reason given by the pull request author: in Chromium, the only engine the author could run, an open WebSocket did not keep the page out of the cache, so a disconnect would gain no cache eligibility there. An application that needs DISCONNECT can disconnect in its own `pagehide` handler.
+
+What follows: the same check in Firefox and WebKit, where an open WebSocket may block the cache or close at another time.
+
 ## Reconnect with a supervisor that builds a factory per attempt
 
 Decided on 26 November 2026 (UTC), for [#12](https://github.com/dvkam/mqtt/issues/12). The owner asked in a working session for reconnect to be built and merged once review and CI passed. The options below were not put to the owner as a question, and the owner did not choose among them. The pull request author chose the API. The owner accepted the choice by asking for the reviewed work to be merged. Status: in the pull request for `feat/reconnect`, not merged when this entry was written.
