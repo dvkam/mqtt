@@ -11,11 +11,13 @@ permissions:
   contents: read
 
 jobs:
-  checks:
+  verify:
+    name: ${{ matrix.check }} (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-26.04, windows-latest]
+        check: [test, 'test:types', lint, 'format:check', build]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -23,25 +25,24 @@ jobs:
         with:
           node-version-file: .node-version
       - uses: pnpm/action-setup@v6
-      - name: Install locked dependencies
-        id: install
-        run: pnpm install --frozen-lockfile
-      - name: Type-check and emit declaration fixtures
-        id: types
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm test:types
-      - name: Run tests
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm test
-      - name: Run type-aware Oxlint and the type policy
-        if: ${{ !cancelled() && steps.types.outcome == 'success' }}
-        run: pnpm lint
-      - name: Check Oxfmt formatting
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm format:check
-      - name: Build the package
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm build
+      - run: pnpm install --frozen-lockfile
+      # Lint reads emitted declarations. Emitting them without a type check keeps a type error in the test:types check only.
+      - if: matrix.check == 'lint'
+        run: pnpm lint:declarations
+      - run: pnpm ${{ matrix.check }}
+
+  # The main ruleset requires checks (ubuntu-26.04) and checks (windows-latest). Each fails unless every verify job passed
+  # on both platforms. It runs even after a cancel, because GitHub counts a skipped required job as passing.
+  checks:
+    if: ${{ always() }}
+    needs: verify
+    strategy:
+      matrix:
+        os: [ubuntu-26.04, windows-latest]
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Require every check on both platforms
+        run: test "${{ needs.verify.result }}" = success
 
   packed-consumer:
     runs-on: ubuntu-26.04
