@@ -503,15 +503,18 @@ test('reads each PUBLISH field once', () => {
   expect(reads).toEqual({ topic: 1, qos: 1, dup: 1 });
 });
 
-test.each([
-  ['shrinks', 'v'],
-  ['grows', 'vvv'],
-])('never emits a frame with a stale length if a User Property %s on its second read', (_change, second) => {
-  // The encoder reads each User Property once to size the frame and once to write it.
-  const pair: [string, string] = ['k', 'vv'];
+test('reads each User Property once and writes the value it checked', () => {
+  const pair: [string, string] = ['k', 'ab'];
   let reads = 0;
-  Object.defineProperty(pair, 1, { get: () => (++reads === 1 ? 'vv' : second) });
-  expect(() => encodePacket({ cmd: 'publish', topic: 'a', payload: Uint8Array.of(1), userProperties: [pair] })).toThrow(RangeError);
+  Object.defineProperty(pair, 1, { get: () => (++reads === 1 ? 'ab' : 'a\u0000') });
+  const frame = encodePacket({ cmd: 'publish', topic: 'a', payload: Uint8Array.of(1), userProperties: [pair] });
+  expect(frame).toEqual(Uint8Array.of(0x30, 13, 0, 1, 97, 8, 0x26, 0, 1, 107, 0, 2, 97, 98, 1));
+  expect(reads).toBe(1);
+});
+
+test('treats a null User Property list from a JavaScript caller as empty', () => {
+  const packet: Record<string, unknown> = { cmd: 'publish', topic: 'a', payload: Uint8Array.of(1), userProperties: null };
+  expect(Reflect.apply(encodePacket, undefined, [packet])).toEqual(Uint8Array.of(0x30, 5, 0, 1, 97, 0, 1));
 });
 
 test.each([
@@ -551,23 +554,4 @@ test('sizes a PUBLISH payload by its own length, not a subclass getter', () => {
     Uint8Array.of(0x30, 5, 0, 1, 97, 0, 0),
   );
   expect(storage.byteLength).toBe(1);
-});
-
-test.each([
-  ['grows', 1, 2],
-  ['shrinks', 2, 1],
-])('never emits a frame with a stale length if the payload %s during encoding', (_change, from, to) => {
-  const { storage, resize } = resizableStorage(from);
-  // The encoder reads each User Property once to size the frame and once to write it. The second read resizes the payload.
-  const pair: [string, string] = ['k', 'v'];
-  let reads = 0;
-  Object.defineProperty(pair, 1, {
-    get: () => {
-      if (++reads === 2) resize(to);
-      return 'v';
-    },
-  });
-  expect(() => encodePacket({ cmd: 'publish', topic: 'a', payload: new Uint8Array(storage), userProperties: [pair] })).toThrow(
-    RangeError,
-  );
 });

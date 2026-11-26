@@ -68,4 +68,4 @@ The publication byte limit, `maxPendingPublishBytes`, counts the whole PUBLISH, 
 
 ## Cancellation
 
-A signal that is already aborted rejects the call with the signal's reason, and nothing is sent. At QoS 1, a later abort withdraws a publication that is still queued. At QoS 0, the client writes the PUBLISH at once, so a later abort has no effect. [QoS 1 publishing](qos1-publish.md)
+The signal must be an AbortSignal, from any realm. A signal that is already aborted rejects the call with the signal's reason, and nothing is sent. At QoS 1, a later abort withdraws a publication that is still queued. At QoS 0, the client writes the PUBLISH at once, so a later abort has no effect. [QoS 1 publishing](qos1-publish.md)

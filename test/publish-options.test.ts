@@ -8,7 +8,7 @@ async function connected(limits: Readonly<{ maxPendingPublishBytes?: number }> =
   let deliver: Parameters<PacketTransport['listen']>[0] | undefined;
   const sent: ClientPacket[] = [];
   const transport: PacketTransport = {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- PacketTransport.send in src/portable.ts receives the session's ClientPacket, whose PUBLISH payload is a native Uint8Array, and returns a promise. This fixture replies synchronously inside it.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- PacketTransport.send in src/portable.ts receives the session's ClientPacket, whose PUBLISH payload is a native Uint8Array. send must return a promise, and promise-function-async requires an async function for that, so this fixture, which replies synchronously, has no await.
     async send(packet) {
       sent.push(packet);
       if (packet.cmd === 'connect') deliver?.({ cmd: 'connack', sessionPresent: false, reasonCode: 0, retainAvailable });

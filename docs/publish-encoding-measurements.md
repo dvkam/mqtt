@@ -2,31 +2,31 @@
 
 ## Single-allocation PUBLISH frame
 
-The PUBLISH encoder now sizes every field first, allocates the frame once and writes each field into it. It writes ASCII strings directly and passes the rest of a string to TextEncoder.encodeInto at the first non-ASCII code unit. The other packets still build their frames from encoded parts. The checks, their order and the wire bytes stay the same. A payload or Correlation Data view that changes size between sizing and writing raises RangeError.
+The PUBLISH encoder now reads each field and User Property once, sizes it, allocates the frame once and writes the values it checked into it. It writes ASCII strings directly and passes the rest of a string to TextEncoder.encodeInto at the first non-ASCII code unit. The other packets still build their frames from encoded parts. For a Uint8Array payload and fields without getters, the checks, their order and the wire bytes stay the same. A payload or Correlation Data that is not a Uint8Array, such as a DataView or a Uint16Array, now raises `RangeError: Invalid MQTT binary data`. Before, a DataView was encoded as zeros and a Uint16Array as truncated element values. The encoder sizes a payload by its own length and ignores a subclass `byteLength` getter.
 
 The comparison used Node 26.13.0 and Chromium 158.0.8127.36 on Linux x64 with an Intel Xeon at 2.10 GHz. The baseline is the codec at `74234c0`. The runner and settings are the ones described below. The table shows the median and range in milliseconds for the call count shown.
 
 | Workload | Calls | Node before | Node after | Node mqtt-packet | Chromium before | Chromium after |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| ascii-0 | 100,000 | 115.7 (105.8 to 152.3) | 23.2 (22.9 to 31.9) | 117.7 (93.4 to 118.6) | 198.3 (173.8 to 225.5) | 22.5 (17.1 to 37.0) |
-| ascii-16 | 100,000 | 130.3 (105.3 to 159.8) | 22.9 (20.6 to 27.6) | 118.6 (115.8 to 121.4) | 182.0 (168.9 to 209.1) | 25.1 (18.0 to 31.3) |
-| ascii-256 | 100,000 | 522.8 (293.2 to 531.9) | 216.2 (86.6 to 291.3) | 140.8 (139.7 to 146.3) | 281.3 (272.7 to 366.2) | 104.2 (96.0 to 119.6) |
-| ascii-4096 | 16,384 | 71.5 (67.7 to 85.6) | 61.2 (45.0 to 88.2) | 42.3 (30.3 to 45.9) | 98.1 (86.1 to 181.3) | 51.1 (42.9 to 76.2) |
-| ascii-65536 | 2,000 | 27.6 (25.5 to 27.6) | 24.2 (20.7 to 47.3) | 26.1 (22.5 to 31.3) | 104.7 (103.8 to 115.9) | 93.6 (92.2 to 97.1) |
-| unicode-256 | 100,000 | 548.4 (370.1 to 577.6) | 159.8 (150.5 to 294.6) | 146.8 (129.7 to 163.2) | 309.4 (256.9 to 358.4) | 222.0 (169.9 to 262.0) |
-| properties-256 | 100,000 | 2,928.4 (2,754.7 to 3,005.3) | 326.0 (277.2 to 376.1) | Outside matched workload | 1,867.9 (1,844.3 to 1,931.9) | 485.3 (386.7 to 500.7) |
+| ascii-0 | 100,000 | 136.0 (122.2 to 172.7) | 25.2 (23.8 to 35.0) | 123.3 (121.9 to 131.6) | 208.5 (190.2 to 215.0) | 27.6 (18.3 to 42.3) |
+| ascii-16 | 100,000 | 124.1 (123.4 to 137.5) | 26.8 (23.9 to 27.0) | 125.8 (125.0 to 128.5) | 193.4 (191.3 to 222.1) | 35.1 (24.8 to 43.9) |
+| ascii-256 | 100,000 | 541.3 (414.8 to 630.1) | 193.0 (86.4 to 245.1) | 140.3 (126.5 to 151.9) | 307.7 (296.3 to 311.6) | 110.4 (100.5 to 160.1) |
+| ascii-4096 | 16,384 | 73.6 (42.7 to 80.8) | 46.7 (39.8 to 62.1) | 37.0 (30.3 to 39.0) | 99.3 (91.6 to 196.9) | 70.9 (56.8 to 77.9) |
+| ascii-65536 | 2,000 | 34.1 (31.5 to 40.0) | 27.5 (24.9 to 39.9) | 28.3 (19.4 to 30.2) | 100.8 (88.0 to 109.3) | 99.5 (96.0 to 108.1) |
+| unicode-256 | 100,000 | 554.8 (355.4 to 561.3) | 193.1 (126.7 to 302.2) | 167.9 (150.8 to 199.3) | 318.8 (294.3 to 377.4) | 218.6 (177.5 to 218.8) |
+| properties-256 | 100,000 | 3,000.9 (2,811.4 to 3,159.1) | 395.7 (326.9 to 421.4) | Outside matched workload | 2,014.0 (1,911.4 to 2,103.6) | 507.6 (405.7 to 530.1) |
 
 Median sampled bytes from three runs, with the same sampling settings as the allocation table below:
 
 | Workload | Calls | Portable before | Portable after | mqtt-packet |
 | --- | ---: | ---: | ---: | ---: |
-| ascii-256 | 10,000 | 21,984,816 | 11,521,896 | 23,290,168 |
-| ascii-65536 | 2,000 | 4,456,184 | 2,341,728 | 5,183,232 |
-| properties-256 | 10,000 | 80,669,792 | 23,588,968 | Outside matched workload |
+| ascii-256 | 10,000 | 21,931,408 | 6,985,600 | 22,968,664 |
+| ascii-65536 | 2,000 | 4,443,592 | 1,414,352 | 5,124,352 |
+| properties-256 | 10,000 | 80,358,144 | 18,406,184 | Outside matched workload |
 
-In Node, the 4 KiB and 64 KiB ranges overlap, because the payload copy dominates them. In Chromium, the new encoder is faster for both sizes. The isolated minified Vite ESM codec measured 28,602 bytes before and 30,841 after. Gzip measured 7,368 and 7,976 bytes.
+In Node, the 4 KiB and 64 KiB ranges overlap, because the payload copy dominates them. In Chromium, the 4 KiB case is faster and the 64 KiB ranges overlap. The isolated minified Vite ESM codec measured 28,602 bytes before and 30,980 after. Gzip measured 7,368 and 8,048 bytes.
 
-The installed client shows the same change. Five pairs of 500,000 sequential QoS 0 publishes through `test/bench/packed-qos0.ts` measured a median of 285,829 publishes per second on `74234c0` (274,690 to 299,960) and 394,160 with this encoder (359,320 to 414,910). V8 sampling estimated 4,706 allocated bytes per publish before and 3,090 after. With the same payload as bytes, the median was 617,759 publishes per second and 2,848 bytes per publish. With a Content Type, 4 bytes of Correlation Data and one User Property, the median was 141,620 on the first commit of this change, which uses the earlier encoder, and 457,235 after, and the allocation estimate fell from 9,314 to 3,358 bytes per publish. A `--trace-deopt` run of each workload showed only single deoptimizations during warmup.
+The installed client shows the same change. Five pairs of 500,000 sequential QoS 0 publishes through `test/bench/packed-qos0.ts` measured a median of 278,399 publishes per second on `74234c0` (271,150 to 281,700) and 391,894 with this encoder (383,810 to 420,020). V8 sampling estimated 4,707 allocated bytes per publish before and 3,027 after. With the same payload as bytes, the median was 565,314 publishes per second and 2,825 bytes per publish. With a Content Type, 4 bytes of Correlation Data and one User Property, the median was 426,826 publishes per second and 3,556 bytes per publish. An earlier run of the first commit of this change, which used the earlier encoder, measured 141,620 publishes per second and 9,314 bytes per publish for that workload. A `--trace-deopt` run of each workload showed only single deoptimizations during warmup.
 
 ## Field assembly from encoded parts
 

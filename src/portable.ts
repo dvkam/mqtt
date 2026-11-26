@@ -16,6 +16,7 @@ import type {
 } from './session.js';
 import { validateTopic, validateTopicName } from './util/validateTopic.js';
 import { resolveTimeout } from './timeout.js';
+import { isAbortSignal } from './util/signal.js';
 import { capturePublication, type OutgoingPublication } from './publication.js';
 import { PublicationAdmission, type PublicationLimits } from './publicationAdmission.js';
 import { SubscriptionExchanges, type SubscriptionLimits } from './subscriptionExchanges.js';
@@ -440,7 +441,7 @@ class PortableClient<Bytes extends Uint8Array> {
     const qos: unknown = options?.qos ?? 0;
     if (qos !== 0 && qos !== 1) throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'Unsupported MQTT publish QoS');
     const signal: unknown = options?.signal;
-    if (signal !== undefined && !(signal instanceof AbortSignal))
+    if (signal !== undefined && !isAbortSignal(signal))
       throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'MQTT publish signal must be an AbortSignal');
     signal?.throwIfAborted();
     if (qos === 1 && !this.outbound) throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'Broker does not support QoS 1');
