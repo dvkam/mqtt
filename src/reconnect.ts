@@ -19,7 +19,10 @@ export interface Reconnectable {
    * connected, and true again after `resetSession()`.
    */
   cleanStart?: boolean;
-  /** Read only. With `resume`, it must be an integer from 1 to 4,294,967,295, so the broker keeps the session. */
+  /**
+   * The client passes it on unchanged. With `resume`, it must be an integer from 1 to 4,294,967,295, so the broker keeps
+   * the session after a connection ends.
+   */
   sessionExpiryInterval?: number;
   /** With `resume`, the client replaces it with its own session state, which every attempt shares. */
   sessionState?: SessionState;
