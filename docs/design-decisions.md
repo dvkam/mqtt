@@ -82,7 +82,7 @@ What follows: the contract is in the [#171 plan comment](https://github.com/dvka
 
 Update, 18 November 2026: the owner chose to remove `openBrowserTransport` and its types from `mqtt/browser` in step 4, when the browser client moves onto the core, instead of with the other seams in step 5. The recommended option was to keep it until step 5, so that each pull request has one kind of break. Step 5 still removes `PacketTransport`, `connectPortable` and `openMqttWebSocket`, and its migration table covers all removed seams.
 
-Update, 24 November 2026. Step 5 exposes `createTransportClient` through `mqtt` and `mqtt/portable`. The package documents a Node `Duplex` adapter. The WebSocket message limit stays with its adapters. [Migration table](public-types.md#migrate-removed-transport-hooks)
+Update, 24 November 2026: step 5 exposes `createTransportClient` through `mqtt` and `mqtt/portable`. The package documents a Node `Duplex` adapter. The WebSocket message limit stays with its adapters. The [migration table](public-types.md#migrate-removed-transport-hooks) lists a replacement for each removed export.
 
 ## The legacy `connect()` client is deleted
 

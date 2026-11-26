@@ -94,7 +94,7 @@ Five fresh processes per variant encoded 600,000 QoS 0 packets after 50,000 warm
 
 For the fresh array variant, five paired runs of 100,000 packed TCP echoes yielded medians of 40,778 (37,797–48,283) and 44,922 (39,554–57,777) echoes per second. Median p99 was 0.080 ms (0.068–0.094) and 0.074 ms (0.063–0.086). The ranges overlap. The measured speedup applies to the isolated encoder workload. [#178](https://github.com/dvkam/mqtt/issues/178)
 
-| Pair | Encoder baseline in ms | Encoder candidate in ms | Packed baseline echoes/s | Packed candidate echoes/s | Packed p99 baseline/candidate in ms |
+| Pair | Encoder baseline in ms | Encoder candidate in ms | Packed baseline echoes per second | Packed candidate echoes per second | Packed p99 baseline and candidate in ms |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | 1 | 590.7 | 433.6 | 45,118 | 39,554 | 0.078 / 0.086 |
 | 2 | 606.1 | 459.3 | 48,283 | 48,149 | 0.068 / 0.071 |

@@ -31,7 +31,7 @@ export type { ClientDiagnostic, DiagnosticObserver } from './diagnostics.js';
 /** Create a one-shot MQTT client with Buffer payloads over a custom transport. */
 export function createTransportClient(
   transport: Readonly<ByteTransport>,
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The client preserves the native AbortSignal and mutable Buffer delivery.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteClientOptions holds a native AbortSignal and Buffer callbacks, and Readonly<> cannot hide their mutable members. createByteClient in src/transportCore.ts takes the same type.
   options: Readonly<ByteClientOptions<Buffer>>,
 ): ClientFactory {
   return createByteClient(transport, options, nodePlatform);
