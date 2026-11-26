@@ -1,4 +1,4 @@
-import { createBrowserClient } from 'mqtt/browser';
+import { createBrowserClient, createReconnectingClient, watchPageLifecycle } from 'mqtt/browser';
 import { PacketDecoder, type WirePacket } from 'mqtt/codec';
 import { createTransportClient, type ByteTransport } from 'mqtt/portable';
 import type { WebSocketOptions } from 'mqtt/websocket';
@@ -11,6 +11,8 @@ import type {
   DiagnosticObserver,
   DisconnectOptions,
   ClientSession,
+  PageLifecycleOptions,
+  PageReturn,
   ConnectionInfo,
   PublishOptions,
   QosOneMessage,
@@ -128,4 +130,17 @@ export function checkDecoderBatch() {
   const batch = decoder.pushBatch(Uint8Array.of(0xd0, 0, 0x90, 3, 0, 1, 0));
   const packets: WirePacket[] = Array.isArray(batch) ? batch : batch.packets;
   return { packets, error: Array.isArray(batch) ? undefined : batch.error };
+}
+
+export function checkPageLifecycle(): () => void {
+  const client = createReconnectingClient(createBrowserClient, { url: 'wss://localhost/mqtt', clientId: 'packed-lifecycle' });
+  const retried: boolean = client.retryNow();
+  const lifecycle: PageLifecycleOptions = {
+    onReturn(event: PageReturn) {
+      const outcome: 'retried' | 'answered' | 'ended' | 'stopped' | 'skipped' = event.outcome;
+      outcome.toUpperCase();
+      event.awayMs.toFixed(retried ? 1 : 0);
+    },
+  };
+  return watchPageLifecycle(client, lifecycle);
 }
