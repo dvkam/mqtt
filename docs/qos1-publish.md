@@ -16,7 +16,7 @@ const sent = client.publish('sensors/temperature', '21.5', { qos: 1, signal: con
 await sent;
 ```
 
-`PublishOptions` is available from `mqtt` and `mqtt/browser`. A publication signal applies to a QoS 1 call. It rejects with the caller's abort reason. The queue observes a private dependent signal so another listener cannot suppress cancellation by stopping event propagation. [DOM Standard](https://dom.spec.whatwg.org/#interface-AbortSignal)
+`PublishOptions` is available from `mqtt`, `mqtt/browser` and `mqtt/portable`. A signal that is already aborted rejects any publish with its reason. At QoS 1, a later abort withdraws a queued publication with the caller's abort reason. The queue observes a private dependent signal so another listener cannot suppress cancellation by stopping event propagation. [DOM Standard](https://dom.spec.whatwg.org/#interface-AbortSignal)
 
 ## Admission and quota
 

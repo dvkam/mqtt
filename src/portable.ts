@@ -7,6 +7,7 @@ import type {
   ClientSession,
   ConnectionInfo,
   DisconnectOptions,
+  PublishOptions,
   QosOneMessage,
   SessionEndObserver,
   SubscribeOptions,
@@ -15,6 +16,7 @@ import type {
 } from './session.js';
 import { validateTopic, validateTopicName } from './util/validateTopic.js';
 import { resolveTimeout } from './timeout.js';
+import { capturePublication, type OutgoingPublication } from './publication.js';
 import { PublicationAdmission, type PublicationLimits } from './publicationAdmission.js';
 import { SubscriptionExchanges, type SubscriptionLimits } from './subscriptionExchanges.js';
 import { PacketIdentifiers } from './packetIdentifiers.js';
@@ -32,8 +34,6 @@ export type { ProtocolInputCode } from './protocolInputError.js';
 export type { BrokerPacket, ClientPacket } from './wireCodec.js';
 export type { MessageProperties, PublishMessage } from './messageProperties.js';
 export type { QosOneMessage } from './session.js';
-
-const payloadEncoder = new TextEncoder();
 
 /** What a transport delivers: the codec's broker packets and received messages with `Bytes` payloads. */
 export type ReceivedPacket<Bytes extends Uint8Array = Uint8Array> =
@@ -121,8 +121,9 @@ class PortableClient<Bytes extends Uint8Array> {
   private readonly unlisten: (() => void) | undefined;
   private readonly subscriptions: SubscriptionExchanges;
   private readonly identifiers = new PacketIdentifiers();
-  private outbound?: OutboundQosOne;
+  private outbound?: OutboundQosOne<OutgoingPublication>;
   private activation: 'opening' | 'accepted' | 'active' = 'opening';
+  private retainAvailable = true;
   private connackReceived = false;
   private inboundPhase?: InboundPhase;
   private nextInbound?: QosOneMessage<PublishMessage<Bytes>>;
@@ -334,8 +335,9 @@ class PortableClient<Bytes extends Uint8Array> {
     if ('error' in reply) throw new MqttError('ERR_MQTT_PROTOCOL', reply.error);
     const { connection } = reply;
     const { receiveMaximum, maximumQos, serverKeepAlive } = connection;
+    this.retainAvailable = connection.retainAvailable;
     if (maximumQos !== 0) {
-      this.outbound = new OutboundQosOne(receiveMaximum, this.identifiers, this.transmitQosOne.bind(this));
+      this.outbound = new OutboundQosOne<OutgoingPublication>(receiveMaximum, this.identifiers, this.transmitQosOne.bind(this));
     }
     this.activation = 'active';
     if (serverKeepAlive > 0) this.startKeepAlive(serverKeepAlive * 1000, connectSentAt);
@@ -430,44 +432,39 @@ class PortableClient<Bytes extends Uint8Array> {
     if (next && !this.failure && !this.closing) this.receiveQosOne(next);
   }
 
-  async publish(
-    topic: string,
-    payload: string,
-    options?: Readonly<{ qos?: 0 | 1; signal?: Readonly<AbortSignal> }>,
-  ): Promise<void> {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ClientSession.publish in src/session.ts takes the caller's Uint8Array payload and AbortSignal by identity.
+  async publish(topic: string, payload: string | Uint8Array, options?: Readonly<PublishOptions>): Promise<void> {
     if (this.closing) throw closingError();
     if (this.failure) throw this.failure;
     if (!validateTopicName(topic)) throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'Invalid MQTT topic name');
-    const { qos = 0, signal } = options ?? {};
-    if (![0, 1].includes(qos)) throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'Unsupported MQTT publish QoS');
-    if (qos === 1) {
-      signal?.throwIfAborted();
-      if (!this.outbound) throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'Broker does not support QoS 1');
-      await this.outbound.enqueue(topic, payload, this.publications.reserve(topic, payload, qos), signal);
+    const qos: unknown = options?.qos ?? 0;
+    if (qos !== 0 && qos !== 1) throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'Unsupported MQTT publish QoS');
+    const signal = options?.signal;
+    signal?.throwIfAborted();
+    if (qos === 1 && !this.outbound) throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'Broker does not support QoS 1');
+    const publication = capturePublication(topic, payload, options, this.retainAvailable, this.publications.byteLimit);
+    const release = this.publications.reserve(topic, publication.payloadBytes, publication.propertyBytes, qos);
+    if (qos === 1 && this.outbound) {
+      await this.outbound.enqueue(publication, release, signal);
       return;
     }
-    if (signal !== undefined) throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'Publish cancellation requires QoS 1');
-    const release = this.publications.reserve(topic, payload);
     await this.qosZeroWrites.run(
       // oxlint-disable-next-line typescript/promise-function-async -- Forward the native send promise directly to the write deadline owner.
-      () => this.sendPacket({ cmd: 'publish', topic, payload: payloadEncoder.encode(payload), retain: false }),
+      () => this.sendPacket(publishPacket(publication)),
       release,
     );
   }
 
   private async transmitQosOne(
-    topic: string,
-    payload: string,
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- OutgoingPublication carries the caller's Uint8Array payload, which the PUBLISH must reference without a copy (src/publication.ts).
+    publication: OutgoingPublication,
     messageId: number,
     acknowledgment: Readonly<Promise<number>>,
   ): Promise<number> {
     let sent: Promise<void> | undefined;
     try {
       return await this.run(async () => {
-        sent = this.sendIdentified(
-          { cmd: 'publish', topic, payload: payloadEncoder.encode(payload), qos: 1, messageId, dup: false, retain: false },
-          'MQTT publication send failed',
-        );
+        sent = this.sendIdentified(publishPacket(publication, messageId), 'MQTT publication send failed');
         const [code] = await Promise.all([acknowledgment, sent]);
         return code;
       }, 'outbound-publish');
@@ -729,6 +726,42 @@ class PortableClient<Bytes extends Uint8Array> {
     if (this.onDiagnostic) void notifyObserver(this.onDiagnostic, { kind: 'connection', state });
     return this.failure;
   }
+}
+
+// Each PUBLISH with properties has every property key, set or undefined, so the encoder sees one object shape for them.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- OutgoingPublication carries the caller's Uint8Array payload, which the PUBLISH must reference without a copy (src/publication.ts).
+function publishPacket({ topic, payload, retain, properties: p }: OutgoingPublication, messageId?: number): ClientPacket {
+  if (messageId === undefined) {
+    if (p === undefined) return { cmd: 'publish', topic, payload, retain };
+    return {
+      cmd: 'publish',
+      topic,
+      payload,
+      retain,
+      payloadFormatIndicator: p.payloadFormatIndicator,
+      messageExpiryInterval: p.messageExpiryInterval,
+      contentType: p.contentType,
+      responseTopic: p.responseTopic,
+      correlationData: p.correlationData,
+      userProperties: p.userProperties,
+    };
+  }
+  if (p === undefined) return { cmd: 'publish', topic, payload, qos: 1, messageId, dup: false, retain };
+  return {
+    cmd: 'publish',
+    topic,
+    payload,
+    qos: 1,
+    messageId,
+    dup: false,
+    retain,
+    payloadFormatIndicator: p.payloadFormatIndicator,
+    messageExpiryInterval: p.messageExpiryInterval,
+    contentType: p.contentType,
+    responseTopic: p.responseTopic,
+    correlationData: p.correlationData,
+    userProperties: p.userProperties,
+  };
 }
 
 function closingError(): MqttError {

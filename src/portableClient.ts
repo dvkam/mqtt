@@ -3,6 +3,7 @@ import { portablePlatform } from './portablePlatform.js';
 import type { ClientFactory } from './session.js';
 import { createByteClient, type ByteClientOptions } from './transportCore.js';
 
+export type { PublishProperties } from './publication.js';
 export type { ByteInbound, ByteTransport, ByteWriter, OpenContext } from './byteTransport.js';
 export type { ByteClientOptions } from './transportCore.js';
 export type { WillOptions } from './will.js';
@@ -18,9 +19,11 @@ export type {
   ClientSession,
   ConnectionInfo,
   DisconnectOptions,
+  PublishOptions,
   QosOneMessage,
   SessionEnd,
   SessionEndObserver,
+  SubscribeOptions,
   SubscribeResult,
   UnsubscribeResult,
 } from './session.js';

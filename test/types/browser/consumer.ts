@@ -51,4 +51,9 @@ export const bytePassword = createBrowserClient({
   password: Uint8Array.of(1, 2),
 });
 
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture passes a native Uint8Array payload as ClientSession.publish declares it.
+export async function publishBrowserBytes(session: BrowserSession): Promise<void> {
+  await session.publish('bytes', Uint8Array.of(1, 2), { qos: 1, correlationData: Uint8Array.of(9), responseTopic: 'reply' });
+}
+
 export * from '../../packed/browser/consumer.js';

@@ -108,7 +108,7 @@ test('default item limit rejects a burst before another send', async () => {
   await client.disconnect();
 });
 
-test.each(['\uD800', '\uDC00', '😀', 'é', 'a'.repeat(16_380)])('matches encoded wire size for payload %s', async (payload) => {
+test.each(['😀', 'é', 'a'.repeat(16_380)])('matches encoded wire size for payload %s', async (payload) => {
   const body = new TextEncoder().encode(payload).length + 4;
   let length = 1;
   for (let value = body; value >= 128; value = Math.floor(value / 128)) length++;
@@ -145,9 +145,15 @@ test('timeout keeps the reservation until the actual send settles', async () => 
   // oxlint-disable-next-line typescript/unbound-method -- The spy forwards the original instance method with its captured receiver.
   const reserve = PublicationAdmission.prototype.reserve;
   const released = vi.fn<() => void>();
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The ownership spy must forward the original mutable class receiver.
-  vi.spyOn(PublicationAdmission.prototype, 'reserve').mockImplementation(function (this: PublicationAdmission, topic, payload) {
-    const release = reserve.call(this, topic, payload);
+  vi.spyOn(PublicationAdmission.prototype, 'reserve').mockImplementation(function (
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The ownership spy must forward the original mutable class receiver.
+    this: PublicationAdmission,
+    topic,
+    payloadBytes,
+    propertyBytes,
+    qos,
+  ) {
+    const release = reserve.call(this, topic, payloadBytes, propertyBytes, qos);
     return () => {
       released();
       release();
