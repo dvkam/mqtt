@@ -57,7 +57,7 @@ try {
 console.log('Received an echo on example/echo');
 ```
 
-The TypeScript sample uses the same installed import. Construction performs no I/O. The first `connect()` starts one attempt and later calls return its promise. Create a new factory to retry. [TypeScript sample](https://github.com/dvkam/mqtt/blob/main/sample/sample.ts) · [First connection and recovery](https://github.com/dvkam/mqtt/blob/main/docs/recipes/first-connection.md)
+The TypeScript sample uses the same installed import. Construction performs no I/O. The first `connect()` starts one attempt and later calls return its promise. Create a new factory to retry. Pass `username` and `password` for a broker that requires them. `password` is a string, sent as UTF-8, or a `Uint8Array`. [TypeScript sample](https://github.com/dvkam/mqtt/blob/main/sample/sample.ts) · [First connection and recovery](https://github.com/dvkam/mqtt/blob/main/docs/recipes/first-connection.md)
 
 For authenticated TCP, pass a `tls` object with optional CA and client identity settings. The [TCP TLS guide](docs/tcp-tls.md) covers handshake ownership, certificate checks and mutual TLS.
 

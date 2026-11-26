@@ -90,7 +90,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
     will = captureWill(options.will);
   } catch (error) {
     if (isAborted()) throw abortReason();
-    throw invalidOption(error, 'Invalid MQTT Will');
+    throw invalidOption(error, 'Invalid MQTT connection option');
   }
 
   // Cancels the open while no writer exists.

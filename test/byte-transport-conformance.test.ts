@@ -520,10 +520,24 @@ test.each([
 ] as const)('rejects a password $name before opening the transport', async ({ password: make, message }) => {
   const password = make();
   const { peer } = memoryPeer();
-  // An untyped caller can pass any value. The core checks the value it receives.
-  const options: Record<string, unknown> = { clientId: 'invalid-password', password };
+  const options: Record<string, unknown> = { password };
   const factory = createTransportClient(peer.transport, { clientId: 'invalid-password', ...options });
   await expect(factory.connect()).rejects.toMatchObject({ message, code: 'ERR_MQTT_INVALID_ARGUMENT', fatal: false });
+  expect(peer.opens()).toBe(0);
+});
+
+test('checks the copied password length, not a byteLength getter that a subclass overrides', async () => {
+  class ShortLookingBytes extends Uint8Array {
+    override get byteLength(): number {
+      return 1;
+    }
+  }
+  const { peer } = memoryPeer();
+  const factory = createTransportClient(peer.transport, { clientId: 'subclass-password', password: new ShortLookingBytes(70_000) });
+  await expect(factory.connect()).rejects.toMatchObject({
+    code: 'ERR_MQTT_INVALID_ARGUMENT',
+    message: 'MQTT password exceeds 65,535 bytes',
+  });
   expect(peer.opens()).toBe(0);
 });
 

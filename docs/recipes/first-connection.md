@@ -8,7 +8,7 @@ Install the preview tarball in an ESM project. Start the local broker and run th
 | A WebSocket URL is invalid or the upgrade fails | Check the broker's WebSocket listener, path, and port. Use `ws://` on a local HTTP page or `wss://` on an HTTPS page. MQTT TCP uses a separate listener. |
 | CONNECT is refused | Read `reasonCode` on the `ERR_MQTT_REFUSED` error for the broker's MQTT reason. Check client access and authentication, then create a new factory. |
 | The attempt times out or you cancel it | Check the broker and endpoint. To cancel, pass an `AbortSignal` in the factory options. Create a new signal and a new factory for another attempt. |
-| A browser option is unsupported | Use the options in the browser guide. Browser TLS and proxy settings belong to the browser. The browser factory does not send a password in the current preview. |
+| A browser option is unsupported | Use the options in the browser guide. Browser TLS and proxy settings belong to the browser. Pass `username` and `password` for brokers that require them. |
 | A local capacity error rejects a publish | That call was not sent. Wait for admitted work to settle before trying it again on an active session. |
 | An admitted publish is interrupted | The broker may already have received it. Check the operation result and your application's record before sending it again. |
 
