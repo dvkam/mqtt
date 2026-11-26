@@ -2,6 +2,10 @@
 
 `pnpm lint` runs the strict Oxlint checks and a repository-wide no-any check. `pnpm lint:policy` runs the latter alone. The policy uses the AST API supplied by the pinned TypeScript 7.1 beta. It adds no dependency and uses the same syntax parser as the compiler.
 
+Oxlint runs type-aware linting through the Rust `tsrs` backend. `tsrs` is a prerelease, pinned to an exact version like the TypeScript beta, so rerun `pnpm lint` and `pnpm test:types` when either is updated. If `tsrs` is missing, `pnpm lint` fails instead of skipping the type-aware rules. Every type-aware rule registered in the pinned Oxlint, 62 in Oxlint 1.95.0, is an error, including unsafe class instance assignment and unhandled promises. List the installed rules with `pnpm exec oxlint --rules --format json` and inspect the effective config with `pnpm exec oxlint -c oxlint.config.mjs --print-config`. [Oxlint type-aware linting](https://oxc.rs/docs/guide/usage/linter/type-aware.html)
+
+CI runs the compiler's full `test:types` command separately. It checks the compiler-only ambient import attribute fixture, emits declarations used by lint, and compiles the declaration consumers. The Windows and Ubuntu checks run for every pull request and push to `main`. [CI workflow](../.github/workflows/ci.yml)
+
 The default scan includes tracked TypeScript and JavaScript files and new files that Git does not ignore. It covers source, tests, samples, tooling, verification scripts and code in hidden directories. Installed dependencies and generated `dist` and `.type-fixtures` output are excluded. Deleted files are skipped. Development and CI need Git available.
 
 The check rejects TypeScript AnyKeyword and JSDoc wildcard nodes, including the bare question-mark spelling that TypeScript treats as any. Specific nullable types such as `?string` remain accepted. It visits attached JSDoc as well as ordinary syntax children, with each node visited once. This covers nested types, inline tags, braceless annotations, multi-star comments, aliases, template constraints/defaults and ambient module import attributes. Each diagnostic includes its file, line and column, and any finding causes exit code 1.

@@ -26,9 +26,7 @@ export const unknownCode: MqttErrorCode = 'ERR_MQTT_OTHER';
 export function codeOf(error: unknown): 'capacity' | 'broker' | 'other' {
   if (!(error instanceof MqttError)) return 'other';
   if (error.code === 'ERR_MQTT_CAPACITY') {
-    const narrowed: 'ERR_MQTT_CAPACITY' = error.code;
-    void narrowed;
-    return 'capacity';
+    return ({ ERR_MQTT_CAPACITY: 'capacity' } as const)[error.code];
   }
   return error.code === 'ERR_MQTT_BROKER_DISCONNECT' ? 'broker' : 'other';
 }
