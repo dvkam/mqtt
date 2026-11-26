@@ -26,7 +26,7 @@ Refs #1.
 
 ## Toolchain verification
 
-Run `pnpm install --frozen-lockfile` with Node 26.13.0 and pnpm 12.16.1. Run `pnpm test`, `pnpm test:types`, `pnpm lint`, and `pnpm format:check` separately from `pnpm build`.
+The original migration used Node 26.13.0 and pnpm 12.16.1. Use the versions pinned in the current checkout for new checks. Run `pnpm install --frozen-lockfile`, then `pnpm test:types`, `pnpm test`, `pnpm lint`, `pnpm format:check`, and `pnpm build`. [Node pin](../.node-version) · [pnpm pin](../package.json) · [Type policy](type-policy.md)
 
 Temporary Vitest probes for a wrong assertion, a test without assertions and a focused test each exited 1. Six topic-filter tests passed. The type fixtures cover packet narrowing, the 7.1 distributive constraint check and attributed ambient imports. A separate consumer compiles against emitted fixture declarations. The ambient declaration fixture stays outside the published package and is checked by TypeScript because the pinned Oxc parser does not parse that beta syntax yet.
 
@@ -38,7 +38,7 @@ Refs #2.
 
 ## Workspace install policy
 
-Use pnpm 12.16.1 from the package manifest. A regular or filtered `pnpm add` saves an exact version. A resolving command may deduplicate compatible versions across workspace importers, including importers outside its filter. Review the entire lockfile diff. Frozen installs keep the committed resolutions and fail when the manifest and lockfile disagree.
+Use the pnpm version pinned in the package manifest. A regular or filtered `pnpm add` saves an exact version. A resolving command may deduplicate compatible versions across workspace importers, including importers outside its filter. Review the entire lockfile diff. Frozen installs keep the committed resolutions and fail when the manifest and lockfile disagree.
 
 The workspace enforces a 1,440-minute release delay when registry metadata includes a publish date. In a controlled registry test, the built-in pnpm default accepted a young release as a fallback and wrote an exclusion. The explicit setting rejected the same release in a noninteractive install. The workspace has no release-age exceptions.
 

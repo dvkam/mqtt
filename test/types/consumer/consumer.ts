@@ -1,6 +1,6 @@
 import { publishTopic } from '../../../.type-fixtures/packet.js';
 
-const topic: string | undefined = publishTopic({
+export const topic: string | undefined = publishTopic({
   cmd: 'publish',
   topic: 'test',
   payload: 'hello',
@@ -8,4 +8,3 @@ const topic: string | undefined = publishTopic({
   dup: false,
   retain: false,
 });
-void topic;

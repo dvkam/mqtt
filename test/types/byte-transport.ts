@@ -105,6 +105,12 @@ export const missingWrite: ByteTransport = {
 
 export const textWriter: ByteTransport = {
   name: 'text',
-  // @ts-expect-error write receives bytes, not text.
-  open: async () => Promise.resolve({ ...writer, write: async (chunk: string) => Promise.resolve(void chunk) }),
+  open: async () =>
+    // @ts-expect-error write receives bytes, not text.
+    Promise.resolve({
+      ...writer,
+      write: async (chunk: string) => {
+        await Promise.resolve(chunk);
+      },
+    }),
 };

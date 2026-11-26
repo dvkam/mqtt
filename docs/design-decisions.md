@@ -85,6 +85,8 @@ What follows: step 3 adds the entry and a packed check that a TCP-only consumer 
 
 Update, 16 November 2026: step 3 added `mqtt/ws` and made `ws` an optional peer dependency with the range `^8.22.1`, the tested version. The package has no runtime dependency left. A packed check installs the tarball without `ws` and confirms that every other entry loads and that `mqtt/ws` fails with the module-not-found error naming `ws`. No clearer message was added.
 
+The 25 November 2026 dependency update raises the optional peer minimum to `8.23.0` to include the upstream security fix. [ws 8.23.0](https://github.com/websockets/ws/releases/tag/8.23.0)
+
 ## One byte-level transport replaces the packet-level seams
 
 Decided on 16 November 2026 (UTC), for [#171](https://github.com/dvkam/mqtt/issues/171). Status: step 5 of the #171 plan, not merged when this entry was written.
