@@ -1,7 +1,47 @@
 import { expect, test, vi } from 'vitest';
 import { createBrowserClient } from '../src/browserClient.js';
+import { createWebSocketClient } from '../src/websocketClient.js';
 import { PacketDecoder } from '../src/codec.js';
 import { startReceivePeer } from './experiments/receive-peer.js';
+
+test.each(['browser', 'node'])('%s accepts two large valid MQTT packets in one default WebSocket message', async (platform) => {
+  const peer = await startReceivePeer();
+  const received: string[] = [];
+  try {
+    const createClient = platform === 'browser' ? createBrowserClient : createWebSocketClient;
+    const session = await createClient({
+      url: peer.url + '/?mode=batch-of-large-packets',
+      clientId: platform + '-default-message-limit',
+      onMessage(message: Readonly<{ topic: string; payload: Readonly<{ byteLength: number }> }>) {
+        received.push(message.topic + ':' + message.payload.byteLength);
+      },
+    }).connect();
+    await session.publish('request', 'send a batch');
+    await session.ping();
+    expect(received).toEqual(['first:614400', 'second:614400']);
+    await session.disconnect();
+  } finally {
+    await peer.close();
+  }
+});
+
+test.each(['browser', 'node'])('%s derives its message cap from the configured MQTT packet cap', async (platform) => {
+  const peer = await startReceivePeer();
+  const onMessage = vi.fn<() => void>();
+  try {
+    const createClient = platform === 'browser' ? createBrowserClient : createWebSocketClient;
+    const session = await createClient({
+      url: peer.url + '/?mode=small-default-message-overflow',
+      clientId: platform + '-derived-message-limit',
+      maxPacketBytes: 8,
+      onMessage,
+    }).connect();
+    await expect(session.ping()).rejects.toBeInstanceOf(RangeError);
+    expect(onMessage).not.toHaveBeenCalled();
+  } finally {
+    await peer.close();
+  }
+});
 
 test.each(['oversized-connect', 'suback-overflow', 'ping-overflow', 'partial-overflow', 'ws-fragments-overflow'])(
   '%s rejects before decoding and retains the receive error',

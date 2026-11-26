@@ -2,3 +2,5 @@
 // never loads `ws`.
 export { createWebSocketClient } from './websocketClient.js';
 export type { WebSocketClientOptions } from './websocketClient.js';
+export type { WillOptions } from './will.js';
+export type { ConnectionInfo, SubscribeResult, UnsubscribeResult } from './session.js';

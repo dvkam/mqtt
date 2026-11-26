@@ -5,6 +5,7 @@ import { expect, test, vi } from 'vitest';
 import { connectPortable, type PacketTransport, type PortableOptions } from '../src/portable.js';
 import { PublicationAdmission } from '../src/publicationAdmission.js';
 import { PacketIdentifiers } from '../src/packetIdentifiers.js';
+import { MqttError } from '../src/mqttError.js';
 
 const qosOne = { qos: 1 } as const;
 
@@ -47,7 +48,8 @@ async function peer(
   };
   const client = await connectPortable(transport, { clientId: 'qos1-trace', ...limits });
   const published = () => packets.filter((packet: Readonly<{ cmd: string }>) => packet.cmd === 'publish');
-  return { client, transport, packets, published, receive, retire };
+  const commands = () => packets.map(({ cmd }: Readonly<{ cmd: string }>) => cmd);
+  return { client, transport, packets, published, commands, receive, retire };
 }
 
 test('holds quota one through send and matching PUBACK while subscription and ping proceed', async () => {
@@ -213,7 +215,7 @@ test('disconnect fences queued dispatch before sending DISCONNECT', async () => 
     try {
       await setImmediate();
       expect(broker.published()).toHaveLength(1);
-      await expect(second).rejects.toThrow('Client is closing');
+      await expect(second).rejects.toMatchObject({ message: 'Client is closing', code: 'ERR_MQTT_CLOSING' });
       closeWrite.release();
       await closing;
     } finally {
@@ -223,6 +225,154 @@ test('disconnect fences queued dispatch before sending DISCONNECT', async () => 
   } finally {
     broker.retire(new Error('fixture ended'));
     await outcomes;
+  }
+});
+
+test('disconnect sends DISCONNECT after the last active publication is acknowledged', async () => {
+  const broker = await peer({ receiveMaximum: 1 });
+  const admitted = broker.client.publish('a', 'active', qosOne);
+  const queued = broker.client.publish('b', 'queued', qosOne).catch((error: unknown) => error);
+  const closing = broker.client.disconnect();
+  const settled = Promise.allSettled([admitted, queued, closing]);
+  expect(broker.client.disconnect()).toBe(closing);
+  try {
+    await setImmediate();
+    expect(broker.commands()).toEqual(['connect', 'publish']);
+    await expect(queued).resolves.toMatchObject({ message: 'Client is closing', code: 'ERR_MQTT_CLOSING' });
+    broker.receive({ cmd: 'puback', messageId: 1, reasonCode: 0 });
+    await admitted;
+    await closing;
+    expect(broker.commands()).toEqual(['connect', 'publish', 'disconnect']);
+  } finally {
+    broker.retire(new Error('fixture ended'));
+    await settled;
+  }
+});
+
+test('disconnect drain timeout reports an unknown delivery and still sends DISCONNECT', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    const broker = await peer(undefined, { timeoutMs: 50 });
+    const publication = broker.client.publish('a', 'no PUBACK', qosOne).catch((error: unknown) => error);
+    const closing = broker.client.disconnect({ drainTimeoutMs: 100 });
+    await vi.advanceTimersByTimeAsync(50);
+    expect(broker.commands()).toEqual(['connect', 'publish']);
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(publication).resolves.toMatchObject({
+      code: 'ERR_MQTT_TIMEOUT',
+      fatal: true,
+      message: 'MQTT QoS 1 drain expired. Delivery outcome is unknown',
+    });
+    await closing;
+    expect(broker.commands()).toEqual(['connect', 'publish', 'disconnect']);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('immediate disconnect skips the drain and can ask the broker to publish its Will', async () => {
+  const broker = await peer();
+  const publication = broker.client.publish('a', 'unacknowledged', qosOne).catch((error: unknown) => error);
+  await broker.client.disconnect({ drain: false, reasonCode: 4 });
+  expect(broker.packets[broker.packets.length - 1]).toEqual({ cmd: 'disconnect', reasonCode: 4 });
+  await expect(publication).resolves.toMatchObject({ message: 'Client disconnected', code: 'ERR_MQTT_CLOSING' });
+});
+
+test('a connection failure during the drain wins and prevents DISCONNECT', async () => {
+  const broker = await peer();
+  const publication = broker.client.publish('a', 'unacknowledged', qosOne).catch((error: unknown) => error);
+  const closing = broker.client.disconnect().catch((error: unknown) => error);
+  await setImmediate();
+  const failure = new Error('broker ended while draining');
+  broker.retire(failure);
+  await expect(publication).resolves.toBe(failure);
+  await expect(closing).resolves.toBe(failure);
+  expect(broker.commands()).toEqual(['connect', 'publish']);
+});
+
+test('an unsupported DISCONNECT reason code is an invalid argument and leaves the session usable', async () => {
+  const broker = await peer();
+  // @ts-expect-error The test sends a reason code that the DisconnectOptions type does not allow.
+  await expect(broker.client.disconnect({ reasonCode: 1 })).rejects.toMatchObject({
+    code: 'ERR_MQTT_INVALID_ARGUMENT',
+    fatal: false,
+    message: 'Unsupported MQTT disconnect reason code',
+  });
+  await broker.client.ping();
+  await broker.client.disconnect();
+});
+
+test('an invalid drain timeout rejects without starting a disconnect', async () => {
+  const broker = await peer();
+  const failure: unknown = await broker.client.disconnect({ drainTimeoutMs: 0 }).catch((error: unknown) => error);
+  expect(failure).toMatchObject({ code: 'ERR_MQTT_INVALID_ARGUMENT', fatal: false });
+  expect(failure instanceof MqttError && failure.cause instanceof RangeError).toBe(true);
+  await broker.client.ping();
+  await broker.client.disconnect();
+  expect(broker.commands()).toEqual(['connect', 'pingreq', 'disconnect']);
+});
+
+test.each([0, 0x97])('drain expiry preserves PUBACK %i while the write callback is held', async (reasonCode) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const publishWrite = gate();
+  const disconnectWrite = gate();
+  try {
+    const broker = await peer(undefined, { timeoutMs: 100 });
+    const original = broker.transport.send.bind(broker.transport);
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Hold the native writes for the original mutable packets.
+    broker.transport.send = async (packet) => {
+      await original(packet);
+      if (packet.cmd === 'publish') await publishWrite.promise;
+      if (packet.cmd === 'disconnect') await disconnectWrite.promise;
+    };
+    const publication = broker.client.publish('a', 'acknowledged', qosOne).then(
+      () => ({ kind: 'published' }),
+      (error: unknown) => ({ kind: 'refused', error }),
+    );
+    const closing = broker.client.disconnect({ drainTimeoutMs: 75 }).then(
+      () => ({ kind: 'disconnected' }),
+      (error: unknown) => ({ kind: 'failed', error }),
+    );
+    broker.receive({ cmd: 'puback', messageId: 1, reasonCode });
+    await vi.advanceTimersByTimeAsync(74);
+    expect(broker.commands()).toEqual(['connect', 'publish']);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(publication).resolves.toMatchObject(
+      reasonCode === 0 ? { kind: 'published' } : { kind: 'refused', error: { code: 'ERR_MQTT_REFUSED', reasonCode } },
+    );
+    expect(broker.commands()).toEqual(['connect', 'publish', 'disconnect']);
+    await vi.advanceTimersByTimeAsync(25);
+    disconnectWrite.release();
+    await expect(closing).resolves.toEqual({ kind: 'disconnected' });
+  } finally {
+    publishWrite.release();
+    disconnectWrite.release();
+    vi.useRealTimers();
+  }
+});
+
+test('the first disconnect owns options before a getter calls disconnect again', async () => {
+  const broker = await peer();
+  const publication = broker.client.publish('a', 'waiting', qosOne);
+  let nested: Promise<void> | undefined;
+  const closing = broker.client.disconnect({
+    get reasonCode() {
+      nested = broker.client.disconnect({ drain: false });
+      return 4 as const;
+    },
+  });
+  const settled = Promise.allSettled([publication, closing]);
+  try {
+    expect(nested).toBe(closing);
+    await setImmediate();
+    expect(broker.commands()).toEqual(['connect', 'publish']);
+    broker.receive({ cmd: 'puback', messageId: 1, reasonCode: 0 });
+    await Promise.all([publication, closing]);
+    expect(broker.packets[broker.packets.length - 1]).toEqual({ cmd: 'disconnect', reasonCode: 4 });
+  } finally {
+    broker.retire(new Error('fixture ended'));
+    await settled;
   }
 });
 

@@ -27,7 +27,7 @@ The explicit constructor fields and generic receive-payload types preserve the r
 - PingFence covers src/portable.ts exchange, run, abort and fail. For one active connection with up to two pings, a timeout or failed write retires the connection before another request can reuse the acknowledgment slot. A reply from the first request cannot complete the second. Reply identity is a model label. MQTT PINGRESP carries no identifier. The model assumes at most one solicited reply per request and excludes unsolicited or duplicate replies.
 - WebSocketOpen covers src/websocket.ts openMqttWebSocket and its open, failure and cleanup callbacks. One opening attempt transfers the socket to the caller or rejects and requests closure. Removing the open listener prevents a late open callback. The model groups abort, error, close, timeout and subprotocol rejection into failure. It assumes callback bodies run to completion.
 
-- WebSocketSession covers src/portable.ts's CONNACK activation and delivery callback, and src/websocketClient.ts's send admission. One attempt can admit up to two abstract queue units. Accept maps to exchange completion with no recorded failure. Deliver maps to the active, non-closing callback guard. Admit maps to the bufferedAmount plus encoded packet size check. Close maps to logical retirement. It groups graceful closing and terminal states for delivery purposes. It does not bound frame overhead, parser allocations, kernel buffers, or total memory.
+- WebSocketSession covers src/portable.ts's CONNACK acceptance and QoS 0 delivery, and src/transportCore.ts's send admission for WebSockets. One attempt can admit up to two abstract queue units. Accept maps to the validated successful CONNACK receipt. The model groups the accepted and active source phases for QoS 0. Deliver maps to the non-closing callback guard after acceptance. Admit maps to the bufferedAmount plus encoded packet size check. Close maps to logical retirement. It groups graceful closing and terminal states for delivery purposes. It does not bound frame overhead, parser allocations, kernel buffers, or total memory.
 
 The bounded models check safety. TCP/OS and browser socket teardown, timing bounds in a suspended page, transport buffering, MQTT sessions and durability need separate checks. WebSocketOpen's counter counts terminal handler effects. It does not measure physical socket closure.
 
@@ -608,3 +608,33 @@ In `src/portable.ts`, both manual and automatic PINGREQ use the `pendingAck` slo
 PingFence does not model clocks, broker negotiation, or the priority of an explicit disconnect. `test/server-keep-alive.test.ts` checks those with fixed CONNACK bytes and a controlled clock. Its cases cover idle expiry, successful writes, rearming, delayed CONNACK, the pending response slot, blocked writes, cancellation and a graceful disconnect already in progress. `test/packed/server-keep-alive.mjs` checks the installed TCP client against a controlled byte peer. Browser timer suspension remains under #32.
 
 TLC 1.7.4 passed 41 positive models and reported all 146 expected invariant violations with the current model set.
+
+## Outgoing QoS 1 drain on disconnect
+
+DisconnectDrain maps Stop to the synchronous outbound admission stop in `src/portable.ts`. Send represents moving one admitted publication into the active identifier registry in `src/outboundQosOne.ts`. ObserveAck records the broker outcome while the send may still be settling. Settle releases the active entry. Expire cuts off the wait at the one drain deadline and preserves an already observed PUBACK. Disconnect represents the session sending DISCONNECT after the active registry empties or the deadline expires.
+
+DisconnectDrainLate, DisconnectDrainEarly, and DisconnectDrainOutcome exercise the stop, ordering, and outcome invariants. The model abstracts the operation being sent, the result of PUBACK, and elapsed time. The concrete tests in `test/qos1-publish.test.ts` check wire order, held sends, queue rejection and transport error identity. `test/server-keep-alive.test.ts` checks a negotiated heartbeat during the drain. Socket buffer occupancy, timer precision, and native close settlement need separate checks.
+
+## Forced writer close
+
+The shared `forceClose` operation in `src/transportCore.ts` joins native teardown and the session's forced-close request for one writer. It is installed before invoking the writer, which may synchronously report a terminal event. `BrowserClientHandoff` still maps Force to input retirement and local close settlement. The model uses one abstract Force transition. Run `test/byte-transport-conformance.test.ts` for the concrete count, first-error identity, graceful escalation and waiting for a held forced close.
+
+## Shared QoS 0 write deadline
+
+`QosZeroDeadline` models up to two QoS 0 writes with one timer and a two-unit per-write budget. Write maps to recording expiry before the native write. Finish maps to testing whether the oldest pending write expired before accepting a completion. Wake either retires the session, re-arms for the next deadline, or clears an idle timer. `PortableClient.fail` rejects all pending writes using the first session error. `OperationTimeout` also covers that retirement.
+
+The broken configurations check premature expiry, loss of a later deadline and incomplete retirement. The model abstracts callback scheduling to a small logical clock. The operation timeout tests check fake-clock races, actual TCP write stalls and first-error identity. The finite model does not establish native timer precision, garbage collection behavior, or physical socket close.
+
+## CONNECT Will registration
+
+The byte core captures and validates the Will before calling the adapter opener. `PortableClient` uses that captured Will for CONNECT and related refusal reporting. `ConnackAgreement` and `ConnectRefusal` still map to the first accepted or refused receipt. Will metadata travels in CONNECT's payload, with a separate property length and property table. The client input retains its direction check for CONNECT.
+
+Run `test/codec.test.ts` and `test/byte-transport-conformance.test.ts` to check wire vectors, copy ownership, and first refusal. The packed `will.mjs` and Chromium session check use a separate subscriber to verify broker behavior after normal, interrupted, and reason 4 shutdown. Broker Will scheduling and cross-realm views are outside the finite lifecycle models.
+
+## Acknowledgment snapshots and native TCP batching
+
+`ConnackAgreement` still maps receipt to the first validation and acceptance in `PortableClient.receiveConnack`. The receipt now captures public metadata before accepting QoS 0 delivery. Successful activation returns that snapshot after the native CONNECT write. Authentication, refusal, and duplicate agreement tests check which getters are reached and whether an earlier terminal cause survives.
+
+`SubscriptionOwnership` still maps acceptance to the matching identifier and kind. The registry now claims that receipt before reading its grant and metadata. The operation resolves after both the acknowledgment and write settle. Concrete tests cover downgrade to QoS 0, duplicate reentry, and ordered User Property copies. The finite model abstracts metadata contents and freezing.
+
+`NativeWriteReserve` maps admission to the last budget check before the native write. When a private TCP batch fills the budget, the core can flush queued writes and check the resulting native backlog again. The same reserve applies to the next write. The TCP tests separately cover NoDelay, queue bytes, order, and abort before flush. The model does not count kernel writes or TCP segments.

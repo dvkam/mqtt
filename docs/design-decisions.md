@@ -1,6 +1,6 @@
 # Design decisions
 
-This file records decisions about the public API and the package layout. The repository owner, dvkam, made each choice. The questions were put to the owner in a working session outside GitHub, so this file is the first written record of the options and the trade-offs listed with them. In each table, "recommended" marks the option the question recommended. Four of the five choices followed that recommendation. The three entries of 16 November were answered together, so their order among themselves means nothing.
+This file records decisions about the public API and the package layout. The repository owner, dvkam, made each choice. The questions were put to the owner in a working session outside GitHub, so this file is the first written record of the options and the trade-offs listed with them. In each table, "recommended" marks the option the question recommended. Eight of the nine choices followed that recommendation. The four entries for #147, #150, #161 and #152 were decided together. The three entries of 16 November were answered together, so their order among themselves means nothing.
 
 Each entry gives the question, the options, the choice, the stated reason, any consequences the author of this file adds, and what follows. Several entries describe steps of the [#171 plan](https://github.com/dvkam/mqtt/issues/171#issuecomment-6912613511) that had not been merged when the entry was written. The status line says which.
 
@@ -10,6 +10,75 @@ Two terms used below:
 
 - The inbound rules are what the client does with each packet the broker sends: which packet types it accepts, how it shapes QoS 0 and QoS 1 messages, how it handles AUTH, and how it closes. At 351f172 the Node clients apply them in `src/nodePacketListener.ts` and `src/nodePacketInput.ts`, and the browser client has its own in `src/browserClient.ts` and `src/browserTransport.ts`.
 - A packet-level seam is a public hook for a custom transport that sends and receives decoded MQTT packets instead of bytes.
+
+## Drain active QoS 1 exchanges before disconnect
+
+Decided on 26 November 2026 (UTC), for [#147](https://github.com/dvkam/mqtt/issues/147). The proposal was written on 25 November. On 26 November, in a working session, the owner asked for the reviewed work to be merged once review and CI passed. Status: in the pull request for `feat/verified-mqtt-session-updates`, not merged when this entry was written.
+
+Question: what happens to publications that are still waiting for PUBACK when the caller disconnects?
+
+| Option | Trade-off |
+| --- | --- |
+| Send DISCONNECT at once | Shutdown starts at once. An earlier publication can lose its broker outcome even if PUBACK is about to arrive. |
+| Drain every queued and active publication | More work completes, but the client keeps sending after the caller asked to stop. |
+| Drain active exchanges within a deadline (chosen, recommended) | Known broker outcomes are kept, and queued work is not sent. The connection can stay open until the drain deadline. |
+
+Reason given: a PUBACK that is already on its way should settle its publication, and a caller who asked to stop should not see new sends.
+
+Consequences: `disconnect()` takes `drain`, `drainTimeoutMs` and `reasonCode`. A publication that the drain gives up on rejects with `ERR_MQTT_TIMEOUT`, and its outcome is unknown. `drain: false` keeps the immediate DISCONNECT. [Disconnect options and outcomes](qos1-publish.md#disconnect-with-active-publications)
+
+What follows: inbound PUBLISH packets that arrive during the drain are dropped without a diagnostic, which #149 asks for.
+
+## Derive the default WebSocket message limit from the packet limit
+
+Decided on 26 November 2026 (UTC), for [#150](https://github.com/dvkam/mqtt/issues/150). The proposal was written on 25 November. On 26 November, in a working session, the owner asked for the reviewed work to be merged once review and CI passed. Status: in the pull request for `feat/verified-mqtt-session-updates`, not merged when this entry was written.
+
+Question: how large may one WebSocket message be by default, and may a caller set it below the MQTT packet limit?
+
+| Option | Trade-off |
+| --- | --- |
+| Default to twice the packet limit and allow a smaller explicit limit (chosen, recommended) | Two packets that are each valid fit in one message. A caller can still bound native message assembly below the packet size, because the decoder joins an MQTT packet split across messages. |
+| Default to twice the packet limit and reject a smaller explicit limit, as #150 proposes | The configuration is simpler to explain, but a supported way to bound message assembly is lost. |
+
+Reason given: a broker can split one MQTT packet across several WebSocket messages, and the tests cover that case. Rejecting the smaller limit would remove a working configuration. [Independent limits](websocket-packet-input.md#independent-limits)
+
+Consequences: this departs from the #150 acceptance item that asks to reject a message limit below the packet limit.
+
+What follows: nothing for this decision.
+
+## Register a Will in CONNECT
+
+Decided on 26 November 2026 (UTC), for [#161](https://github.com/dvkam/mqtt/issues/161). The proposal was written on 25 November. On 26 November, in a working session, the owner asked for the reviewed work to be merged once review and CI passed. Status: in the pull request for `feat/verified-mqtt-session-updates`, not merged when this entry was written.
+
+Question: how does a caller register a Will Message?
+
+| Option | Trade-off |
+| --- | --- |
+| A `will` option on every client factory, validated before the transport opens (chosen, recommended) | One shape for TCP, `ws`, the browser and custom transports. An invalid Will fails before any I/O. |
+| A Will only on the TCP client | Less code, but WebSocket and browser users cannot register one. |
+
+Reason given: #161 asks for a Will on the supported clients, validated with the publish topic rules before any I/O.
+
+Consequences: the broker owns delivery of the Will, including Will QoS 2, while the client keeps its QoS 0 and 1 profile. A normal `disconnect()` discards the Will, and reason code 4 asks the broker to send it. An invalid Will rejects `connect()` with `ERR_MQTT_INVALID_ARGUMENT`, and the original error is the cause. [Will messages](will-message.md)
+
+What follows: nothing for this decision.
+
+## Return the connection and subscription acknowledgment results
+
+Decided on 26 November 2026 (UTC), for [#152](https://github.com/dvkam/mqtt/issues/152). The proposal was written on 25 November. On 26 November, in a working session, the owner asked for the reviewed work to be merged once review and CI passed. Status: in the pull request for `feat/verified-mqtt-session-updates`, not merged when this entry was written.
+
+Question: how does a caller read what the broker accepted in CONNACK, SUBACK and UNSUBACK?
+
+| Option | Trade-off |
+| --- | --- |
+| A frozen `connection` snapshot on the session, and results from `subscribe()` and `unsubscribe()` (chosen, recommended) | Callers read the effective client identifier, broker capabilities and granted QoS without a callback. Code that typed these calls as `Promise<void>` needs an update. |
+| Diagnostics events only | No return type changes, but every caller has to correlate events to calls. |
+
+Reason given: #152 asks `subscribe()` to return the SUBACK result and the session to expose the CONNACK result.
+
+Consequences: the snapshot fills in MQTT defaults for properties the broker left out. The subscription registry keeps ownership of each acknowledgment, and the result resolves only after the write settles. [Public types](public-types.md#broker-acknowledgment-results)
+
+What follows: refused SUBACK, UNSUBACK and PUBACK errors still carry no Reason String or User Properties, as docs/errors.md lists.
 
 ## Errors carry stable codes
 

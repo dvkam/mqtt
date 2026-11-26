@@ -1,10 +1,15 @@
 import { expect, test } from 'vitest';
-import { probePayload, ProbeRound, summarizeLatencies } from './experiments/mixed-traffic-ledger.js';
+import { probePayload, ProbeRound } from './experiments/mixed-traffic-ledger.js';
+import { summarizeLatencies } from './experiments/latencies.js';
+import { createTcpClient } from '../src/tcpClient.js';
+import { createWebSocketClient } from '../src/websocketClient.js';
+
+const factories = { createTcpClient, createWebSocketClient };
 import { runMixedTrafficProbe } from './experiments/mixed-traffic.js';
 
 test('latency summaries use nearest-rank successful samples', () => {
   const samples = Array.from({ length: 100 }, (_, index) => 100 - index);
-  expect(summarizeLatencies(samples)).toEqual({ count: 100, minimum: 1, p50: 50, p99: 99, maximum: 100 });
+  expect(summarizeLatencies(samples)).toEqual({ count: 100, minimum: 1, p50: 50, p90: 90, p95: 95, p99: 99, maximum: 100 });
   expect(samples[0]).toBe(100);
 });
 test.each([{ samples: [] }, { samples: [NaN] }, { samples: [-1] }, { samples: [Infinity] }])(
@@ -60,7 +65,10 @@ test.each(['duplicate', 'corrupt', 'rejected', 'missing'] as const)('detects %s 
 });
 
 test.each(['tcp', 'websocket'] as const)('%s mixed probe admits bounded bursts and completes control work', async (transport) => {
-  const result = await runMixedTrafficProbe({ transport, rounds: 10, echoDelayMs: 0, readPauseMs: 0, observerIterations: 32 });
+  const result = await runMixedTrafficProbe(
+    { transport, rounds: 10, echoDelayMs: 0, readPauseMs: 0, observerIterations: 32 },
+    factories,
+  );
   expect(result).toMatchObject({
     attempted: 160,
     accepted: 80,
@@ -76,14 +84,9 @@ test.each(['tcp', 'websocket'] as const)('%s mixed probe admits bounded bursts a
 });
 test.each(['duplicate', 'corrupt', 'missing'] as const)('mixed probe rejects %s echoes and tears down', async (echoFault) => {
   await expect(
-    runMixedTrafficProbe({
-      transport: 'tcp',
-      rounds: 1,
-      echoDelayMs: 0,
-      readPauseMs: 0,
-      observerIterations: 0,
-      deadlineMs: 1000,
-      echoFault,
-    }),
+    runMixedTrafficProbe(
+      { transport: 'tcp', rounds: 1, echoDelayMs: 0, readPauseMs: 0, observerIterations: 0, deadlineMs: 1000, echoFault },
+      factories,
+    ),
   ).rejects.toThrow(echoFault === 'missing' ? 'Probe deadline' : 'Unexpected probe payload');
 });

@@ -1,21 +1,17 @@
 import { createConnection, isIP } from 'node:net';
 import tls, { type ConnectionOptions } from 'node:tls';
 import type { ByteInbound, ByteWriter, OpenContext } from './byteTransport.js';
-import type { NativeWriteLimits } from './nativeWriteBudget.js';
-import type { PortableOptions } from './portable.js';
 import type { ClientFactory } from './session.js';
 import { nodePlatform } from './nodePlatform.js';
-import { createByteClient } from './transportCore.js';
+import { createByteClient, flushNativeWrites, type ByteClientOptions, type ByteWriterWithFlush } from './transportCore.js';
 import { MqttError } from './mqttError.js';
 
 export type TcpTlsOptions = Pick<ConnectionOptions, 'ca' | 'cert' | 'key' | 'servername'>;
 
-export interface TcpClientOptions extends PortableOptions<Buffer>, NativeWriteLimits {
+export interface TcpClientOptions extends ByteClientOptions<Buffer> {
   host: string;
   port?: number;
   tls?: TcpTlsOptions;
-  signal?: AbortSignal;
-  maxPacketBytes?: number;
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
@@ -72,12 +68,31 @@ async function openTcpSocket(options: Readonly<TcpClientOptions>, inbound: ByteI
     inbound.bytes(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
   });
 
-  const writer: ByteWriter = {
+  let writeBatch: 'idle' | 'first' | 'corked' = 'idle';
+  const flushPending = () => {
+    if (writeBatch !== 'corked') return;
+    writeBatch = 'first';
+    socket.uncork();
+  };
+  const writer: ByteWriterWithFlush = {
+    ...(tlsOptions === undefined ? { [flushNativeWrites]: flushPending } : {}),
     get bufferedBytes() {
       return socket.writableLength;
     },
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The socket keeps the encoded bytes by identity.
     async write(bytes) {
+      // Node's TLS writer already coalesces these writes before they reach the socket.
+      if (tlsOptions === undefined && writeBatch === 'idle') {
+        writeBatch = 'first';
+        // Keep the first packet on the immediate write path. Buffer only a synchronous burst's tail.
+        queueMicrotask(() => {
+          flushPending();
+          writeBatch = 'idle';
+        });
+      } else if (writeBatch === 'first') {
+        writeBatch = 'corked';
+        socket.cork();
+      }
       return new Promise((resolve, reject) => {
         socket.write(bytes, (error?: Readonly<Error> | null) => {
           error ? reject(error) : resolve();

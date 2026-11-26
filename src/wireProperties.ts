@@ -16,6 +16,7 @@ export interface DecodedProperties {
   contentType?: string;
   responseTopic?: string;
   correlationData?: Uint8Array;
+  delayInterval?: number;
   subscriptionIdentifiers?: number[];
   sessionExpiryInterval?: number;
   serverKeepAlive?: number;
@@ -44,27 +45,30 @@ const kinds = {
   unsubscribe: 512,
   unsuback: 1024,
   disconnect: 2048,
+  will: 4096,
 } as const;
 export type PropertyKind = keyof typeof kinds;
 
 /** A packet with a payload after its properties. Any other packet must end where its Property Length ends. */
-const withPayload = kinds.connect | kinds.publish | kinds.subscribe | kinds.suback | kinds.unsubscribe | kinds.unsuback;
+const withPayload =
+  kinds.connect | kinds.publish | kinds.subscribe | kinds.suback | kinds.unsubscribe | kinds.unsuback | kinds.will;
 const acknowledgments = kinds.puback | kinds.pubrec | kinds.pubrel | kinds.pubcomp | kinds.suback | kinds.unsuback;
 const everyKind = withPayload | acknowledgments | kinds.connack | kinds.disconnect;
 
 /** The packets MQTT 5 section 2.2.2.2 assigns each property identifier to, within this codec's profile. */
 const assignedKinds: Readonly<Record<number, number>> = {
-  0x01: kinds.publish,
-  0x02: kinds.publish,
-  0x03: kinds.publish,
-  0x08: kinds.publish,
-  0x09: kinds.publish,
+  0x01: kinds.publish | kinds.will,
+  0x02: kinds.publish | kinds.will,
+  0x03: kinds.publish | kinds.will,
+  0x08: kinds.publish | kinds.will,
+  0x09: kinds.publish | kinds.will,
   0x0b: kinds.publish,
   0x11: kinds.connack,
   0x12: kinds.connack,
   0x13: kinds.connack,
   0x15: kinds.connack,
   0x16: kinds.connack,
+  0x18: kinds.will,
   0x1a: kinds.connack,
   0x1c: kinds.connack | kinds.disconnect,
   0x1f: kinds.connack | kinds.disconnect | acknowledgments,
@@ -264,6 +268,10 @@ export function readProperties(bytes: Readonly<Uint8Array>, start: number, kind:
       case 0x16:
         if (properties.authenticationData !== undefined) throw section.duplicate();
         properties.authenticationData = section.binary();
+        break;
+      case 0x18:
+        if (properties.delayInterval !== undefined) throw section.duplicate();
+        properties.delayInterval = section.uint32();
         break;
       case 0x1a:
         if (properties.responseInformation !== undefined) throw section.duplicate();

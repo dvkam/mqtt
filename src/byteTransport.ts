@@ -28,6 +28,8 @@ export interface OpenContext {
   readonly signal: AbortSignal;
   /** The opener's own deadline for establishing the connection. */
   readonly timeoutMs: number;
+  /** The validated MQTT packet limit. An adapter may use it to choose its own receive limit. */
+  readonly maxPacketBytes?: number;
 }
 
 /** What the opener returns. It holds no callback. */

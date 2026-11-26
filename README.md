@@ -12,34 +12,52 @@ Use the downloadable `mqtt-tarball` artifact from a successful [CI run](https://
 pnpm install --frozen-lockfile
 pnpm build
 pnpm pack --pack-destination ./artifacts
-# In a separate ESM project:
-pnpm add /absolute/path/to/artifacts/mqtt-0.1.0.tgz
+```
+
+In a separate directory, create an ESM project and install the tarball.
+
+```sh
+npm init -y
+npm pkg set type=module
+npm install /absolute/path/to/artifacts/mqtt-0.1.0.tgz
 ```
 
 ## Node TCP
 
-Start a local MQTT 5 broker before running this example. Construction performs no I/O; `connect()` starts one attempt. Repeated calls on the same factory return the same promise. Create another factory for a new attempt.
+Start a local MQTT 5 broker first. Save this as `echo.mjs` and run `node echo.mjs` in the project where you installed the tarball. A successful run prints `Received an echo on example/echo`. [Local broker setup](https://github.com/dvkam/mqtt/blob/main/docs/running-the-sample.md)
 
-```ts
+```js
 import { createTcpClient } from 'mqtt';
 
+const topic = 'example/echo';
+let receive;
 const client = await createTcpClient({
-  host: '127.0.0.1',
-  port: 1883,
+  host: process.env.MQTT_HOST ?? '127.0.0.1',
+  port: Number(process.env.MQTT_PORT ?? 1883),
   clientId: 'readme-node',
-  maxPacketBytes: 1024 * 1024,
-}).connect();
+  onMessage(message) {
+    if (message.topic === topic && message.payload.toString() === 'hello') receive?.();
+  },
+}).connect().catch(() => {
+  throw new Error('MQTT connection failed. Check the broker host, port, and access.');
+});
 
+let timer;
 try {
-  await client.subscribe('example/reply');
-  await client.publish('example/request', 'hello');
-  await client.ping();
+  await client.subscribe(topic);
+  const echo = new Promise((resolve, reject) => {
+    receive = resolve;
+    timer = setTimeout(() => reject(new Error('MQTT echo timed out')), 5000);
+  });
+  await Promise.all([echo, client.publish(topic, 'hello')]);
 } finally {
+  clearTimeout(timer);
   await client.disconnect();
 }
+console.log('Received an echo on example/echo');
 ```
 
-The runnable [TypeScript sample](sample/sample.ts) also receives an echoed message and bounds its wait. See its [broker instructions](docs/running-the-sample.md).
+The TypeScript sample uses the same installed import. Construction performs no I/O. The first `connect()` starts one attempt and later calls return its promise. Create a new factory to retry. [TypeScript sample](https://github.com/dvkam/mqtt/blob/main/sample/sample.ts) · [First connection and recovery](https://github.com/dvkam/mqtt/blob/main/docs/recipes/first-connection.md)
 
 For authenticated TCP, pass a `tls` object with optional CA and client identity settings. The [TCP TLS guide](docs/tcp-tls.md) covers handshake ownership, certificate checks and mutual TLS.
 
@@ -49,34 +67,45 @@ For Node WS/WSS, use `createWebSocketClient` from `mqtt/ws` with a broker URL. I
 
 Node WS/WSS also defaults to a 1 MiB incoming MQTT packet limit. Set `maxPacketBytes` independently of the WebSocket-message limit. The [packet-input guide](docs/websocket-packet-input.md) covers fragmented input, compact Buffer ownership and failure outcomes.
 
-Both WebSocket clients default to a 1 MiB limit per incoming WebSocket message. Set `maxWebSocketMessageBytes` to an integer from 1 through 2,147,483,647 to change it. This includes coalesced MQTT packets in that message. The Node adapter enforces the limit through ws; the browser checks after native assembly. Each client also has a separate MQTT packet limit.
+Both WebSocket clients default to a message limit of twice the MQTT packet limit. With the default 1 MiB packet limit, this allows up to 2 MiB per incoming WebSocket message. Set `maxWebSocketMessageBytes` to an integer from 1 through 2,147,483,647 to change it. This includes coalesced MQTT packets in that message. The Node adapter enforces the limit through ws; the browser checks after native assembly. Each client also has a separate MQTT packet limit.
 
 Both Node factories accept an optional signal for the connection attempt and active session. During an active session, abort rejects pending publish, subscribe and ping calls with the original Error reason, or an AbortError for a non-Error reason, and starts native teardown. Immediate later work is rejected too. Existing closing checks and established active-session failures keep precedence. Normal closure releases the signal listener. An application message facade's cancellation remains local to that facade; the connection signal owns the connection.
 
 ## Browser WebSocket
 
-The broker must expose an MQTT WebSocket endpoint. Browser TLS trust, client certificates and proxy settings belong to the browser.
+The broker must expose an MQTT WebSocket endpoint. The local configuration uses `ws://127.0.0.1:18884/mqtt` with an HTTP development page. Use `wss://` when the page is served over HTTPS. Browser TLS trust, client certificates and proxy settings belong to the browser. [Local broker setup](https://github.com/dvkam/mqtt/blob/main/docs/running-the-sample.md)
+
+In the project where you installed the tarball, run `npm install -D vite`. Save the example as `echo.ts` and create an `index.html` containing `<script type="module" src="/echo.ts"></script>`. Run `npx vite` and open its local URL. The browser console prints `Received an echo on example/echo`.
 
 ```ts
 import { createBrowserClient } from 'mqtt/browser';
 
+const topic = 'example/echo';
+let receive: (() => void) | undefined;
+const text = new TextDecoder();
 const client = await createBrowserClient({
-  url: 'wss://broker.example/mqtt',
+  url: 'ws://127.0.0.1:18884/mqtt',
   clientId: 'readme-browser',
-  maxBufferedBytes: 1024 * 1024,
-  maxPacketBytes: 1024 * 1024,
   onMessage(message) {
-    console.log(message.topic, message.payload.byteLength);
+    if (message.topic === topic && text.decode(message.payload) === 'hello') receive?.();
   },
-}).connect();
+}).connect().catch(() => {
+  throw new Error('MQTT connection failed. Check the broker WebSocket URL and access.');
+});
 
+let timer: ReturnType<typeof setTimeout> | undefined;
 try {
-  await client.subscribe('example/reply');
-  await client.publish('example/request', 'hello');
-  await client.ping();
+  await client.subscribe(topic);
+  const echo = new Promise<void>((resolve, reject) => {
+    receive = resolve;
+    timer = setTimeout(() => reject(new Error('MQTT echo timed out')), 5000);
+  });
+  await Promise.all([echo, client.publish(topic, 'hello')]);
 } finally {
+  clearTimeout(timer);
   await client.disconnect();
 }
+console.log('Received an echo on example/echo');
 ```
 
 See the [browser client profile](docs/browser-client.md) and the [byte transport core](docs/byte-transport.md) before using the preview against a broker.
@@ -88,6 +117,8 @@ The [deadline guide](docs/deadlines.md) defines timeout validation, captured set
 The [outgoing admission guide](docs/outgoing-admission.md) defines publication count and wire-byte limits. Defaults allow 32 pending publications within 1 MiB. Capacity rejection occurs before sending and leaves the session usable.
 
 Pass `{ qos: 1 }` to publish with broker acknowledgment. The [publishing guide](docs/qos1-publish.md) explains quota, shared identifiers and cancellation. To receive at QoS 1, configure `onQosOneMessage` and request QoS 1 when subscribing. See the [delivery guide](docs/qos1-receive.md) for the callback contract.
+
+Set `will` to register a message for the broker to publish if the connection is interrupted. Use `disconnect({ reasonCode: 4 })` to request that Will on a deliberate shutdown. [Will messages](https://github.com/dvkam/mqtt/blob/main/docs/will-message.md)
 
 The [concurrent subscription guide](docs/concurrent-subscriptions.md) defines independent packet-ID correlation and count/encoded-byte admission. Defaults permit 32 pending subscriptions within 1 MiB. Subscriptions can complete in a different order while ping remains independent.
 

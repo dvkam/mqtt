@@ -15,6 +15,9 @@ Use `import type` for the named contracts. TypeScript 7.0.2 is the supported com
 | `ClientSession`                                                                   | Both client entries                     | Subscribe, unsubscribe, text publish, ping and disconnect promises                                                                           |
 | `BrowserSession`                                                                  | `mqtt/browser`                          | Alias for `ClientSession`                                                                                                                    |
 | `PublishOptions`, `SubscribeOptions`                                              | Both client entries                     | QoS options. Only QoS 1 publish accepts a cancellation signal.                                                                               |
+| `DisconnectOptions` | `mqtt`, `mqtt/browser`, `mqtt/portable` | QoS 1 drain, drain timeout, and normal or Will disconnection reason |
+| `WillOptions` | `mqtt`, `mqtt/ws`, `mqtt/browser`, `mqtt/portable` | Will topic, string or byte payload, QoS 0, 1, or 2, retain, and Will properties |
+| `ConnectionInfo`, `SubscribeResult`, `UnsubscribeResult` | `mqtt`, `mqtt/ws`, `mqtt/browser`, `mqtt/portable` | Negotiated connection snapshot and successful subscription outcomes |
 | `WebSocketOptions`                                                                | `mqtt/websocket`                        | Type for native WebSocket timeout and cancellation options                                                                                 |
 | `ByteClientOptions`, `ByteTransport`, `ByteInbound`, `ByteWriter`, `OpenContext` | `mqtt`, `mqtt/portable` | Session options and the [custom transport contract](#custom-transport-contract) |
 | `MqttError`, `isMqttError`, `MqttErrorCode`, `MqttErrorDetails` | `mqtt`, `mqtt/browser`, `mqtt/portable` | Session rejection with a stable `code`, a `fatal` flag and the MQTT `reasonCode`. See [error codes](errors.md). |
@@ -22,7 +25,15 @@ Use `import type` for the named contracts. TypeScript 7.0.2 is the supported com
 
 `onMessage` handles QoS 0. Register `onQosOneMessage` before requesting a QoS 1 subscription. Its message adds a packet identifier and a DUP flag, with the same platform-specific payload type. The client acknowledges the delivery after that handler succeeds. See [inbound QoS 1 delivery](qos1-receive.md).
 
-Node and browser factories share a session interface. Their repeated `connect()` calls return the same promise. Browser declarations compile using DOM libraries with no Node ambient types. The requested client identifier belongs to factory options. The future session identity contract, including broker-assigned identifiers, belongs to #19 and #28.
+Node and browser factories share a session interface. Repeated `connect()` calls return the same promise. Browser declarations compile using DOM libraries with no Node ambient types. Factory options hold the requested client identifier. `session.connection.clientId` exposes the identifier accepted for that connection. Reconnect and identity continuity remain under #12 and #19.
+
+## Broker acknowledgment results
+
+`session.connection` is the frozen snapshot of the successful CONNACK. It contains the assigned client identifier when CONNECT requested an empty one. A missing Receive Maximum defaults to 65,535, Maximum QoS defaults to 2, and Topic Alias Maximum and Server Keep Alive default to 0. The broker capability flags default to true when absent. Maximum Packet Size, Response Information, Server Reference, and User Properties remain optional. The object's User Property tuples and array are also frozen. These are broker capabilities. The preview still has its own supported operations. [Codec profile](codec.md#supported-profile)
+
+`subscribe()` returns the granted QoS and reason code, with Reason String and ordered User Properties when supplied. A QoS 1 request can succeed with `grantedQos: 0`. `unsubscribe()` returns reason `0` for success or `17` for no subscription, with an optional Reason String. Both results wait for the matching broker acknowledgment and native write settlement. A refusal rejects with `ERR_MQTT_REFUSED` and carries the broker's numeric `reasonCode`. [Error codes](errors.md)
+
+The Promise types change from `Promise<void>` to `Promise<SubscribeResult>` and `Promise<UnsubscribeResult>`. Calls that await and ignore the result keep working. A callback that requires `Promise<void>` can await the operation without returning its value. Code that constructs a `ClientSession` test double supplies `connection` and the result objects.
 
 ## Received message fields
 
@@ -72,7 +83,7 @@ The old map kept the order of values under one key but lost the order between ke
 
 Call `createTransportClient(transport, options).connect()`. Import it from `mqtt` for Buffer messages or from `mqtt/portable` for Uint8Array messages and a browser bundle. Both entries export the transport types. The factory caches one connection attempt. Create a new factory to retry.
 
-- `ByteTransport.open(inbound, context)` opens one connection. Install readers before returning its writer. If `context.signal` aborts during the open, release the connection and reject. Apply `context.timeoutMs` to the open.
+- `ByteTransport.open(inbound, context)` opens one connection. Install readers before returning its writer. If `context.signal` aborts during the open, release the connection and reject. Apply `context.timeoutMs` to the open. `context.maxPacketBytes` is the validated MQTT packet limit, which an adapter can use to size its own receive limit.
 - Pass received bytes to `inbound.bytes(chunk)` at any chunk boundary. Pass a peer end to `inbound.end()` and a transport error to `inbound.fail(error)`. The core copies the bytes it keeps and owns framing, decoding, and MQTT validation.
 - Return a `ByteWriter` whose `bufferedBytes` reports accepted bytes that have yet to flush. Use `frameOverhead(length)` when the transport adds bytes per write. Hand each chunk to the transport in call order and settle `write` when the transport takes it.
 - `close(false)` closes gracefully. `close(true)` releases the transport promptly, settles pending writes, and makes later writes reject. Close must accept repeated calls. Each transport owns its close deadline and any limits on its own messages, including WebSocket messages.

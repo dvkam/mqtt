@@ -1,8 +1,9 @@
-import { createTcpClient } from '../../src/tcpClient.js';
-import { createWebSocketClient } from '../../src/websocketClient.js';
+import type { createTcpClient } from '../../src/tcpClient.js';
+import type { createWebSocketClient } from '../../src/websocketClient.js';
 import type { ClientSession } from '../../src/session.js';
 import { isMqttError } from '../../src/mqttError.js';
-import { ProbeRound, summarizeLatencies, type LatencySummary } from './mixed-traffic-ledger.js';
+import { ProbeRound } from './mixed-traffic-ledger.js';
+import { summarizeLatencies, type LatencySummary } from './latencies.js';
 import { startMixedTrafficPeer } from './mixed-traffic-peer.js';
 import { observeProbe } from './mixed-traffic-metrics.js';
 
@@ -14,6 +15,10 @@ export interface MixedTrafficOptions {
   observerIterations?: number;
   deadlineMs?: number;
   echoFault?: 'duplicate' | 'corrupt' | 'missing';
+}
+export interface MixedTrafficFactories {
+  readonly createTcpClient: typeof createTcpClient;
+  readonly createWebSocketClient: typeof createWebSocketClient;
 }
 type ProbeMetrics = Awaited<ReturnType<ReturnType<typeof observeProbe>['stop']>>;
 export interface MixedTrafficResult extends ProbeMetrics {
@@ -46,7 +51,10 @@ export interface MixedTrafficResult extends ProbeMetrics {
   controlLatencyMs: LatencySummary;
   observerLatencyMs: LatencySummary;
 }
-export async function runMixedTrafficProbe(options: Readonly<MixedTrafficOptions>): Promise<MixedTrafficResult> {
+export async function runMixedTrafficProbe(
+  options: Readonly<MixedTrafficOptions>,
+  factories: Readonly<MixedTrafficFactories>,
+): Promise<MixedTrafficResult> {
   const {
     transport,
     rounds = 1000,
@@ -146,7 +154,9 @@ export async function runMixedTrafficProbe(options: Readonly<MixedTrafficOptions
       reservedControlBytes: 16_384,
       onMessage,
     };
-    client = await wait((transport === 'tcp' ? createTcpClient(factoryOptions) : createWebSocketClient(factoryOptions)).connect());
+    const factory =
+      transport === 'tcp' ? factories.createTcpClient(factoryOptions) : factories.createWebSocketClient(factoryOptions);
+    client = await wait(factory.connect());
     await wait(client.subscribe('probe/echo'));
     observation = observeProbe(peer.port);
     const started = performance.now();

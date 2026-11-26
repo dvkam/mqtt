@@ -75,3 +75,12 @@ export function endingFailure(error: Readonly<Error>): Readonly<Error> {
   const { code, message, reasonCode, reasonString, userProperties } = error;
   return new MqttError(code, message, { fatal: true, reasonCode, reasonString, userProperties, cause: error });
 }
+
+/**
+ * A validation failure for an option that has its own code, such as the Will or the disconnect() options. The message stays
+ * the same, and the original error is the cause.
+ */
+export function invalidOption(cause: unknown, fallback: string): MqttError {
+  if (cause instanceof MqttError) return cause;
+  return new MqttError('ERR_MQTT_INVALID_ARGUMENT', cause instanceof Error ? cause.message : fallback, { cause });
+}
