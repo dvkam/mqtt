@@ -96,7 +96,7 @@ test('rejects a Response Topic that contains a wildcard with reason 0x82', () =>
     failure = error;
   }
   expect(failure).toBeInstanceOf(ProtocolInputError);
-  expect(failure).toMatchObject({ message: 'Invalid MQTT Response Topic', code: 0x82 });
+  expect(failure).toMatchObject({ message: 'Invalid MQTT Response Topic', reasonCode: 0x82 });
 });
 
 async function broker(connack: readonly number[]) {
@@ -202,7 +202,10 @@ test('browser client reports a broker DISCONNECT that carries a reason string wi
     }).connect();
     peer.send({ cmd: 'disconnect', reasonCode: 0x8e, properties: { reasonString: 'taken over' } });
     await expect.poll(() => ended.length).toBe(1);
-    expect(ended[0]).toMatchObject({ kind: 'error', error: { message: 'MQTT broker disconnected', code: 0x8e } });
+    expect(ended[0]).toMatchObject({
+      kind: 'error',
+      error: { message: 'MQTT broker disconnected', code: 'ERR_MQTT_BROKER_DISCONNECT', reasonCode: 0x8e },
+    });
   } finally {
     await peer.close();
   }

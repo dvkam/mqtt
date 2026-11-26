@@ -77,8 +77,11 @@ test('settles a pending operation and refuses later sends when the WebSocket clo
   const broker = await peer();
   try {
     const client = await createWebSocketClient({ url: broker.url, clientId: 'peer-close' }).connect();
-    await expect(client.subscribe('close')).rejects.toThrow('MQTT WebSocket closed');
-    await expect(client.publish('close', 'late')).rejects.toThrow('MQTT WebSocket closed');
+    await expect(client.subscribe('close')).rejects.toMatchObject({ message: 'MQTT WebSocket closed', code: 'ERR_MQTT_TRANSPORT' });
+    await expect(client.publish('close', 'late')).rejects.toMatchObject({
+      message: 'MQTT WebSocket closed',
+      code: 'ERR_MQTT_TRANSPORT',
+    });
     expect(broker.packets.map(({ cmd }: Readonly<{ cmd: string }>) => cmd)).toEqual(['connect', 'subscribe']);
   } finally {
     await broker.close();
@@ -212,7 +215,7 @@ test.each([
     try {
       const client = await createWebSocketClient({ url: broker.url, clientId: 'suback-protocol' }).connect();
       const failure = await client[command]('a').catch((reason: unknown) => reason);
-      expect(failure).toMatchObject({ code: 0x82 });
+      expect(failure).toMatchObject({ reasonCode: 0x82 });
       await expect(client.ping()).rejects.toBe(failure);
       await expect.poll(() => broker.packets[2]).toMatchObject({ cmd: 'disconnect', reasonCode: 0x82 });
     } finally {

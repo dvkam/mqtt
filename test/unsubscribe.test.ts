@@ -96,7 +96,10 @@ test('preserves mixed-kind ACK ownership when the shared identifier range is exh
   try {
     allocator.mockRestore();
     expect(held).toHaveLength(65_532);
-    await expect(broker.client.subscribe('e')).rejects.toThrow('MQTT packet identifiers exhausted');
+    await expect(broker.client.subscribe('e')).rejects.toMatchObject({
+      message: 'MQTT packet identifiers exhausted',
+      code: 'ERR_MQTT_CAPACITY',
+    });
     expect(broker.packets.slice(1)).toMatchObject([
       { cmd: 'subscribe', messageId: 1 },
       { cmd: 'publish', messageId: 2, qos: 1 },
@@ -157,7 +160,10 @@ test.each([
       ]);
       broker.receive({ cmd: 'unsuback', messageId: 1, granted: [0] });
       await setImmediate();
-      await expect(broker.client.unsubscribe('c')).rejects.toThrow('MQTT subscription capacity exceeded');
+      await expect(broker.client.unsubscribe('c')).rejects.toMatchObject({
+        message: 'MQTT subscription capacity exceeded',
+        code: 'ERR_MQTT_CAPACITY',
+      });
       release();
       await unsubscribed;
       broker.receive({ cmd: 'suback', messageId: 2, granted: [0] });
@@ -173,17 +179,23 @@ test.each([
 test('validates unsubscribe filters locally and preserves a broker refusal', async () => {
   const broker = await peer();
   expect(typeof broker.client.unsubscribe).toBe('function');
-  await expect(broker.client.unsubscribe('a/#/b')).rejects.toThrow('Invalid MQTT topic filter');
+  await expect(broker.client.unsubscribe('a/#/b')).rejects.toMatchObject({
+    message: 'Invalid MQTT topic filter',
+    code: 'ERR_MQTT_INVALID_ARGUMENT',
+  });
   const first = broker.client.unsubscribe('a');
   broker.receive({ cmd: 'unsuback', messageId: 1, granted: [0x87] });
-  await expect(first).rejects.toMatchObject({ code: 0x87 });
+  await expect(first).rejects.toMatchObject({ code: 'ERR_MQTT_REFUSED', reasonCode: 0x87 });
   await broker.client.ping();
   await broker.client.disconnect();
 });
 
 test('rejects an unsubscribe one byte below its complete encoded size', async () => {
   const broker = await peer({ maxPendingSubscriptionBytes: 7 });
-  await expect(broker.client.unsubscribe('a')).rejects.toThrow('MQTT subscription capacity exceeded');
+  await expect(broker.client.unsubscribe('a')).rejects.toMatchObject({
+    message: 'MQTT subscription capacity exceeded',
+    code: 'ERR_MQTT_CAPACITY',
+  });
   expect(broker.packets).toHaveLength(1);
   await broker.client.ping();
   await broker.client.disconnect();

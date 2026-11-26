@@ -96,7 +96,7 @@ test('uses a broker quota of two and handles a negative PUBACK without closing t
   try {
     expect(broker.published()).toHaveLength(2);
     broker.receive({ cmd: 'puback', messageId: 2, reasonCode: 0x97 });
-    await expect(second).rejects.toMatchObject({ code: 0x97 });
+    await expect(second).rejects.toMatchObject({ code: 'ERR_MQTT_REFUSED', reasonCode: 0x97 });
     expect(broker.published()[2]).toMatchObject({ qos: 1, messageId: 3, topic: 'c' });
     broker.receive({ cmd: 'puback', messageId: 1, reasonCode: 0 });
     broker.receive({ cmd: 'puback', messageId: 3, reasonCode: 0x10 });
@@ -262,7 +262,7 @@ test('an early PUBACK does not stop the deadline while the actual write is held'
     await setImmediate();
     vi.advanceTimersByTime(100);
     await setImmediate();
-    expect(failure).toMatchObject({ message: 'MQTT operation timed out' });
+    expect(failure).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
   } finally {
     write.release();
     broker.retire(new Error('fixture ended'));
@@ -498,6 +498,10 @@ test.each(['é'.repeat(60) + 'a', 'é'.repeat(61)])(
 test('an unclassified send rejection without an error still retires the session', async () => {
   const broker = await peer({ receiveMaximum: 1 });
   vi.spyOn(broker.transport, 'send').mockRejectedValueOnce(undefined);
-  await expect(broker.client.publish('a', 'uncertain', qosOne)).rejects.toThrow('MQTT publication send failed');
+  await expect(broker.client.publish('a', 'uncertain', qosOne)).rejects.toMatchObject({
+    message: 'MQTT publication send failed',
+    code: 'ERR_MQTT_TRANSPORT',
+    fatal: true,
+  });
   await expect(broker.client.ping()).rejects.toThrow('MQTT publication send failed');
 });

@@ -245,7 +245,7 @@ test.each(adapters)('%s preserves an earlier refusal before a malformed property
           ? createBrowserClient({ ...peer, ...options })
           : createWebSocketClient({ ...peer, ...options });
     const failure = await factory.connect().catch((reason: unknown) => reason);
-    expect(failure).toMatchObject({ code: 0x87 });
+    expect(failure).toMatchObject({ code: 'ERR_MQTT_REFUSED', reasonCode: 0x87 });
     await expect(factory.connect()).rejects.toBe(failure);
     await expect.poll(peer.connections).toBe(0);
   } finally {

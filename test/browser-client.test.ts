@@ -166,7 +166,11 @@ test('routes normal broker DISCONNECT through the shared session', async () => {
   try {
     const client = await createBrowserClient({ url: broker.url, clientId: 'broker-disconnect' }).connect();
     await broker.disconnect();
-    await expect(client.ping()).rejects.toMatchObject({ message: 'MQTT broker disconnected', code: 0 });
+    await expect(client.ping()).rejects.toMatchObject({
+      message: 'MQTT broker disconnected',
+      code: 'ERR_MQTT_BROKER_DISCONNECT',
+      reasonCode: 0,
+    });
   } finally {
     await broker.close();
   }
@@ -175,7 +179,10 @@ test('routes normal broker DISCONNECT through the shared session', async () => {
 test('rejects refused browser CONNECT and closes the attempt', async () => {
   const broker = await peer(0x87);
   try {
-    await expect(createBrowserClient({ url: broker.url, clientId: 'refused' }).connect()).rejects.toMatchObject({ code: 0x87 });
+    await expect(createBrowserClient({ url: broker.url, clientId: 'refused' }).connect()).rejects.toMatchObject({
+      code: 'ERR_MQTT_REFUSED',
+      reasonCode: 0x87,
+    });
     expect(broker.packets.map(({ cmd }: Readonly<{ cmd: string }>) => cmd)).toEqual(['connect']);
   } finally {
     await broker.close();
@@ -278,7 +285,7 @@ test('ping timeout retires locally without waiting for a second native-close dea
   });
   await vi.advanceTimersByTimeAsync(50);
   expect(settled).toBe(true);
-  await expect(result).resolves.toMatchObject({ message: 'MQTT operation timed out' });
+  await expect(result).resolves.toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
   await vi.advanceTimersByTimeAsync(50);
 });
 
@@ -339,7 +346,7 @@ test.each([
       const onMessage = vi.fn<() => void>();
       const client = await createBrowserClient({ url: broker.url, clientId: 'unsuback-protocol', onMessage }).connect();
       const failure = await client.unsubscribe('a').catch((reason: unknown) => reason);
-      expect(failure).toMatchObject({ code });
+      expect(failure).toMatchObject({ reasonCode: code });
       await expect(client.ping()).rejects.toBe(failure);
       await expect.poll(() => broker.packets[2]).toMatchObject({ cmd: 'disconnect', reasonCode: code });
       expect(onMessage).not.toHaveBeenCalled();
@@ -366,7 +373,7 @@ test.each([
       expect(layout === 'separate messages' || 'reason' in opened).toBe(true);
       await expect.poll(() => broker.closed).toBe(true);
       const outcome = 'reason' in opened ? opened.reason : await opened.ping().catch((reason: unknown) => reason);
-      expect(outcome).toMatchObject({ message: 'Invalid SUBACK', code: 0x81 });
+      expect(outcome).toMatchObject({ message: 'Invalid SUBACK', reasonCode: 0x81 });
       expect(broker.packets[1]).toMatchObject({ cmd: 'disconnect', reasonCode: 0x81 });
       expect(broker.packets).toHaveLength(2);
     } finally {
@@ -379,7 +386,11 @@ test('preserves the CONNACK refusal ahead of a malformed acknowledgment', async 
   const broker = await peer(0, false, undefined, undefined, [[0x20, 3, 0, 0x87, 0, ...malformedSuback]]);
   try {
     const opening = createBrowserClient({ url: broker.url, clientId: 'refusal-order' }).connect();
-    await expect(opening).rejects.toMatchObject({ message: 'MQTT acknowledgment refused', code: 0x87 });
+    await expect(opening).rejects.toMatchObject({
+      message: 'MQTT acknowledgment refused',
+      code: 'ERR_MQTT_REFUSED',
+      reasonCode: 0x87,
+    });
     await expect.poll(() => broker.closed).toBe(true);
     expect(broker.packets).toHaveLength(1);
   } finally {
@@ -435,7 +446,12 @@ test.each([
     const broker = await peer(0, false, undefined, undefined, replies);
     try {
       const opening = createBrowserClient({ url: broker.url, clientId: 'direction-order' }).connect();
-      await expect(opening).rejects.toMatchObject({ code, message });
+      const refused = message === 'MQTT acknowledgment refused';
+      await expect(opening).rejects.toMatchObject(
+        refused
+          ? { code: 'ERR_MQTT_REFUSED', reasonCode: code, message }
+          : { code: 'ERR_MQTT_PROTOCOL', reasonCode: code, message },
+      );
       await expect.poll(() => broker.closed).toBe(true);
       expect(broker.packets).toHaveLength(notice ? 2 : 1);
       expect(broker.packets.slice(1)).toMatchObject(notice ? [{ cmd: 'disconnect', reasonCode: code }] : []);
@@ -449,7 +465,11 @@ test('preserves a CONNACK refusal ahead of a generic decoder failure', async () 
   const broker = await peer(0, false, undefined, undefined, [[0x20, 3, 0, 0x87, 0, ...invalidHeader]]);
   try {
     const opening = createBrowserClient({ url: broker.url, clientId: 'generic-refusal-order' }).connect();
-    await expect(opening).rejects.toMatchObject({ code: 0x87, message: 'MQTT acknowledgment refused' });
+    await expect(opening).rejects.toMatchObject({
+      code: 'ERR_MQTT_REFUSED',
+      reasonCode: 0x87,
+      message: 'MQTT acknowledgment refused',
+    });
     await expect.poll(() => broker.closed).toBe(true);
     expect(broker.packets).toHaveLength(1);
   } finally {

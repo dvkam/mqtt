@@ -100,7 +100,7 @@ test('bounds retained subscription bytes before sending or consuming an identifi
   const second = broker.client.subscribe('b');
   const outcomes = Promise.allSettled([first, second]);
   try {
-    await expect(broker.client.subscribe('c')).rejects.toBeInstanceOf(RangeError);
+    await expect(broker.client.subscribe('c')).rejects.toMatchObject({ code: 'ERR_MQTT_CAPACITY', fatal: false });
     expect(broker.packets).toHaveLength(3);
     broker.receive({ cmd: 'suback', messageId: 2, granted: [0] });
     await second;
@@ -167,7 +167,7 @@ test('a legal SUBACK refusal waits for send settlement and ignores a later malfo
     expect(settled).toBe(false);
     await expect(broker.client.subscribe('b')).rejects.toThrow('MQTT subscription capacity exceeded');
     sent.resolve();
-    expect(await first).toMatchObject({ message: 'MQTT acknowledgment refused', code: 128 });
+    expect(await first).toMatchObject({ message: 'MQTT acknowledgment refused', code: 'ERR_MQTT_REFUSED', reasonCode: 128 });
     broker.transport.send = original;
     const next = broker.client.subscribe('b');
     broker.receive({ cmd: 'suback', messageId: 2, granted: [0] });
@@ -192,7 +192,7 @@ test('subscription timeout retires all ownership before a late send or ACK can a
     sent.resolve();
     broker.receive({ cmd: 'suback', messageId: 1, granted: [0] });
     const failure = await first;
-    expect(failure).toMatchObject({ message: 'MQTT operation timed out' });
+    expect(failure).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
     expect(await second).toBe(failure);
     expect(await late).toBe(failure);
   } finally {
@@ -275,7 +275,7 @@ test.each([
     ]);
     expect(broker.packets[3]).toEqual({ cmd: 'disconnect', reasonCode: code });
     const failure = await subsequent;
-    expect(failure).toMatchObject({ code });
+    expect(failure).toMatchObject({ reasonCode: code });
     for (const outcome of await outcomes) {
       if (outcome.status === 'fulfilled') throw new Error('Expected the pending request to reject');
       expect(outcome.reason).toBe(failure);
@@ -309,7 +309,7 @@ test('retires a malformed subscription reply during closing without sending anot
     expect(broker.packets.filter(({ cmd }: Readonly<{ cmd: string }>) => cmd === 'disconnect')).toEqual([{ cmd: 'disconnect' }]);
     const [first, second] = await outcomes;
     if (first.status !== 'rejected' || second.status !== 'rejected') throw new Error('Expected both operations to reject');
-    expect(first.reason).toMatchObject({ code: 0x82 });
+    expect(first.reason).toMatchObject({ reasonCode: 0x82 });
     expect(second.reason).toBe(first.reason);
   } finally {
     write.resolve();

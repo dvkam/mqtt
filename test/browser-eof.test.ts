@@ -88,7 +88,7 @@ test('clean remote EOF retains the transport close reason', async () => {
   const client = await createBrowserClient({ url: 'ws://localhost', clientId: 'clean-end' }).connect();
   const rejected = client.ping().catch((error: unknown) => error);
   ScriptedSocket.instance.remoteClose();
-  await expect(rejected).resolves.toMatchObject({ message: 'MQTT WebSocket closed' });
+  await expect(rejected).resolves.toMatchObject({ message: 'MQTT WebSocket closed', code: 'ERR_MQTT_TRANSPORT' });
   expect(finish).toHaveBeenCalledTimes(1);
 });
 
@@ -132,7 +132,8 @@ test('refusal keeps its code when trailing input is incomplete', async () => {
   const finish = vi.spyOn(PacketFramer.prototype, 'finish');
   ScriptedSocket.connectBytes = [0x20, 3, 0, 0x87, 0, 0x30];
   await expect(createBrowserClient({ url: 'ws://localhost', clientId: 'refused-partial' }).connect()).rejects.toMatchObject({
-    code: 0x87,
+    code: 'ERR_MQTT_REFUSED',
+    reasonCode: 0x87,
   });
   expect(finish).not.toHaveBeenCalled();
 });
@@ -182,7 +183,7 @@ test('partial input does not replace a ping timeout or add a native close wait',
   });
   await vi.advanceTimersByTimeAsync(50);
   expect(settled).toBe(true);
-  await expect(result).resolves.toMatchObject({ message: 'MQTT operation timed out' });
+  await expect(result).resolves.toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
   expect(finish).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(50);
   expect(vi.getTimerCount()).toBe(0);
@@ -211,7 +212,7 @@ test.each([
   {
     name: 'refusal before immediate close with partial trailing input',
     bytes: [0x20, 3, 0, 0x87, 0, 0x30],
-    expected: { code: 0x87 },
+    expected: { code: 'ERR_MQTT_REFUSED', reasonCode: 0x87 },
   },
 ])(
   'a real native WebSocket reports $name',
@@ -221,7 +222,7 @@ test.each([
   }: Readonly<{
     name: string;
     bytes: readonly number[];
-    expected: Readonly<{ message?: string; code?: number }>;
+    expected: Readonly<{ message?: string; code?: number | string; reasonCode?: number }>;
   }>) => {
     const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
     await once(server, 'listening');

@@ -54,6 +54,7 @@ describe('changes from the ws client on main', () => {
     await expect(createWebSocketClient({ ...options, signal: controller.signal }).connect()).rejects.toMatchObject({
       name: 'AbortError',
       message: 'WebSocket connection aborted',
+      code: 'ERR_MQTT_ABORTED',
     });
   });
 
@@ -85,7 +86,7 @@ describe('changes from the ws client on main', () => {
             controller.abort(new Error('late abort'));
           },
         }).connect(),
-      ).rejects.toThrow('MQTT WebSocket requires binary messages');
+      ).rejects.toMatchObject({ message: 'MQTT WebSocket requires binary messages', code: 'ERR_MQTT_TRANSPORT' });
     } finally {
       await server.close();
     }

@@ -9,7 +9,7 @@ The supported TCP, Node WebSocket, browser and custom byte transport clients lim
 
 Both options must be positive safe integers. Each factory validates and captures them when connect starts, before acquiring a socket. The custom client validates before registering its transport listener. Later changes to the caller's options do not change admission.
 
-For example, pass `maxPendingPublishes: 8` and `maxPendingPublishBytes: 262144` alongside the existing factory options to permit up to eight unsettled sends within 256 KiB. Each publication must fit both limits. A capacity rejection is a RangeError with message `MQTT publication capacity exceeded`. It leaves the session active. An established terminal failure or an already-started disconnect keeps its existing precedence.
+For example, pass `maxPendingPublishes: 8` and `maxPendingPublishBytes: 262144` alongside the existing factory options to permit up to eight unsettled sends within 256 KiB. Each publication must fit both limits. A capacity rejection is an `MqttError` with code `ERR_MQTT_CAPACITY` and `fatal: false`. It leaves the session active. An established terminal failure or an already-started disconnect keeps its existing precedence.
 
 The byte count includes the first header byte, Remaining Length encoding, two-byte Topic Name length, UTF-8 Topic Name, zero Property Length and UTF-8 payload. QoS 1 adds two identifier bytes. Payload lone surrogates count as replacement characters, matching the encoders. Counting stops once a string exceeds the available allowance and does not allocate an encoded payload. Ordinary topic validation still occurs first.
 

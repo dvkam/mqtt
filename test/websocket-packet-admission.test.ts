@@ -111,7 +111,10 @@ test.each(['eof-ping', 'eof-body'])('WS %s reports truncated MQTT input', async 
 test('WS refusal keeps its reason ahead of partial input at close', async () => {
   const peer = await startWebSocketPacketPeer('refusal-partial');
   try {
-    await expect(createWebSocketClient({ ...peer, clientId: 'refused' }).connect()).rejects.toMatchObject({ code: 135 });
+    await expect(createWebSocketClient({ ...peer, clientId: 'refused' }).connect()).rejects.toMatchObject({
+      code: 'ERR_MQTT_REFUSED',
+      reasonCode: 135,
+    });
   } finally {
     await peer.close();
   }
@@ -154,7 +157,7 @@ test('WS timeout keeps its cause with partial input and releases cancellation', 
       timeoutMs: 100,
     }).connect();
     const reason = await client.ping().catch((failure: unknown) => failure);
-    expect(reason).toMatchObject({ message: 'MQTT operation timed out' });
+    expect(reason).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
     await expect(client.publish('a', 'late')).rejects.toBe(reason);
     await vi.waitFor(() => {
       expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
@@ -275,7 +278,10 @@ test('WS text rejection keeps its reason ahead of remote close', async () => {
   const peer = await startWebSocketPacketPeer('text');
   try {
     const client = await createWebSocketClient({ ...peer, clientId: 'text' }).connect();
-    await expect(client.ping()).rejects.toThrow('MQTT WebSocket requires binary messages');
+    await expect(client.ping()).rejects.toMatchObject({
+      message: 'MQTT WebSocket requires binary messages',
+      code: 'ERR_MQTT_TRANSPORT',
+    });
   } finally {
     await peer.close();
   }

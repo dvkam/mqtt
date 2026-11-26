@@ -51,7 +51,7 @@ test.each([0, 0x87])('a decoded second CONNACK with reason %i cannot settle open
   peer.receive()?.({ cmd: 'connack', sessionPresent: false, reasonCode: 0 });
   peer.receive()?.({ cmd: 'connack', sessionPresent: false, reasonCode });
   peer.closed()?.(new Error('later close'));
-  expect(await opening).toMatchObject({ message: 'Duplicate MQTT CONNACK', code: 0x82 });
+  expect(await opening).toMatchObject({ message: 'Duplicate MQTT CONNACK', reasonCode: 0x82 });
   expect(peer.close).toHaveBeenCalledExactlyOnceWith(true);
 });
 
@@ -62,7 +62,7 @@ test('replaying a mutable CONNACK object with changed capabilities is still a du
   peer.receive()?.(packet);
   packet.properties.receiveMaximum = 1;
   peer.receive()?.(packet);
-  expect(await opening).toMatchObject({ message: 'Duplicate MQTT CONNACK', code: 0x82 });
+  expect(await opening).toMatchObject({ message: 'Duplicate MQTT CONNACK', reasonCode: 0x82 });
 });
 
 test('records receipt before a custom metadata getter can reenter delivery', async () => {
@@ -80,7 +80,7 @@ test('records receipt before a custom metadata getter can reenter delivery', asy
       return false;
     },
   });
-  expect(await opening).toMatchObject({ message: 'Duplicate MQTT CONNACK', code: 0x82 });
+  expect(await opening).toMatchObject({ message: 'Duplicate MQTT CONNACK', reasonCode: 0x82 });
   expect(reentered).toBe(true);
 });
 
@@ -88,7 +88,7 @@ test.each([1, 2])('counts %i registration-time CONNACK replies before an exchang
   const peer = decodedPeer(earlyReplies);
   const opening = connectPortable(peer.transport, { clientId: 'early-duplicate' }).catch((reason: unknown) => reason);
   peer.receive()?.({ cmd: 'connack', sessionPresent: false, reasonCode: 0 });
-  expect(await opening).toMatchObject({ message: 'Duplicate MQTT CONNACK', code: 0x82 });
+  expect(await opening).toMatchObject({ message: 'Duplicate MQTT CONNACK', reasonCode: 0x82 });
   expect(peer.commands).toEqual(earlyReplies === 1 ? ['connect'] : []);
   expect(peer.close).toHaveBeenCalledExactlyOnceWith(true);
 });
@@ -113,7 +113,7 @@ test('a duplicate retires a held CONNECT and queued QoS 1 without waiting for se
       payload: Buffer.alloc(0),
     });
     peer.receive()?.({ cmd: 'connack', sessionPresent: false, reasonCode: 0 });
-    expect(await opening).toMatchObject({ message: 'Duplicate MQTT CONNACK', code: 0x82 });
+    expect(await opening).toMatchObject({ message: 'Duplicate MQTT CONNACK', reasonCode: 0x82 });
     expect(onQosOneMessage).not.toHaveBeenCalled();
     expect(peer.commands).toEqual(['connect', 'disconnect']);
     expect(peer.close).toHaveBeenCalledExactlyOnceWith(true);
@@ -128,7 +128,7 @@ test.each([false, true])('an earlier terminal CONNACK keeps ownership, refusal=%
   peer.receive()?.({ cmd: 'connack', sessionPresent: !refusal, reasonCode: refusal ? 0x87 : 0 });
   peer.receive()?.({ cmd: 'connack', sessionPresent: false, reasonCode: 0 });
   expect(await opening).toMatchObject({
-    code: refusal ? 0x87 : 0x82,
+    ...(refusal ? { code: 'ERR_MQTT_REFUSED', reasonCode: 0x87 } : { code: 'ERR_MQTT_PROTOCOL', reasonCode: 0x82 }),
     message: refusal ? 'MQTT acknowledgment refused' : 'Unexpected MQTT Session Present',
   });
 });
@@ -175,7 +175,7 @@ test.each(adapters)('%s rejects coalesced duplicate CONNACK before opening hando
     const opening = factory.connect();
     expect(factory.connect()).toBe(opening);
     const failure = await opening.catch((reason: unknown) => reason);
-    expect(failure).toMatchObject({ message: 'Duplicate MQTT CONNACK', code: 0x82 });
+    expect(failure).toMatchObject({ message: 'Duplicate MQTT CONNACK', reasonCode: 0x82 });
     await expect(factory.connect()).rejects.toBe(failure);
     await expect.poll(peer.connections).toBe(0);
     expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
@@ -225,7 +225,7 @@ test.each([
             : createWebSocketClient({ ...peer, ...options });
       const client = await factory.connect();
       const failure = await client.ping().catch((reason: unknown) => reason);
-      expect(failure).toMatchObject({ message: 'Duplicate MQTT CONNACK', code: 0x82 });
+      expect(failure).toMatchObject({ message: 'Duplicate MQTT CONNACK', reasonCode: 0x82 });
       await expect(client.publish('late', '')).rejects.toBe(failure);
       await expect.poll(peer.connections).toBe(0);
       expect(topics).toEqual(['p']);

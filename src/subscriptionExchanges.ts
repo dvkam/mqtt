@@ -1,5 +1,6 @@
 import { isSubscriptionReason, type SubscriptionAckKind } from './subscriptionReason.js';
 import { PacketIdentifiers, type IdentifierLease } from './packetIdentifiers.js';
+import { MqttError } from './mqttError.js';
 
 export interface SubscriptionLimits {
   maxPendingSubscriptions?: number;
@@ -47,18 +48,19 @@ export class SubscriptionExchanges {
   reserve(topic: string, kind: SubscriptionAckKind = 'suback', requestedQos: 0 | 1 = 0) {
     if (this.failure) throw this.failure;
     const available = this.limits.maxPendingSubscriptionBytes - this.bytes;
-    if (this.entries.size >= this.limits.maxPendingSubscriptions) throw new RangeError('MQTT subscription capacity exceeded');
+    if (this.entries.size >= this.limits.maxPendingSubscriptions)
+      throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT subscription capacity exceeded');
     // Validation has already established valid Unicode and the MQTT string limit.
     let remaining = kind === 'suback' ? 6 : 5;
     for (const character of topic) {
       const code = character.codePointAt(0)!;
       remaining += code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4;
-      if (remaining > available) throw new RangeError('MQTT subscription capacity exceeded');
+      if (remaining > available) throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT subscription capacity exceeded');
     }
     let lengthBytes = 1;
     for (let value = remaining; value >= 128; value = Math.floor(value / 128)) lengthBytes++;
     const bytes = 1 + lengthBytes + remaining;
-    if (bytes > available) throw new RangeError('MQTT subscription capacity exceeded');
+    if (bytes > available) throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT subscription capacity exceeded');
     const identifier = this.identifiers.reserve();
     const { messageId } = identifier;
     let resolve!: Entry['resolve'];

@@ -6,6 +6,8 @@ import { createByteClient, type ByteClientOptions } from './transportCore.js';
 export type { ByteInbound, ByteTransport, ByteWriter, OpenContext } from './byteTransport.js';
 export type { ByteClientOptions } from './transportCore.js';
 export type { ClientDiagnostic, DiagnosticObserver } from './diagnostics.js';
+export { MqttError, isMqttError } from './mqttError.js';
+export type { MqttErrorCode, MqttErrorDetails } from './mqttError.js';
 export type { MessageProperties, PublishMessage } from './messageProperties.js';
 export type { ReceivedPacket } from './portable.js';
 export { ProtocolInputError } from './protocolInputError.js';

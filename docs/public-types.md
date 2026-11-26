@@ -17,7 +17,8 @@ Use `import type` for the named contracts. TypeScript 7.0.2 is the supported com
 | `PublishOptions`, `SubscribeOptions`                                              | Both client entries                     | QoS options. Only QoS 1 publish accepts a cancellation signal.                                                                               |
 | `WebSocketOptions`                                                                | `mqtt/websocket`                        | Type for native WebSocket timeout and cancellation options                                                                                 |
 | `ByteClientOptions`, `ByteTransport`, `ByteInbound`, `ByteWriter`, `OpenContext` | `mqtt`, `mqtt/portable` | Session options and the [custom transport contract](#custom-transport-contract) |
-| `ProtocolInputError`, `ProtocolInputCode`                                         | `mqtt/portable`                         | Decoder rejection and its reason code, 0x81, 0x82 or 0x94 |
+| `MqttError`, `isMqttError`, `MqttErrorCode`, `MqttErrorDetails` | `mqtt`, `mqtt/browser`, `mqtt/portable` | Session rejection with a stable `code`, a `fatal` flag and the MQTT `reasonCode`. See [error codes](errors.md). |
+| `ProtocolInputError`, `ProtocolInputCode`                                         | `mqtt/portable`                         | Decoder rejection. An `MqttError` with code `ERR_MQTT_PROTOCOL` and `reasonCode` 0x81, 0x82 or 0x94 |
 
 `onMessage` handles QoS 0. Register `onQosOneMessage` before requesting a QoS 1 subscription. Its message adds a packet identifier and a DUP flag, with the same platform-specific payload type. The client acknowledges the delivery after that handler succeeds. See [inbound QoS 1 delivery](qos1-receive.md).
 

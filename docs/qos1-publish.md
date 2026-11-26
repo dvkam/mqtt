@@ -20,7 +20,7 @@ The dispatcher leases an ID only when the request leaves the queue. PUBLISH, SUB
 
 ## Completion and cancellation
 
-Each dispatched exchange occupies its quota slot and packet ID until the actual send and its matching PUBACK settle. A PUBACK that arrives before the write callback does not free that slot. Code `0` or `16` completes the request. A valid negative reason rejects with its numeric `code` and permits later dispatch after send settlement. A valid unmatched ID or another acknowledgment kind leaves that exchange pending. The shared session retires on malformed PUBACK identifiers or reason codes. [MQTT 5 sections 2.2.1 and 3.4](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html)
+Each dispatched exchange occupies its quota slot and packet ID until the actual send and its matching PUBACK settle. A PUBACK that arrives before the write callback does not free that slot. Code `0` or `16` completes the request. A valid negative reason rejects with an `ERR_MQTT_REFUSED` error that carries the numeric `reasonCode`, and permits later dispatch after send settlement. A valid unmatched ID or another acknowledgment kind leaves that exchange pending. The shared session retires on malformed PUBACK identifiers or reason codes. [MQTT 5 sections 2.2.1 and 3.4](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html)
 
 Cancellation removes a queued request and returns its budget. After dispatch it settles the caller's promise while the exchange continues to own its ID, quota and bytes. A later matching PUBACK and send completion release that ownership. This distinction matters because a broker may receive a publication after the caller stops waiting.
 

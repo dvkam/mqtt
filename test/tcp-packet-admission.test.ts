@@ -110,7 +110,10 @@ test.each(['eof-ping', 'eof-body'])('TCP %s reports truncation to the pending op
 test('TCP refusal retains its reason code ahead of trailing partial input', async () => {
   const peer = await startTcpPacketPeer('refusal-partial');
   try {
-    await expect(createTcpClient({ ...peer, clientId: 'refusal' }).connect()).rejects.toMatchObject({ code: 135 });
+    await expect(createTcpClient({ ...peer, clientId: 'refusal' }).connect()).rejects.toMatchObject({
+      code: 'ERR_MQTT_REFUSED',
+      reasonCode: 135,
+    });
   } finally {
     await peer.close();
   }
@@ -218,7 +221,7 @@ test('TCP ping timeout retains its reason with partial input and releases cancel
       timeoutMs: 1000,
     }).connect();
     const reason = await client.ping().catch((failure: unknown) => failure);
-    expect(reason).toMatchObject({ message: 'MQTT operation timed out' });
+    expect(reason).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
     await expect(client.publish('a', 'late')).rejects.toBe(reason);
     expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
   } finally {

@@ -78,7 +78,8 @@ test('a matching refused CONNACK owns the result before a synchronous trailing c
   };
   await expect(connectPortable(broker.transport, { clientId: 'refused-before-close' })).rejects.toMatchObject({
     message: 'MQTT acknowledgment refused',
-    code: 135,
+    code: 'ERR_MQTT_REFUSED',
+    reasonCode: 135,
   });
 });
 
@@ -104,7 +105,11 @@ test.each([undefined, 0, 0x8e])('broker DISCONNECT %s owns the terminal result b
   broker.receive({ cmd: 'disconnect', reasonCode: 0x80 });
   broker.close(new Error('trailing native close'));
   const reason = await pending;
-  expect(reason).toMatchObject({ message: 'MQTT broker disconnected', code: reasonCode ?? 0 });
+  expect(reason).toMatchObject({
+    message: 'MQTT broker disconnected',
+    code: 'ERR_MQTT_BROKER_DISCONNECT',
+    reasonCode: reasonCode ?? 0,
+  });
   await expect(later).resolves.toBe(reason);
   await expect(client.subscribe('a')).rejects.toBe(reason);
   expect(onMessage).not.toHaveBeenCalled();
@@ -116,7 +121,11 @@ test('broker DISCONNECT retires an idle session without a pending exchange', asy
   const close = vi.spyOn(broker.transport, 'close');
   const client = await connectPortable(broker.transport, { clientId: 'idle-disconnect' });
   broker.receive({ cmd: 'disconnect' });
-  await expect(client.publish('a', 'late')).rejects.toMatchObject({ message: 'MQTT broker disconnected', code: 0 });
+  await expect(client.publish('a', 'late')).rejects.toMatchObject({
+    message: 'MQTT broker disconnected',
+    code: 'ERR_MQTT_BROKER_DISCONNECT',
+    reasonCode: 0,
+  });
   expect(broker.packets).toHaveLength(1);
   expect(close).toHaveBeenCalledExactlyOnceWith(true);
 });
@@ -130,7 +139,8 @@ test('DISCONNECT after CONNACK but before handoff rejects the opening attempt', 
   };
   await expect(connectPortable(broker.transport, { clientId: 'opening-disconnect' })).rejects.toMatchObject({
     message: 'MQTT broker disconnected',
-    code: 0x8e,
+    code: 'ERR_MQTT_BROKER_DISCONNECT',
+    reasonCode: 0x8e,
   });
 });
 
@@ -284,7 +294,7 @@ test('opt-in diagnostics include only connection state and packet commands', asy
     reasonString: 'private-reason',
     userProperties: [['private-key', 'private-value']],
   });
-  await expect(client.ping()).rejects.toMatchObject({ code: 0x82 });
+  await expect(client.ping()).rejects.toMatchObject({ reasonCode: 0x82 });
   broker.close(new Error('private-failure'));
   expect(events).toEqual([
     { kind: 'packet', direction: 'inbound', command: 'connack' },

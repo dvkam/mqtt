@@ -5,6 +5,7 @@ import { encodePacket, PacketDecoder, type ClientPacket } from '../src/codec.js'
 import type { PublishMessage } from '../src/messageProperties.js';
 import type { QosOneMessage } from '../src/session.js';
 import { connectPortable, type PacketTransport, type PortableOptions } from '../src/portable.js';
+import { MqttError } from '../src/mqttError.js';
 
 test('encodes and parses CONNECT Receive Maximum and QoS 1 SUBSCRIBE', () => {
   const connect = Uint8Array.of(0x10, 17, 0, 4, 77, 81, 84, 84, 5, 2, 0, 0, 3, 0x21, 0, 1, 0, 1, 97);
@@ -116,7 +117,10 @@ test.each([0, 1])('advertises one inbound slot and accepts SUBACK grant %i', asy
 test('rejects a QoS 1 subscription locally without a handler', async () => {
   const broker = await peer({}, undefined, 0);
   expect(broker.sent[0]).not.toHaveProperty('receiveMaximum');
-  await expect(broker.client.subscribe('a', { qos: 1 })).rejects.toThrow('QoS 1 subscription requires onQosOneMessage');
+  await expect(broker.client.subscribe('a', { qos: 1 })).rejects.toMatchObject({
+    message: 'QoS 1 subscription requires onQosOneMessage',
+    code: 'ERR_MQTT_INVALID_ARGUMENT',
+  });
   expect(broker.sent).toHaveLength(1);
   await broker.client.ping();
   await broker.client.subscribe('a');
@@ -210,7 +214,7 @@ test.each(['handling', 'acknowledging'] as const)('bounds retained inbound messa
     broker.receive(publication(2));
     if (phase === 'acknowledging') broker.receive(publication(3));
     await setImmediate();
-    await expect(broker.client.ping()).rejects.toMatchObject({ code: 0x93 });
+    await expect(broker.client.ping()).rejects.toMatchObject({ code: 'ERR_MQTT_PROTOCOL', reasonCode: 0x93 });
     expect(broker.sent[broker.sent.length - 1]).toMatchObject({ cmd: 'disconnect', reasonCode: 0x93 });
     expect(broker.closes).toEqual([true]);
     expect(received).toEqual([1]);
@@ -233,6 +237,21 @@ test('retires on handler rejection and does not send a successful PUBACK', async
   await expect(broker.client.ping()).rejects.toBe(failure);
   expect(broker.sent.some((packet: Readonly<{ cmd: string }>) => packet.cmd === 'puback')).toBe(false);
   expect(broker.closes).toEqual([true]);
+});
+
+test('a handler that rethrows a non-fatal rejection ends the session with a fatal copy', async () => {
+  const rethrown = new MqttError('ERR_MQTT_CAPACITY', 'MQTT publication capacity exceeded', { fatal: false });
+  const broker = await peer({
+    onQosOneMessage() {
+      throw rethrown;
+    },
+  });
+  broker.receive(publication(7));
+  await setImmediate();
+  const failure: unknown = await broker.client.ping().catch((error: unknown) => error);
+  expect(failure).toMatchObject({ code: 'ERR_MQTT_CAPACITY', fatal: true, cause: rethrown });
+  expect(rethrown.fatal).toBe(false);
+  await expect(broker.client.publish('a', 'late')).rejects.toBe(failure);
 });
 
 test.each(['disconnect', 'timeout'] as const)('fences handler completion after %s', async (end) => {
@@ -307,7 +326,7 @@ test('bounds the protocol-error report if its transport write stays pending', as
   try {
     broker.receive(publication(7));
     broker.receive(publication(8));
-    await expect(broker.client.ping()).rejects.toMatchObject({ code: 0x93 });
+    await expect(broker.client.ping()).rejects.toMatchObject({ code: 'ERR_MQTT_PROTOCOL', reasonCode: 0x93 });
     await expect.poll(() => broker.closes).toEqual([true]);
     expect(broker.sent[broker.sent.length - 1]).toMatchObject({ cmd: 'disconnect', reasonCode: 0x93 });
   } finally {

@@ -65,7 +65,7 @@ test.each(['resolve', 'reject', 'pending'] as const)(
     expect(peer.commands).toEqual(['connect', 'publish', 'publish', 'subscribe']);
     const reason = await first;
     expect(reason).toBeInstanceOf(Error);
-    expect(reason).toMatchObject({ message: 'MQTT operation timed out' });
+    expect(reason).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
     await expect(second).resolves.toBe(reason);
     await expect(subscription).resolves.toBe(reason);
     await expect(retry).resolves.toBe(reason);
@@ -97,7 +97,7 @@ test.each(['connect', 'disconnect'] as const)('%s timeout requests forced closur
   const pending = (kind === 'connect' ? opening : (await opening).disconnect()).catch((reason: unknown) => reason);
   await Promise.resolve();
   vi.advanceTimersByTime(100);
-  expect(await pending).toMatchObject({ message: 'MQTT operation timed out' });
+  expect(await pending).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
   expect(peer.close).toHaveBeenCalledExactlyOnceWith(true);
 });
 
@@ -144,7 +144,7 @@ test('TCP publication timeout destroys a socket with a held write and fences imm
     vi.advanceTimersByTime(1000);
     const retry = client.publish('a', 'retry').catch((reason: unknown) => reason);
     const reason = await pending;
-    expect(reason).toMatchObject({ message: 'MQTT operation timed out' });
+    expect(reason).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
     expect(owner.destroyed).toBe(true);
     expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
     await expect(retry).resolves.toBe(reason);
@@ -170,7 +170,7 @@ test.each(['tcp', 'websocket'] as const)('%s timeout releases cancellation befor
     const pending = client.ping().catch((reason: unknown) => reason);
     vi.advanceTimersByTime(1000);
     const reason = await pending;
-    expect(reason).toMatchObject({ message: 'MQTT operation timed out' });
+    expect(reason).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
     expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
     controller.abort(new Error('late abort'));
     await expect(client.publish('a', 'late')).rejects.toBe(reason);
@@ -188,7 +188,7 @@ test('a timed-out ping rejects while forced transport close remains pending', as
   const ping = client.ping().catch((error: unknown) => error);
   vi.advanceTimersByTime(100);
   const reason = await ping;
-  expect(reason).toMatchObject({ message: 'MQTT operation timed out' });
+  expect(reason).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
   expect(peer.close).toHaveBeenCalledExactlyOnceWith(true);
   await expect(client.ping()).rejects.toBe(reason);
   peer.writes[0]?.resolve();

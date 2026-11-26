@@ -367,7 +367,8 @@ describe('the core over a transport it closes', () => {
     const controller = new AbortController();
     await expect(nodeClient(peer.transport, { clientId: 'refused', signal: controller.signal }).connect()).rejects.toMatchObject({
       message: 'MQTT acknowledgment refused',
-      code: 0x87,
+      code: 'ERR_MQTT_REFUSED',
+      reasonCode: 0x87,
     });
     expect(peer.closes).toContain(true);
     expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
@@ -381,6 +382,8 @@ describe('the core over a transport it closes', () => {
     };
     await expect(nodeClient(peer.transport, { clientId: 'refused' }).connect()).rejects.toMatchObject({
       message: 'MQTT acknowledgment refused',
+      code: 'ERR_MQTT_REFUSED',
+      reasonCode: 0x87,
     });
   });
 
@@ -476,7 +479,10 @@ describe('the core and shared subscriptions', () => {
       { clientId: 'no-share' },
       nodePlatform,
     ).connect();
-    await expect(client.subscribe('$share/g/t')).rejects.toThrow('Unsupported shared subscription');
+    await expect(client.subscribe('$share/g/t')).rejects.toMatchObject({
+      message: 'Unsupported shared subscription',
+      code: 'ERR_MQTT_INVALID_ARGUMENT',
+    });
     // The session refuses the filter itself, so the refusal does not end it.
     await client.ping();
     expect(peer.received).toEqual(['connect', 'pingreq']);

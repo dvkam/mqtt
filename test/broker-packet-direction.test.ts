@@ -41,7 +41,7 @@ async function failureAfter(adapter: Adapter, bytes: readonly number[], receiveQ
           : createWebSocketClient({ ...peer, ...options })
     ).connect();
     const failure = await client.ping().catch((reason: unknown) => reason);
-    expect(failure).toMatchObject({ code: 0x82 });
+    expect(failure).toMatchObject({ reasonCode: 0x82 });
     if (!(failure instanceof Error)) throw new Error('Expected a protocol error');
     expect(onMessage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ topic: 'a' }));
     expect(onQosOneMessage).not.toHaveBeenCalled();

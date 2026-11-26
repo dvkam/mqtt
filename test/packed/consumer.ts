@@ -44,7 +44,10 @@ export type NamedNodeQosOneMatchesCallback = RequireTrue<NodeQosOneMessage exten
 export type ProtocolInputCodeIsSpecific = RequireFalse<IsAny<ProtocolInputCode>>;
 export type ProtocolInputCodeIsBounded = RequireTrue<ProtocolInputCode extends 0x81 | 0x82 | 0x94 ? true : false>;
 export type ProtocolInputCodeIsComplete = RequireTrue<0x81 | 0x82 | 0x94 extends ProtocolInputCode ? true : false>;
-export type TransportProtocolCodeUsesNamedType = RequireTrue<ProtocolInputError['code'] extends ProtocolInputCode ? true : false>;
+export type TransportProtocolCodeUsesNamedType = RequireTrue<
+  ProtocolInputError['reasonCode'] extends ProtocolInputCode ? true : false
+>;
+export type ProtocolInputErrorIsCoded = RequireTrue<ProtocolInputError['code'] extends 'ERR_MQTT_PROTOCOL' ? true : false>;
 type TransportPayload = Parameters<NonNullable<Parameters<typeof createTransportClient>[1]['onMessage']>>[0]['payload'];
 export type TransportPayloadIsSpecific = RequireFalse<IsAny<TransportPayload>>;
 export type TransportPayloadIsBuffer = RequireTrue<TransportPayload extends Buffer ? true : false>;
@@ -142,3 +145,10 @@ export const secureTcpConsumer = createTcpClient({
   clientId: 'packed-tls',
   tls: { servername: 'broker.example' } satisfies import('mqtt').TcpTlsOptions,
 });
+
+import { isMqttError, type MqttErrorCode } from 'mqtt';
+export type MqttErrorCodeIsClosed = RequireFalse<string extends MqttErrorCode ? true : false>;
+
+export function retryAfterCapacity(error: unknown): boolean {
+  return isMqttError(error, 'ERR_MQTT_CAPACITY') && !error.fatal;
+}

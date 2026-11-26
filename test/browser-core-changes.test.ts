@@ -80,7 +80,7 @@ test('a QoS 0 PUBLISH with DUP set is a protocol error answered with DISCONNECT 
   const client = await createBrowserClient(options).connect();
   const pending = client.ping();
   ScriptedSocket.instance.receive([0x38, 4, 0, 1, 97, 0]);
-  await expect(pending).rejects.toMatchObject({ code: 0x81 });
+  await expect(pending).rejects.toMatchObject({ reasonCode: 0x81 });
   await vi.waitFor(() => {
     expect(ScriptedSocket.instance.sent[ScriptedSocket.instance.sent.length - 1]).toEqual([0xe0, 1, 0x81]);
   });
@@ -138,6 +138,7 @@ test('an abort whose reason is not an Error names the WebSocket transport', asyn
   await expect(createBrowserClient({ ...options, signal: controller.signal }).connect()).rejects.toMatchObject({
     name: 'AbortError',
     message: 'WebSocket connection aborted',
+    code: 'ERR_MQTT_ABORTED',
   });
 });
 
@@ -155,7 +156,7 @@ test('a client-only packet from the broker fails on its first byte with 0x82 and
   const client = await createBrowserClient(options).connect();
   const pending = client.ping();
   ScriptedSocket.instance.receive([0x10]);
-  await expect(pending).rejects.toMatchObject({ code: 0x82 });
+  await expect(pending).rejects.toMatchObject({ reasonCode: 0x82 });
   await vi.waitFor(() => {
     expect(ScriptedSocket.instance.sent[ScriptedSocket.instance.sent.length - 1]).toEqual([0xe0, 1, 0x82]);
   });
@@ -223,7 +224,11 @@ describe('behavior the browser client keeps on the core', () => {
     const client = await createBrowserClient(options).connect();
     const pending = client.ping();
     ScriptedSocket.instance.dispatchEvent(new MessageEvent('message', { data: 'text' }));
-    await expect(pending).rejects.toThrow('MQTT WebSocket requires binary messages');
+    await expect(pending).rejects.toMatchObject({
+      message: 'MQTT WebSocket requires binary messages',
+      code: 'ERR_MQTT_TRANSPORT',
+      fatal: true,
+    });
   });
 
   test('a native error event fails the session and closes the socket', async () => {
@@ -231,7 +236,7 @@ describe('behavior the browser client keeps on the core', () => {
     const client = await createBrowserClient(options).connect();
     const pending = client.ping();
     ScriptedSocket.instance.dispatchEvent(new Event('error'));
-    await expect(pending).rejects.toThrow('MQTT WebSocket failed');
+    await expect(pending).rejects.toMatchObject({ message: 'MQTT WebSocket failed', code: 'ERR_MQTT_TRANSPORT' });
     expect(ScriptedSocket.instance.readyState).not.toBe(ScriptedSocket.OPEN);
   });
 
@@ -240,7 +245,10 @@ describe('behavior the browser client keeps on the core', () => {
     const client = await createBrowserClient(options).connect();
     const sent = ScriptedSocket.instance.sent.length;
     ScriptedSocket.instance.readyState = ScriptedSocket.CLOSING;
-    await expect(client.publish('a', 'late')).rejects.toThrow('MQTT WebSocket closed');
+    await expect(client.publish('a', 'late')).rejects.toMatchObject({
+      message: 'MQTT WebSocket closed',
+      code: 'ERR_MQTT_TRANSPORT',
+    });
     expect(ScriptedSocket.instance.sent).toHaveLength(sent);
   });
 

@@ -176,7 +176,7 @@ test.each(['no response', 'blocked write'] as const)('an automatic ping retires 
   if (mode === 'blocked write') peer.answerPing();
   await vi.advanceTimersByTimeAsync(250);
   const error = await outcome;
-  expect(error).toMatchObject({ message: 'MQTT operation timed out' });
+  expect(error).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
   expect(peer.ends).toEqual([{ kind: 'error', error }]);
   await expect(client.ping()).rejects.toBe(error);
   expect(peer.closed).toContain(true);
