@@ -4,7 +4,7 @@ import { cpSync, mkdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { connect, createServer as createTcpServer, type Socket } from 'node:net';
 import { resolve } from 'node:path';
-import { chromium } from 'playwright';
+import { chromium, firefox, webkit, type Browser, type Page } from 'playwright';
 import { build } from 'vite';
 
 const inputRoot = process.argv[2];
@@ -66,7 +66,7 @@ const proxyAddress = proxy.address();
 assert.ok(proxyAddress !== null && typeof proxyAddress !== 'string');
 const proxyUrl = `ws://127.0.0.1:${String(proxyAddress.port)}${brokerUrl.pathname}`;
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture writes and ends the native HTTP response.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The request listener of createServer in node:http receives a native http.IncomingMessage and http.ServerResponse, and the fixture calls the response's writeHead and end methods.
 const server = createServer((request, response) => {
   if (request.url === '/lifecycle.js') response.writeHead(200, { 'Content-Type': 'text/javascript' }).end(code);
   else response.writeHead(200, { 'Content-Type': 'text/html' }).end('<!doctype html><title>' + String(request.url) + '</title>');
@@ -76,6 +76,8 @@ await once(server, 'listening');
 const address = server.address();
 assert.ok(address !== null && typeof address !== 'string');
 const origin = `http://127.0.0.1:${String(address.port)}`;
+const engines = process.argv.slice(4);
+if (engines.length === 0) engines.push('chromium');
 
 async function waitFor(condition: () => boolean, what: string): Promise<void> {
   const deadline = performance.now() + 5000;
@@ -87,100 +89,181 @@ async function waitFor(condition: () => boolean, what: string): Promise<void> {
   }
 }
 
-// Playwright starts Chromium with --disable-back-forward-cache, and the headless shell refuses the cache with
-// BackForwardCacheDisabledForDelegate. The full Chromium build in new headless mode keeps the page in the cache.
-const browser = await chromium.launch({ channel: 'chromium', ignoreDefaultArgs: ['--disable-back-forward-cache'] });
-try {
-  const page = await browser.newPage();
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Page.enable');
-  const notCached: unknown[] = [];
-  cdp.on('Page.backForwardCacheNotUsed', (event: Readonly<{ notRestoredExplanations: readonly unknown[] }>) => {
-    notCached.push(event.notRestoredExplanations);
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => {
+    setTimeout(resolve, ms);
   });
-  await page.goto(origin + '/a');
+}
+
+async function launch(engine: string): Promise<Browser> {
+  // Playwright starts Chromium with --disable-back-forward-cache, and the headless shell refuses the cache with
+  // BackForwardCacheDisabledForDelegate. The full Chromium build in new headless mode keeps the page in the cache.
+  if (engine === 'chromium') return chromium.launch({ channel: 'chromium', ignoreDefaultArgs: ['--disable-back-forward-cache'] });
+  if (engine === 'firefox') return firefox.launch();
+  if (engine === 'webkit') return webkit.launch();
+  throw new Error('Unknown browser engine ' + engine);
+}
+
+let current: Browser | undefined;
+const browser = (): Browser => {
+  if (current === undefined) throw new Error('No browser');
+  return current;
+};
+let active: Page | undefined;
+const tab = (): Page => {
+  if (active === undefined) throw new Error('No page');
+  return active;
+};
+
+async function start(): Promise<void> {
+  const page = tab();
   await page.evaluate(
     async ({ url, clientId }: Readonly<{ url: string; clientId: string }>) => (await import('/lifecycle.js')).start(url, clientId),
     { url: proxyUrl, clientId: `packed-lifecycle-${String(process.pid)}` },
   );
-  assert.equal(opened, 1);
+}
 
-  // A real navigation away and back. Chromium keeps the cached page's connection open, and fails its WebSocket on restore.
-  await page.goto(origin + '/b');
-  await new Promise((resolve) => {
-    setTimeout(resolve, 2000);
-  });
-  assert.equal(pairs.size, 1, 'The connection of the cached page stays open');
-  await page.goBack({ waitUntil: 'commit' });
-  const restoredMs = await page.evaluate(async () => (await import('/lifecycle.js')).until('connected 2'));
-  assert.deepEqual(notCached, []);
-  const restored = await page.evaluate(async () => (await import('/lifecycle.js')).entries());
-  for (const expected of ['pagehide persisted=true', 'freeze hidden', 'resume hidden', 'pageshow persisted=true'])
-    assert.ok(restored.includes(expected), `Expected "${expected}" in ${JSON.stringify(restored)}`);
-  assert.ok(restored.includes('return resume retried'), JSON.stringify(restored));
-  assert.ok(
-    restored.some((entry) => /^retrying \d+ MQTT WebSocket failed$/u.test(entry)),
-    JSON.stringify(restored),
+async function entries(): Promise<string[]> {
+  return tab().evaluate(async () => (await import('/lifecycle.js')).entries());
+}
+
+async function until(prefix: string, timeoutMs = 5000): Promise<number> {
+  return tab().evaluate(
+    async ({ prefix, timeoutMs }: Readonly<{ prefix: string; timeoutMs: number }>) =>
+      (await import('/lifecycle.js')).until(prefix, timeoutMs),
+    { prefix, timeoutMs },
   );
+}
+
+async function setVisibility(state: 'hidden' | 'visible'): Promise<void> {
+  await tab().evaluate(async (state: 'hidden' | 'visible') => {
+    (await import('/lifecycle.js')).setVisibility(state);
+  }, state);
+}
+
+async function generation(): Promise<number> {
+  return tab().evaluate(async () => (await import('/lifecycle.js')).generation());
+}
+
+const returns = (log: readonly string[]) => log.filter((entry) => entry.startsWith('return '));
+
+// Chromium restores the page from the back-forward cache, keeps its connection open in the cache and fails its WebSocket
+// on restore. Firefox and WebKit have not been run here, so their navigation is reported and not asserted.
+async function navigate(engine: string, notCached: readonly unknown[]): Promise<void> {
+  const page = tab();
+  const before = opened;
+  await page.goto(origin + '/b');
+  await sleep(2000);
+  const openInCache = pairs.size;
+  await page.goBack({ waitUntil: 'commit' });
+  await page.waitForFunction(() => document.readyState === 'complete');
+  if (engine !== 'chromium') {
+    const log = await entries();
+    const restored = log.includes('pageshow persisted=true');
+    console.log(JSON.stringify({ engine, restoredFromCache: restored, connectionsOpenInCache: openInCache, entries: log }));
+    if (restored) await until('return ', 10_000);
+    else await start();
+    return;
+  }
+  assert.equal(openInCache, 1, 'The connection of the cached page stays open');
+  const restoredMs = await until('connected 2');
+  assert.deepEqual(notCached, []);
+  const log = await entries();
+  for (const expected of ['pagehide persisted=true', 'freeze hidden', 'resume hidden', 'pageshow persisted=true'])
+    assert.ok(log.includes(expected), `Expected "${expected}" in ${JSON.stringify(log)}`);
+  assert.ok(
+    log.some((entry) => /^retrying \d+ MQTT WebSocket failed$/u.test(entry)),
+    JSON.stringify(log),
+  );
+  await until('return ');
+  assert.deepEqual(returns(await entries()), ['return visibilitychange retried']);
   await waitFor(() => pairs.size === 1, 'the connection of the cached page to close');
   assert.ok(restoredMs < 5000);
-  assert.equal(opened, 2);
-  console.log(`Chromium ${browser.version()} restored the page from the back-forward cache and reconnected at once`);
-  console.log(JSON.stringify(restored));
+  assert.equal(opened - before, 1);
+  console.log(`Chromium ${browser().version()} restored the page from the back-forward cache and reconnected at once`);
+  console.log(JSON.stringify(log));
+}
 
+async function check(engine: string): Promise<void> {
+  const page = tab();
+  const notCached: unknown[] = [];
+  if (engine === 'chromium') {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Page.enable');
+    cdp.on('Page.backForwardCacheNotUsed', (event: Readonly<{ notRestoredExplanations: readonly unknown[] }>) => {
+      notCached.push(event.notRestoredExplanations);
+    });
+  }
+  const before = opened;
+  await page.goto(origin + '/a');
+  await start();
+  assert.equal(opened - before, 1);
+  await navigate(engine, notCached);
+
+  let session = await generation();
+  let known = returns(await entries()).length;
+  let connections = opened;
   for (const pair of pairs) pair.stalled = true;
-  await page.evaluate(async () => {
-    (await import('/lifecycle.js')).setVisibility('hidden');
-  });
-  await page.evaluate(async () => {
-    (await import('/lifecycle.js')).setVisibility('visible');
-  });
-  const stalledMs = await page.evaluate(async () => (await import('/lifecycle.js')).until('connected 3 ERR_MQTT_TIMEOUT'));
+  await setVisibility('hidden');
+  await setVisibility('visible');
+  const stalledMs = await until(`connected ${String(session + 1)} ERR_MQTT_TIMEOUT`);
   assert.ok(stalledMs >= 900 && stalledMs < 3000, `Reconnected after ${String(stalledMs)} ms`);
-  assert.ok(
-    (await page.evaluate(async () => (await import('/lifecycle.js')).entries())).includes('return visibilitychange retried'),
-  );
-  assert.equal(opened, 3);
+  await until('return ');
+  assert.deepEqual(returns(await entries()).slice(known), ['return visibilitychange retried']);
+  assert.equal(opened - connections, 1);
   console.log(
-    `A silent connection ended at its ping deadline, and the next session connected ${String(Math.round(stalledMs))} ms after the return`,
+    `${engine}: a silent connection ended at its ping deadline, and the next session connected ${String(Math.round(stalledMs))} ms after the return`,
   );
 
+  session = await generation();
+  known = returns(await entries()).length;
+  connections = opened;
   for (const pair of pairs) pair.stalled = true;
-  await page.evaluate(async () => {
-    (await import('/lifecycle.js')).setVisibility('hidden');
-  });
+  await setVisibility('hidden');
   const pending = await page.evaluate(
     async (topic) => (await import('/lifecycle.js')).publishPending(topic),
     `ci/lifecycle/${String(process.pid)}`,
   );
   assert.equal(pending.code, 'ERR_MQTT_TIMEOUT');
   assert.ok(pending.elapsedMs >= 900 && pending.elapsedMs < 2000, `Settled after ${String(pending.elapsedMs)} ms`);
-  await page.evaluate(async () => (await import('/lifecycle.js')).until('retrying'));
-  await page.evaluate(async () => {
-    (await import('/lifecycle.js')).setVisibility('visible');
-  });
-  await page.evaluate(async () => (await import('/lifecycle.js')).until('connected 4 ERR_MQTT_TIMEOUT uncertain=1', 3000));
-  assert.equal(opened, 4);
+  await until('retrying');
+  await setVisibility('visible');
+  await until(`connected ${String(session + 1)} ERR_MQTT_TIMEOUT uncertain=1`, 3000);
+  assert.deepEqual(returns(await entries()).slice(known), ['return visibilitychange retried']);
+  assert.equal(opened - connections, 1);
   console.log(
-    `A pending QoS 1 publication rejected after ${String(Math.round(pending.elapsedMs))} ms, and the return reconnected at once`,
+    `${engine}: a pending QoS 1 publication rejected after ${String(Math.round(pending.elapsedMs))} ms, and the return reconnected at once`,
   );
 
+  known = returns(await entries()).length;
+  connections = opened;
   await page.evaluate(async () => {
     (await import('/lifecycle.js')).dispatchRestore();
   });
-  await page.evaluate(async () => (await import('/lifecycle.js')).until('return pageshow answered'));
-  await new Promise((resolve) => {
-    setTimeout(resolve, 500);
-  });
-  const final = await page.evaluate(async () => (await import('/lifecycle.js')).entries());
-  assert.equal(final.filter((entry) => entry.startsWith('connected')).length, 4);
-  assert.equal(opened, 4);
+  await until('return pageshow');
+  await sleep(500);
+  assert.deepEqual(returns(await entries()).slice(known), ['return pageshow answered']);
+  assert.equal(opened, connections);
   await page.evaluate(async () => {
     await (await import('/lifecycle.js')).stop();
   });
-  console.log('Packed Chromium page lifecycle check passed');
+  console.log(`Packed ${engine} ${browser().version()} page lifecycle check passed`);
+}
+
+try {
+  for (const engine of engines) {
+    current = await launch(engine);
+    try {
+      active = await current.newPage();
+      await check(engine);
+    } finally {
+      active = undefined;
+      await current.close();
+      current = undefined;
+    }
+    await waitFor(() => pairs.size === 0, 'the connections of ' + engine + ' to close');
+  }
 } finally {
-  await browser.close();
   server.close();
   proxy.close();
   for (const pair of pairs) {

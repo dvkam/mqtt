@@ -9,6 +9,7 @@ import {
 const log: string[] = [];
 let client: ReconnectingClient | undefined;
 let visibility: 'hidden' | 'visible' | undefined;
+let connected = 0;
 
 export async function start(url: string, clientId: string): Promise<void> {
   window.addEventListener('pagehide', (event: Readonly<{ persisted: boolean }>) => {
@@ -30,6 +31,7 @@ export async function start(url: string, clientId: string): Promise<void> {
       maxAttempts: 5,
       onReconnect(event) {
         if (event.kind === 'connected') {
+          connected = event.generation;
           const previous = event.previous?.kind === 'error' ? event.previous : undefined;
           const code = isMqttError(previous?.error) ? previous.error.code : '';
           log.push(`connected ${String(event.generation)} ${code} uncertain=${String(previous?.uncertain?.length ?? 0)}`);
@@ -45,6 +47,10 @@ export async function start(url: string, clientId: string): Promise<void> {
     },
   });
   await reconnecting.session();
+}
+
+export function generation(): number {
+  return connected;
 }
 
 export function entries(): string[] {
