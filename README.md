@@ -2,7 +2,7 @@
 
 This fork of [mqttjs-v5](https://github.com/mqttjs/mqttjs-v5) explores a TypeScript-first MQTT 5 client for new Node and browser applications. It builds on work from [MQTT.js](https://github.com/mqttjs/MQTT.js). The current preview supports a small, tested protocol profile; it is not yet a full MQTT.js replacement.
 
-The package is ESM only. Node consumers are supported on Node 22.12+, 24 and 26 within those major versions. Development uses the exact Node version in [.node-version](.node-version) and the pnpm version in [package.json](package.json).
+The package is ESM only. Node consumers are supported on Node 26, the current LTS line. Development uses the exact Node version in [.node-version](.node-version) and the pnpm version in [package.json](package.json).
 
 ## Try the preview
 

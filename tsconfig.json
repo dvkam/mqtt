@@ -17,7 +17,7 @@
     "noUncheckedSideEffectImports": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "target": "ES2023",
+    "target": "ES2025",
     "module": "NodeNext",
     "rewriteRelativeImportExtensions": true,
     "erasableSyntaxOnly": true,
