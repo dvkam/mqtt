@@ -7,6 +7,7 @@ import { startTcpPacketPeer } from './experiments/tcp-packet-peer.js';
 import type { UserProperty } from '../src/codec.js';
 import { isMqttError, MqttError, type MqttErrorCode } from '../src/mqttError.js';
 import { connectPortable, type PacketTransport } from '../src/portable.js';
+import { ProtocolInputError } from '../src/protocolInputError.js';
 import type { SessionEnd } from '../src/session.js';
 
 // What a test needs to answer a sent packet. Missing identifiers and QoS read as zero.
@@ -295,4 +296,16 @@ test('a connection signal aborted with a value that is not an Error keeps it as 
   await expect(createTransportClient(transport, { clientId: 'abort', signal: controller.signal }).connect()).rejects.toEqual(
     expect.objectContaining({ name: 'AbortError', code: 'ERR_MQTT_ABORTED', fatal: true, cause: 'stop' }),
   );
+});
+
+test('an MqttError and a ProtocolInputError keep their own keys in a fixed order', () => {
+  expect(Object.keys(new MqttError('ERR_MQTT_TIMEOUT', 'x'))).toEqual(['name', 'code', 'fatal']);
+  expect(Object.keys(new MqttError('ERR_MQTT_REFUSED', 'y', { reasonCode: 0x87, cause: 1 }))).toEqual([
+    'name',
+    'code',
+    'fatal',
+    'reasonCode',
+    'cause',
+  ]);
+  expect(Object.keys(new ProtocolInputError('z', 0x81))).toEqual(['name', 'code', 'fatal', 'reasonCode']);
 });
