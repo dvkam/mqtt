@@ -26,6 +26,9 @@ export type NodeCorrelationDataIsBuffer = RequireTrue<NonNullable<NodeMessage['c
 export type NodeUserPropertiesAreOrderedPairs = RequireTrue<
   NonNullable<NodeMessage['userProperties']> extends readonly UserProperty[] ? true : false
 >;
+export type CallbackUserPropertyIsStringPair = RequireTrue<
+  NonNullable<CallbackMessage['userProperties']>[number] extends readonly [string, string] ? true : false
+>;
 export type NodeSubscriptionIdentifiersAreAList = RequireTrue<
   NonNullable<NodeMessage['subscriptionIdentifiers']> extends readonly number[] ? true : false
 >;
@@ -33,6 +36,7 @@ export type NodePayloadFormatIsNumeric = RequireTrue<
   NonNullable<NodeMessage['payloadFormatIndicator']> extends 0 | 1 ? true : false
 >;
 export type NodeQosOneKeepsProperties = RequireTrue<NodeQosOneMessage extends MessageProperties ? true : false>;
+export type NodeContentTypeIsOptionalText = RequireTrue<CallbackMessage['contentType'] extends string | undefined ? true : false>;
 export type PortRejectsText = RequireFalse<string extends NonNullable<TcpClientOptions['port']> ? true : false>;
 export type SessionIsNamed = RequireTrue<Awaited<ReturnType<ClientFactory['connect']>> extends ClientSession ? true : false>;
 
@@ -44,9 +48,6 @@ const tcpOptions: TcpClientOptions = {
     const payload: Buffer = message.payload;
     const qualityOfService: 0 = message.qos;
     payload[0] = qualityOfService;
-    const contentType: string | undefined = message.contentType;
-    const [key, value]: readonly [string, string] = message.userProperties?.[0] ?? ['', ''];
-    void [contentType, key, value];
   },
 };
 const websocketOptions: WebSocketClientOptions = {

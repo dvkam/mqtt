@@ -7,8 +7,8 @@ type InvalidMatch<Kind extends Packet['cmd'], Expected extends Kind> = Kind exte
   ? never
   : // @ts-expect-error Expected may be absent from a distributed branch.
     MatchCommand<Kind, Expected>;
-// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- This compile-only negative fixture deliberately checks an invalid distributed type or member access.
-void (undefined as unknown as InvalidMatch<'publish' | 'puback', 'publish'>);
+const invalidDistributedMatch: InvalidMatch<'publish' | 'puback', 'publish'> | undefined = undefined;
+Object.is(invalidDistributedMatch, undefined);
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Use the complete upstream PUBLISH and PUBACK types so the negative member check catches a declaration change.
 export function publishTopic(packet: PacketOf<'publish' | 'puback'>): string | undefined {
@@ -19,5 +19,4 @@ export function publishTopic(packet: PacketOf<'publish' | 'puback'>): string | u
 }
 
 // @ts-expect-error PUBLISH requires a topic.
-const invalidPublish: PacketOf<'publish'> = { cmd: 'publish', payload: 'message', qos: 0, dup: false, retain: false };
-void invalidPublish;
+export const invalidPublish: PacketOf<'publish'> = { cmd: 'publish', payload: 'message', qos: 0, dup: false, retain: false };

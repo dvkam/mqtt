@@ -78,22 +78,22 @@
     "format:check": "oxfmt -c oxfmt.config.mjs --check src test sample lint verification vitest.config.ts oxlint.config.mjs oxfmt.config.mjs"
   },
   "devDependencies": {
-    "@types/node": "26.6.6",
+    "@types/node": "26.6.10",
     "@types/ws": "8.18.2",
     "mqtt-packet": "9.0.2",
-    "oxfmt": "0.77.0",
-    "oxlint": "1.92.0",
-    "oxlint-tsgolint": "7.0.2006",
-    "playwright": "1.65.0",
+    "oxfmt": "0.80.0",
+    "oxlint": "1.95.0",
+    "playwright": "1.65.1",
+    "tsrs": "7.1.0-beta.tsrs5",
     "typescript": "7.1.0-beta",
     "typescript-stable": "npm:typescript@7.0.2",
-    "vite": "8.3.6",
-    "vitest": "5.1.0",
-    "ws": "8.22.1"
+    "vite": "8.3.8",
+    "vitest": "5.1.2",
+    "ws": "8.23.0"
   },
-  "packageManager": "pnpm@12.16.1",
+  "packageManager": "pnpm@12.23.0",
   "peerDependencies": {
-    "ws": "^8.22.1"
+    "ws": "^8.23.0"
   },
   "peerDependenciesMeta": {
     "ws": {
