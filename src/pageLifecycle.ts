@@ -50,7 +50,8 @@ type Outcome = PageReturn['outcome'];
  * `retryNow()` when the client waits for its retry timer. When a session is connected, it sends one ping, which the
  * session's `timeoutMs` bounds, and calls `retryNow()` after a ping that ended the session. While an attempt opens, it
  * does nothing. The adapter never disconnects. It listens on `window` and `document`, and without them, as in a server
- * render, it listens for nothing. Throws a RangeError at once for an invalid `checkAfterMs`. Returns a function that
+ * render, it listens for nothing. It needs a client from `createReconnectingClient`, whose `session()` returns an already
+ * fulfilled promise while a session is connected. Throws a RangeError at once for an invalid `checkAfterMs`. Returns a function that
  * removes the listeners and stops `onReturn`.
  */
 export function watchPageLifecycle(client: Readonly<ReconnectingClient>, options: Readonly<PageLifecycleOptions> = {}): () => void {

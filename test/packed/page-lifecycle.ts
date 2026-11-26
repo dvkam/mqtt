@@ -141,6 +141,10 @@ async function setVisibility(state: 'hidden' | 'visible'): Promise<void> {
   }, state);
 }
 
+async function ready(): Promise<void> {
+  await tab().evaluate(async () => (await import('/lifecycle.js')).ready());
+}
+
 async function generation(): Promise<number> {
   return tab().evaluate(async () => (await import('/lifecycle.js')).generation());
 }
@@ -148,7 +152,7 @@ async function generation(): Promise<number> {
 const returns = (log: readonly string[]) => log.filter((entry) => entry.startsWith('return '));
 
 // Chromium restores the page from the back-forward cache, keeps its connection open in the cache and fails its WebSocket
-// on restore. Firefox and WebKit have not been run here, so their navigation is reported and not asserted.
+// on restore. Firefox and WebKit navigation is reported and not asserted.
 async function navigate(engine: string, notCached: readonly unknown[]): Promise<void> {
   const page = tab();
   const before = opened;
@@ -163,6 +167,8 @@ async function navigate(engine: string, notCached: readonly unknown[]): Promise<
     console.log(JSON.stringify({ engine, restoredFromCache: restored, connectionsOpenInCache: openInCache, entries: log }));
     if (restored) await until('return ', 10_000);
     else await start();
+    // A return can be logged before its reconnect connects, so the next step reads the generation of a connected session.
+    await ready();
     return;
   }
   assert.equal(openInCache, 1, 'The connection of the cached page stays open');

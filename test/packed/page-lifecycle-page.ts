@@ -49,6 +49,10 @@ export async function start(url: string, clientId: string): Promise<void> {
   await reconnecting.session();
 }
 
+export async function ready(): Promise<void> {
+  await client?.session();
+}
+
 export function generation(): number {
   return connected;
 }

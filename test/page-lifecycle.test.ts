@@ -4,7 +4,6 @@ import { createTransportClient, type ByteClientOptions } from '../src/portableCl
 import { createReconnectingClient, type ReconnectEvent, type ReconnectOptions } from '../src/reconnect.js';
 import { broker } from './experiments/scripted-broker.js';
 
-// The window and document the adapter reads through globalThis.
 function page() {
   const window = new EventTarget();
   const document = Object.assign(new EventTarget(), { visibilityState: 'visible' });
