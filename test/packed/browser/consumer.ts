@@ -136,8 +136,9 @@ export function checkPageLifecycle(): () => void {
   const client = createReconnectingClient(createBrowserClient, { url: 'wss://localhost/mqtt', clientId: 'packed-lifecycle' });
   const retried: boolean = client.retryNow();
   const lifecycle: PageLifecycleOptions = {
+    checkAfterMs: 1000,
     onReturn(event: PageReturn) {
-      const outcome: 'retried' | 'answered' | 'ended' | 'stopped' | 'skipped' = event.outcome;
+      const outcome: 'retried' | 'answered' | 'ended' | 'connecting' | 'stopped' | 'skipped' = event.outcome;
       outcome.toUpperCase();
       event.awayMs.toFixed(retried ? 1 : 0);
     },

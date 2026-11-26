@@ -6,28 +6,37 @@ import type { ClientSession } from './session.js';
 /** What `onReturn` receives once the adapter has checked the connection after the page came back. */
 export interface PageReturn {
   /**
-   * The event that showed the page came back: `pageshow` with `persisted` true after a restore from the back-forward
-   * cache, `resume` after a freeze, or `visibilitychange` when a hidden page became visible.
+   * The event that ended the absence: `pageshow` with `persisted` true, `resume`, or `visibilitychange`. Only an event
+   * that finds the page visible ends it. Chromium fires `resume` while a restored page is still hidden, so a restore from
+   * the back-forward cache there reports `visibilitychange`.
    */
   readonly trigger: 'pageshow' | 'resume' | 'visibilitychange';
   /**
-   * Milliseconds of `performance.now()` since the page went away with a `visibilitychange` to hidden, a `freeze` or a
-   * `pagehide`. The monotonic clock can leave out time the device slept.
+   * Milliseconds of `performance.now()` from the first `visibilitychange` to hidden, `freeze` or `pagehide` of the
+   * absence, or from the start of the adapter on a hidden page, to the event in `trigger`. The monotonic clock can leave
+   * out time the device slept.
    */
   readonly awayMs: number;
   /**
-   * `retried` when the client was waiting for its retry timer and started an attempt at once, also after a failed ping
-   * ended the session. `answered` when the session answered a ping. `ended` when the ping failed and the client did not
-   * start an attempt, because it stopped or another attempt was already open. `stopped` when the client had stopped
-   * before the check. `skipped` when a ping from an earlier return was still pending, or when a ping rejected without
-   * ending the session, as it does while another ping waits for its PINGRESP.
+   * `retried` when the check started an attempt at once: the client was waiting for its retry timer, or a failed ping
+   * ended the session. `answered` when the session answered a ping. `ended` when the ping failed and no attempt started,
+   * because the client stopped or an attempt was already open. `connecting` when an attempt was open, so the adapter
+   * sent no ping. `stopped` when the client had stopped, which includes a client that stopped with `exhausted` or
+   * `fatal` while it waited. `skipped` when the absence was shorter than `checkAfterMs`, when a ping from an earlier check
+   * was still pending, or when the ping rejected with `ERR_MQTT_CAPACITY` because a ping from the application waits for
+   * its PINGRESP.
    */
-  readonly outcome: 'retried' | 'answered' | 'ended' | 'stopped' | 'skipped';
+  readonly outcome: 'retried' | 'answered' | 'ended' | 'connecting' | 'stopped' | 'skipped';
 }
 
 /** The options of `watchPageLifecycle`. */
 export interface PageLifecycleOptions {
-  /** Receives one event for each return of the page, after its check settled. A thrown error or a rejection is ignored. */
+  /**
+   * The shortest absence, in milliseconds of `performance.now()`, after which a return runs a check. A shorter one
+   * reports `skipped`. A finite number of 0 or more. Defaults to 0, so every return runs a check.
+   */
+  readonly checkAfterMs?: number;
+  /** Receives one event for each return, once its check settled. A thrown error or a rejection is ignored. */
   readonly onReturn?: (event: PageReturn) => void | Promise<void>;
 }
 
@@ -35,16 +44,20 @@ type Outcome = PageReturn['outcome'];
 
 /**
  * Check a reconnecting client each time the page comes back after it was hidden, frozen or kept in the back-forward
- * cache. When the client waits for its retry timer, the adapter calls `retryNow()`. When a session is connected, or once
- * the attempt that is open connects, the adapter sends one ping, which the client's `timeoutMs` bounds. A failed ping ends
- * the session, and the adapter then calls `retryNow()` so the next attempt does not wait for the backoff. The adapter never
- * disconnects. It listens for `pagehide` and `pageshow` on `window`, and for `freeze`, `resume` and `visibilitychange` on
- * `document`. Without both objects, as in a server render, it listens for nothing. Returns a function that removes the
- * listeners and stops `onReturn`.
+ * cache. The page goes away on a `visibilitychange` to hidden, a `freeze` or a `pagehide`, and a page that is hidden when
+ * the adapter starts counts as away. It comes back on the first `pageshow` with `persisted` true, `resume` or
+ * `visibilitychange` that finds it visible. A `pageshow` with `persisted` false is ignored. On a return, the adapter calls
+ * `retryNow()` when the client waits for its retry timer. When a session is connected, it sends one ping, which the
+ * session's `timeoutMs` bounds, and calls `retryNow()` after a ping that ended the session. While an attempt opens, it
+ * does nothing. The adapter never disconnects. It listens on `window` and `document`, and without them, as in a server
+ * render, it listens for nothing. Throws a RangeError at once for an invalid `checkAfterMs`. Returns a function that
+ * removes the listeners and stops `onReturn`.
  */
 export function watchPageLifecycle(client: Readonly<ReconnectingClient>, options: Readonly<PageLifecycleOptions> = {}): () => void {
+  const { checkAfterMs = 0, onReturn } = options;
+  if (!(Number.isFinite(checkAfterMs) && checkAfterMs >= 0))
+    throw new RangeError('checkAfterMs must be a finite number of 0 or more');
   if (typeof window === 'undefined' || typeof document === 'undefined') return () => {};
-  const { onReturn } = options;
   const page = window;
   const view = document;
   let awaySince: number | undefined;
@@ -52,12 +65,15 @@ export function watchPageLifecycle(client: Readonly<ReconnectingClient>, options
   let watching = true;
 
   const ping = async (): Promise<Outcome> => {
-    let session: ClientSession;
+    let session: ClientSession | undefined;
     try {
-      session = await client.session();
+      // Promise.race settles with the first promise in the list that has already settled, so it yields undefined only
+      // while session() is pending.
+      session = await Promise.race([client.session(), Promise.resolve(undefined)]);
     } catch {
       return 'stopped';
     }
+    if (session === undefined) return 'connecting';
     try {
       await session.ping();
       return 'answered';
@@ -67,7 +83,8 @@ export function watchPageLifecycle(client: Readonly<ReconnectingClient>, options
     }
   };
 
-  const check = async (): Promise<Outcome> => {
+  const check = async (awayMs: number): Promise<Outcome> => {
+    if (awayMs < checkAfterMs) return 'skipped';
     if (client.retryNow()) return 'retried';
     if (pinging) return 'skipped';
     pinging = true;
@@ -83,11 +100,10 @@ export function watchPageLifecycle(client: Readonly<ReconnectingClient>, options
   };
 
   const returned = (trigger: PageReturn['trigger']): void => {
-    if (awaySince === undefined) return;
-    const now = performance.now();
-    const awayMs = now - awaySince;
-    awaySince = view.visibilityState === 'hidden' ? now : undefined;
-    void check().then(async (outcome) => {
+    if (awaySince === undefined || view.visibilityState === 'hidden') return;
+    const awayMs = performance.now() - awaySince;
+    awaySince = undefined;
+    void check(awayMs).then(async (outcome) => {
       if (watching && onReturn !== undefined) await notifyObserver(onReturn, { trigger, awayMs, outcome });
     });
   };
