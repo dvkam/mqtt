@@ -18,6 +18,9 @@ assert.equal(typeof portable.createTransportClient, 'function');
 assert.equal('connectPortable' in portable, false, 'mqtt/portable must expose the byte transport');
 assert.deepEqual(Object.keys(await import('mqtt/websocket')), [], 'mqtt/websocket must export types only');
 assert.equal('openBrowserTransport' in (await import('mqtt/browser')), false, 'mqtt/browser must not export openBrowserTransport');
+assert.equal(typeof (await import('mqtt/browser')).watchPageLifecycle, 'function');
+for (const entry of [root, portable, await import('mqtt/codec')])
+  assert.equal('watchPageLifecycle' in entry, false, 'only mqtt/browser exports watchPageLifecycle');
 
 await assert.rejects(import('mqtt/ws'), missingWs, 'mqtt/ws must fail to load without ws');
 console.log('Without ws installed, every entry but mqtt/ws loads, and mqtt/ws reports the missing ws package.');

@@ -131,7 +131,7 @@ The [native write reserve](docs/native-write-reserve.md) checks observed queued 
 - Successful QoS 0 publication reports local send completion or admission according to the adapter. It does not prove broker receipt or durable storage.
 - Publishing rejects empty topic names, wildcards, null characters, unpaired surrogates and names exceeding 65,535 UTF-8 bytes before sending. Rejection leaves an active session usable. Topic aliases are not supported by this publishing API.
 - The browser transport has a write budget and the browser codec has a separate packet allocation limit. These are not a bound on every retained application object or an offline message queue.
-- [Reconnecting](docs/reconnect.md) opens a new clean session after a failure, makes the subscriptions again and reports QoS 1 publications with an unknown outcome.
+- [Reconnecting](docs/reconnect.md) opens a new clean session after a failure, makes the subscriptions again and reports QoS 1 publications with an unknown outcome. In a browser, [`watchPageLifecycle`](docs/page-lifecycle.md) checks the connection when the page comes back from hiding, a freeze or the back-forward cache.
 - QoS 2, durable sessions, configurable CONNECT Keep Alive, full authentication and the complete MQTT 5 property set remain planned work. The [codec profile](docs/codec.md) lists accepted packets and properties.
 - The package has no `connect()` export. Create a client with `createTcpClient`, `createWebSocketClient` or `createBrowserClient`. The MQTT.js-style client that earlier previews kept for baseline comparisons was removed in #170.
 
