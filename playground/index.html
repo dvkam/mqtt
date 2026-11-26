@@ -11,8 +11,8 @@
       <h1>MQTT playground</h1>
       <p>
         A preview of the browser client. Working: connect over WebSocket, text password, Will, subscribe at QoS 0 and 1, publish
-        text at QoS 0 and 1 with retain, reconnect after a lost connection, drained disconnect and stable error codes. Not yet:
-        QoS 2, durable sessions and page lifecycle handling.
+        text at QoS 0 and 1 with retain, reconnect after a lost connection, drained disconnect and stable error codes. Not yet: QoS
+        2, durable sessions and page lifecycle handling.
       </p>
     </header>
     <main>
@@ -68,8 +68,8 @@
       <section aria-labelledby="reconnect-heading">
         <h2 id="reconnect-heading">Reconnect</h2>
         <p>
-          Both modes use <code>createReconnectingClient</code>. The scripted broker can end its connection, and a publication
-          to <code>playground/unacknowledged</code> at QoS 1 never gets a PUBACK, so a drop lists it as uncertain.
+          Both modes use <code>createReconnectingClient</code>. The scripted broker can end its connection, and a publication to
+          <code>playground/unacknowledged</code> at QoS 1 never gets a PUBACK, so a drop lists it as uncertain.
         </p>
         <button id="drop" type="button">Drop connection</button>
         <ol id="reconnects" data-testid="reconnects"></ol>
