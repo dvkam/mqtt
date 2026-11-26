@@ -130,14 +130,14 @@ export interface ReconnectingClient {
    * `ERR_MQTT_CLOSING` after a disconnect.
    */
   session(): Promise<ClientSession>;
-  /** Stops reconnecting, then disconnects the current session with `options`. */
-  disconnect(options?: Readonly<DisconnectOptions>): Promise<void>;
   /**
    * Starts the next attempt now when the client waits for its retry timer, and clears that timer. The attempt counts
    * toward `maxAttempts` as one the timer started would. Returns true when it started an attempt. While an attempt
    * opens, while a session is connected and after the client stopped, it does nothing and returns false.
    */
   retryNow(): boolean;
+  /** Stops reconnecting, then disconnects the current session with `options`. */
+  disconnect(options?: Readonly<DisconnectOptions>): Promise<void>;
 }
 
 // MQTT 5 CONNACK reasons worth another attempt: Server unavailable, Server busy, Quota exceeded, Connection rate exceeded.
@@ -370,16 +370,16 @@ export function createReconnectingClient<Options extends Reconnectable>(
     session() {
       return stopError === undefined ? next.promise : Promise.reject(stopError);
     },
-    async disconnect(disconnectOptions) {
-      const session = current;
-      stop('disconnect', closed());
-      if (session !== undefined) await session.disconnect(disconnectOptions);
-    },
     retryNow() {
       if (state !== 'waiting') return false;
       clearTimeout(timer);
       open();
       return true;
+    },
+    async disconnect(disconnectOptions) {
+      const session = current;
+      stop('disconnect', closed());
+      if (session !== undefined) await session.disconnect(disconnectOptions);
     },
   };
 }
