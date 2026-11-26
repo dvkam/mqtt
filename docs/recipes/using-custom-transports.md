@@ -57,4 +57,4 @@ try {
 }
 ```
 
-Use a new connection and a new factory for a retry. See [Public client types](../public-types.md#custom-transport-contract) for the transport contract and migration table. [`test/types/byte-transport.ts`](../../test/types/byte-transport.ts) compiles this example against the built declarations. [`test/packed/custom-transport.mjs`](../../test/packed/custom-transport.mjs) runs an equivalent JavaScript adapter against Mosquitto and checks an echoed publication.
+Use a new connection and a new factory for a retry. See [Public client types](../public-types.md#custom-transport-contract) for the transport contract and migration table. [`test/types/byte-transport.ts`](../../test/types/byte-transport.ts) compiles the same `useDuplex` adapter against the built declarations. [`test/packed/custom-transport.mjs`](../../test/packed/custom-transport.mjs) runs an equivalent JavaScript adapter against Mosquitto and checks an echoed publication.

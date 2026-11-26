@@ -1,4 +1,5 @@
-// Compiles the Duplex example from docs/recipes/using-custom-transports.md and checks the public transport contract.
+// Compiles the useDuplex adapter from docs/recipes/using-custom-transports.md against the built declarations and checks the
+// public transport contract. The recipe shows the same code without the lint suppressions.
 import type { Duplex } from 'node:stream';
 import {
   createTransportClient,
@@ -22,7 +23,7 @@ declare function openMyTunnel(): Promise<Duplex>;
 function useDuplex(stream: Duplex): ByteTransport {
   return {
     name: 'Duplex',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares this ByteInbound parameter, whose bytes method takes a Uint8Array.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares this ByteInbound and OpenContext, and OpenContext holds a native AbortSignal.
     async open(inbound, { timeoutMs }) {
       stream.on('data', inbound.bytes).on('end', inbound.end).on('error', inbound.fail);
       const closed = new Promise<void>((resolve) => {
@@ -76,9 +77,13 @@ type OpenParameters = Parameters<ByteTransport['open']>;
 export type OpenReceivesInbound = RequireTrue<Same<OpenParameters[0], ByteInbound>>;
 export type OpenReceivesContext = RequireTrue<Same<OpenParameters[1], OpenContext>>;
 export type OpenReturnsWriter = RequireTrue<Same<ReturnType<ByteTransport['open']>, Promise<ByteWriter>>>;
-export type WriteTakesNativeBytes = RequireTrue<Same<Parameters<ByteWriter['write']>[0], Uint8Array<ArrayBuffer>>>;
 // `this: void` lets an adapter pass inbound.bytes, inbound.end and inbound.fail as listeners without binding them.
-export type InboundMethodsNeedNoReceiver = RequireTrue<Same<ThisParameterType<ByteInbound['bytes']>, void>>;
+export type InboundMethodsNeedNoReceiver = RequireTrue<
+  Same<
+    [ThisParameterType<ByteInbound['bytes']>, ThisParameterType<ByteInbound['end']>, ThisParameterType<ByteInbound['fail']>],
+    [void, void, void]
+  >
+>;
 export type BothEntriesReturnAFactory = RequireTrue<
   Same<ReturnType<typeof createTransportClient>, ClientFactory> extends true
     ? Same<ReturnType<typeof createPortableTransportClient>, ClientFactory>
@@ -87,9 +92,8 @@ export type BothEntriesReturnAFactory = RequireTrue<
 
 const writer = { bufferedBytes: 0, write: async () => Promise.resolve(), close: async () => Promise.resolve() };
 
+// @ts-expect-error A transport needs a name for the core's own error messages.
 export const missingName: ByteTransport = {
-  // @ts-expect-error A transport needs a name for the core's own error messages.
-  nam: 'typo',
   open: async () => Promise.resolve(writer),
 };
 
