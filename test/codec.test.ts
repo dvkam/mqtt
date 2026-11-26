@@ -480,18 +480,48 @@ test('sizes and copies the same PUBLISH payload when options use a getter', () =
   expect(reads).toBe(1);
 });
 
-test('never emits a frame with a stale length if the payload grows during encoding', () => {
-  const storage: unknown = Reflect.construct(ArrayBuffer, [1, { maxByteLength: 2 }]);
+function resizableStorage(length: number) {
+  const storage: unknown = Reflect.construct(ArrayBuffer, [length, { maxByteLength: 2 }]);
   if (!(storage instanceof ArrayBuffer)) throw new Error('Expected resizable storage');
   const resize: unknown = Reflect.get(storage, 'resize');
   if (typeof resize !== 'function') throw new Error('Expected resize');
-  const resizeBuffer = resize;
+  return {
+    storage,
+    resize: (to: number): void => {
+      Reflect.apply(resize, storage, [to]);
+    },
+  };
+}
+
+test('sizes a PUBLISH payload by its own length, not a subclass getter', () => {
+  const { storage, resize } = resizableStorage(1);
   class GrowingPayload extends Uint8Array {
     override get byteLength(): number {
-      const length = super.byteLength;
-      if (length === 1) Reflect.apply(resizeBuffer, storage, [2]);
-      return length;
+      resize(2);
+      return 2;
     }
   }
-  expect(() => encodePacket({ cmd: 'publish', topic: 'a', payload: new GrowingPayload(storage) })).toThrow(RangeError);
+  expect(encodePacket({ cmd: 'publish', topic: 'a', payload: new GrowingPayload(storage) })).toEqual(
+    Uint8Array.of(0x30, 5, 0, 1, 97, 0, 0),
+  );
+  expect(storage.byteLength).toBe(1);
+});
+
+test.each([
+  ['grows', 1, 2],
+  ['shrinks', 2, 1],
+])('never emits a frame with a stale length if the payload %s during encoding', (_change, from, to) => {
+  const { storage, resize } = resizableStorage(from);
+  // The encoder reads each User Property once to size the frame and once to write it. The second read resizes the payload.
+  const pair: [string, string] = ['k', 'v'];
+  let reads = 0;
+  Object.defineProperty(pair, 1, {
+    get: () => {
+      if (++reads === 2) resize(to);
+      return 'v';
+    },
+  });
+  expect(() => encodePacket({ cmd: 'publish', topic: 'a', payload: new Uint8Array(storage), userProperties: [pair] })).toThrow(
+    RangeError,
+  );
 });

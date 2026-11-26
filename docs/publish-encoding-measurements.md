@@ -1,10 +1,42 @@
 # PUBLISH encoding allocation and throughput
 
+## Single-allocation PUBLISH frame
+
+The PUBLISH encoder now sizes every field first, allocates the frame once and writes each field into it. It writes ASCII strings directly and passes the rest of a string to TextEncoder.encodeInto at the first non-ASCII code unit. The other packets still build their frames from encoded parts. The checks, their order and the wire bytes stay the same. A payload or Correlation Data view that changes size between sizing and writing raises RangeError.
+
+The comparison used Node 26.13.0 and Chromium 158.0.8127.36 on Linux x64 with an Intel Xeon at 2.10 GHz. The baseline is the codec at `74234c0`. The runner and settings are the ones described below. The table shows the median and range in milliseconds for the call count shown.
+
+| Workload | Calls | Node before | Node after | Node mqtt-packet | Chromium before | Chromium after |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| ascii-0 | 100,000 | 115.7 (105.8 to 152.3) | 23.2 (22.9 to 31.9) | 117.7 (93.4 to 118.6) | 198.3 (173.8 to 225.5) | 22.5 (17.1 to 37.0) |
+| ascii-16 | 100,000 | 130.3 (105.3 to 159.8) | 22.9 (20.6 to 27.6) | 118.6 (115.8 to 121.4) | 182.0 (168.9 to 209.1) | 25.1 (18.0 to 31.3) |
+| ascii-256 | 100,000 | 522.8 (293.2 to 531.9) | 216.2 (86.6 to 291.3) | 140.8 (139.7 to 146.3) | 281.3 (272.7 to 366.2) | 104.2 (96.0 to 119.6) |
+| ascii-4096 | 16,384 | 71.5 (67.7 to 85.6) | 61.2 (45.0 to 88.2) | 42.3 (30.3 to 45.9) | 98.1 (86.1 to 181.3) | 51.1 (42.9 to 76.2) |
+| ascii-65536 | 2,000 | 27.6 (25.5 to 27.6) | 24.2 (20.7 to 47.3) | 26.1 (22.5 to 31.3) | 104.7 (103.8 to 115.9) | 93.6 (92.2 to 97.1) |
+| unicode-256 | 100,000 | 548.4 (370.1 to 577.6) | 159.8 (150.5 to 294.6) | 146.8 (129.7 to 163.2) | 309.4 (256.9 to 358.4) | 222.0 (169.9 to 262.0) |
+| properties-256 | 100,000 | 2,928.4 (2,754.7 to 3,005.3) | 326.0 (277.2 to 376.1) | Outside matched workload | 1,867.9 (1,844.3 to 1,931.9) | 485.3 (386.7 to 500.7) |
+
+Median sampled bytes from three runs, with the same sampling settings as the allocation table below:
+
+| Workload | Calls | Portable before | Portable after | mqtt-packet |
+| --- | ---: | ---: | ---: | ---: |
+| ascii-256 | 10,000 | 21,984,816 | 11,521,896 | 23,290,168 |
+| ascii-65536 | 2,000 | 4,456,184 | 2,341,728 | 5,183,232 |
+| properties-256 | 10,000 | 80,669,792 | 23,588,968 | Outside matched workload |
+
+The 4 KiB and 64 KiB ranges overlap, because the payload copy dominates them. The isolated minified Vite ESM codec measured 28,602 bytes before and 30,841 after. Gzip measured 7,368 and 7,976 bytes.
+
+The installed client shows the same change. Five pairs of 500,000 sequential QoS 0 publishes through `test/bench/packed-qos0.ts` measured a median of 295,615 publishes per second on `74234c0` (263,220 to 313,770) and 426,145 with this encoder (398,220 to 462,310). V8 sampling estimated 4,704 allocated bytes per publish before and 3,051 after. With the same payload as bytes, the median was 637,158 publishes per second and 2,854 bytes per publish. With a Content Type, 4 bytes of Correlation Data and one User Property, the median was 141,620 before this encoder and 479,440 after, and the allocation estimate fell from 9,314 to 3,399 bytes per publish. A `--trace-deopt` run of each workload showed only single deoptimizations during warmup.
+
+## Field assembly from encoded parts
+
+The sections below record the earlier change, which assembled the frame from encoded fields.
+
 The comparison used Node 26.13.0 and Chromium 158.0.8127.18 on WSL2 x64 with an AMD Ryzen 5 3600. The baseline is the portable codec at `4194394`. The Node comparison also uses pinned mqtt-packet 9.0.2 for workloads that produce the same bytes. The interleaved User Properties workload compares the two portable implementations because the retained parser package uses grouped properties.
 
 The candidate computes Remaining Length from the already encoded fields and copies those fields into the final frame. It removes the intermediate PUBLISH body buffer and copies the payload once. Topic and property encoders still allocate temporary arrays. The copy cursor advances by the length of each copied field, and the fixed vectors test the 127, 128 and 16,384 Remaining Length boundaries. They also verify that changing the original payload view cannot affect the returned bytes. A growing input that no longer fits the captured frame size raises RangeError. The QoS 1 and decoder suites cover the remaining identifier, flags, fragmentation and malformed-input cases.
 
-## Unprofiled elapsed time
+### Unprofiled elapsed time
 
 The workloads use QoS 0. Each encoder warmed up for 2,000 calls per workload. The run alternated comparison order and took three samples. The table shows the median and range in milliseconds for the call count shown. The runner checks exact Node wire parity before timing and checks the encoded-byte totals in both runtimes.
 
@@ -20,7 +52,7 @@ The workloads use QoS 0. Each encoder warmed up for 2,000 calls per workload. Th
 
 The largest repeatable improvement is the 64 KiB case. The smallest cases are close. The first exploratory Chromium run also saw the property-heavy case move from 1,620.1 to 1,704.2 ms. The runs with the checked-in runner varied. Treat that workload as variable until a longer independent run separates the difference from timing noise.
 
-## Allocation sampling
+### Allocation sampling
 
 V8 sampled at 1,024-byte intervals and included objects collected by major and minor GC. The table gives median sampled bytes from three runs. These samples describe reported allocation stacks. They do not measure ArrayBuffer backing stores, peak process memory or retained heap.
 
@@ -40,7 +72,7 @@ A separate Node field experiment compared TextEncoder.encode followed by a lengt
 | unicode | 70.0 | 70.9 |
 | long-property | 496.1 | 680.7 |
 
-The field experiment used `bench/topic`, `bench/é/😀/` followed by U+FEFF, and 128 repeats of `π😀`. Keep the existing field encoder. An encodeInto design would need a sizing strategy with evidence that it pays for the extra scan.
+The field experiment used `bench/topic`, `bench/é/😀/` followed by U+FEFF, and 128 repeats of `π😀`. The single-allocation encoder above avoids the extra scan for ASCII, because it writes ASCII code units directly instead of calling encodeInto.
 
 ## Bundle and reproduction
 

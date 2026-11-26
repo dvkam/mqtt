@@ -3,6 +3,8 @@ import { ProtocolInputError } from './protocolInputError.js';
 import { isSubscriptionReason } from './subscriptionReason.js';
 import { isPubackReason } from './pubackReason.js';
 import { captureWill, validateWillPayload, type WillMessage } from './will.js';
+import { isBytes, ownByteLength } from './util/bytes.js';
+import { utf8Length } from './util/utf8.js';
 import {
   decodeUtf8,
   readProperties,
@@ -231,6 +233,72 @@ function utf8(value: string): Uint8Array<ArrayBuffer> {
   return join([uint16(bytes.length), bytes]);
 }
 
+const loneSurrogate = /[\uD800-\uDFFF]/u;
+
+/** The encoded size of an MQTT UTF-8 string, including its two-byte length. */
+function stringSize(value: string): number {
+  if (value.includes('\u0000') || loneSurrogate.test(value)) throw new Error('Invalid MQTT UTF-8 string');
+  return 2 + integer(utf8Length(value), 65_535);
+}
+
+function variableSize(value: number): number {
+  integer(value, 268_435_455);
+  return value < 128 ? 1 : value < 16_384 ? 2 : value < 2_097_152 ? 3 : 4;
+}
+
+/** Writes one frame into a single allocation. The caller sizes the frame first and checks each value. */
+class FrameWriter {
+  readonly frame: Uint8Array<ArrayBuffer>;
+  offset = 0;
+
+  constructor(size: number) {
+    this.frame = new Uint8Array(size);
+  }
+
+  byte(value: number): void {
+    this.frame[this.offset++] = value;
+  }
+
+  uint16(value: number): void {
+    this.frame[this.offset++] = value >> 8;
+    this.frame[this.offset++] = value & 255;
+  }
+
+  variable(value: number): void {
+    do {
+      const digit = value % 128;
+      value = Math.floor(value / 128);
+      this.frame[this.offset++] = digit | (value > 0 ? 128 : 0);
+    } while (value > 0);
+  }
+
+  /** Writes a string that `stringSize` accepted. ASCII is written directly, which avoids a TextEncoder call per field. */
+  string(value: string): void {
+    const { frame } = this;
+    const start = this.offset;
+    let index = start + 2;
+    for (let unit = 0; unit < value.length; unit++) {
+      const code = value.charCodeAt(unit);
+      if (code > 0x7f) {
+        index += encoder.encodeInto(value.slice(unit), frame.subarray(index)).written;
+        break;
+      }
+      frame[index++] = code;
+    }
+    const length = index - start - 2;
+    frame[start] = length >> 8;
+    frame[start + 1] = length & 255;
+    this.offset = index;
+  }
+
+  /** Copies `length` bytes. A view that changed size since it was measured would leave a stale length, so it throws. */
+  bytes(value: unknown, length: number): void {
+    if (!isBytes(value) || ownByteLength(value) !== length) throw new RangeError('MQTT bytes changed during encoding');
+    this.frame.set(value, this.offset);
+    this.offset += length;
+  }
+}
+
 function topic(value: string, filter: boolean, sharedSubscriptions = false): void {
   if (filter && value.startsWith('$share/')) {
     if (!sharedSubscriptions) throw new Error('Unsupported shared subscription');
@@ -368,30 +436,80 @@ export function encodePacket(
       body = join([Uint8Array.of(packet.sessionPresent ? 1 : 0, packet.reasonCode), properties(packet)]);
       break;
     case 'publish': {
+      // Every field is sized first, so the frame is allocated once. The checks run in the same order as before.
       topic(packet.topic, false);
       header = 0x30 | (packet.retain === true ? 1 : 0);
-      const { qos } = packet;
-      integer(qos ?? 0, 1);
-      if (qos === 1) header |= 2 | (packet.dup === true ? 8 : 0);
+      integer(packet.qos ?? 0, 1);
+      if (packet.qos === 1) header |= 2 | (packet.dup === true ? 8 : 0);
       else if ('messageId' in packet || 'dup' in packet) throw new Error('Unsupported QoS 0 PUBLISH field');
-      const encodedTopic = utf8(packet.topic);
-      const identifier = qos === 1 ? uint16(integer(packet.messageId, 65_535, 1)) : undefined;
-      const encodedProperties = properties(packet);
-      const payload = packet.payload;
-      const remaining = encodedTopic.byteLength + (identifier?.byteLength ?? 0) + encodedProperties.byteLength + payload.byteLength;
-      const remainingLength = variable(remaining);
-      const frame = new Uint8Array(1 + remainingLength.byteLength + remaining);
-      frame[0] = header;
-      const fields = [remainingLength, encodedTopic];
-      if (identifier) fields.push(identifier);
-      fields.push(encodedProperties);
-      let offset = 1;
-      for (const field of fields) {
-        frame.set(field, offset);
-        offset += field.byteLength;
+      const topicSize = stringSize(packet.topic);
+      const messageId = packet.qos === 1 ? integer(packet.messageId, 65_535, 1) : undefined;
+      const {
+        payload,
+        userProperties,
+        payloadFormatIndicator,
+        messageExpiryInterval,
+        contentType,
+        correlationData,
+        subscriptionIdentifiers,
+      } = packet;
+      let propertySize = 0;
+      for (const [key, value] of userProperties ?? []) propertySize += 1 + stringSize(key) + stringSize(value);
+      if (payloadFormatIndicator !== undefined) {
+        integer(payloadFormatIndicator, 1);
+        propertySize += 2;
       }
-      frame.set(payload, offset);
-      return frame;
+      if (messageExpiryInterval !== undefined) {
+        integer(messageExpiryInterval, 4_294_967_295);
+        propertySize += 5;
+      }
+      if (contentType !== undefined) propertySize += 1 + stringSize(contentType);
+      const reply = packet.responseTopic === undefined ? undefined : responseTopic(packet.responseTopic);
+      if (reply !== undefined) propertySize += 1 + stringSize(reply);
+      const correlationSize = correlationData === undefined ? 0 : integer(ownByteLength(correlationData), 65_535);
+      if (correlationData !== undefined) propertySize += 3 + correlationSize;
+      for (const identifier of subscriptionIdentifiers ?? []) propertySize += 1 + variableSize(integer(identifier, 268_435_455, 1));
+      const payloadSize = ownByteLength(payload);
+      const remaining = topicSize + (messageId === undefined ? 0 : 2) + variableSize(propertySize) + propertySize + payloadSize;
+      const writer = new FrameWriter(1 + variableSize(remaining) + remaining);
+      writer.byte(header);
+      writer.variable(remaining);
+      writer.string(packet.topic);
+      if (messageId !== undefined) writer.uint16(messageId);
+      writer.variable(propertySize);
+      for (const [key, value] of userProperties ?? []) {
+        writer.byte(0x26);
+        writer.string(key);
+        writer.string(value);
+      }
+      if (payloadFormatIndicator !== undefined) {
+        writer.byte(0x01);
+        writer.byte(payloadFormatIndicator);
+      }
+      if (messageExpiryInterval !== undefined) {
+        writer.byte(0x02);
+        writer.uint16(Math.floor(messageExpiryInterval / 65_536));
+        writer.uint16(messageExpiryInterval % 65_536);
+      }
+      if (contentType !== undefined) {
+        writer.byte(0x03);
+        writer.string(contentType);
+      }
+      if (reply !== undefined) {
+        writer.byte(0x08);
+        writer.string(reply);
+      }
+      if (correlationData !== undefined) {
+        writer.byte(0x09);
+        writer.uint16(correlationSize);
+        writer.bytes(correlationData, correlationSize);
+      }
+      for (const identifier of subscriptionIdentifiers ?? []) {
+        writer.byte(0x0b);
+        writer.variable(identifier);
+      }
+      writer.bytes(payload, payloadSize);
+      return writer.frame;
     }
     case 'puback': {
       const identifier = uint16(integer(packet.messageId, 65_535, 1));

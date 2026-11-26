@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { Session } from 'node:inspector/promises';
-import { createTransportClient, type ByteTransport } from 'mqtt';
+import { createTransportClient, type ByteTransport, type PublishOptions } from 'mqtt';
 import { summarizeLatencies } from '../experiments/latencies.ts';
 
 const iterations = Number(process.env['MQTT_TEST_ITERATIONS'] ?? 200_000);
@@ -10,9 +10,31 @@ const warmup = 10_000;
 const heapProfile = process.env['MQTT_QOS0_HEAP_PROFILE'];
 const countTimers = process.env['MQTT_TEST_TIMER_COUNT'] === '1';
 assert.ok(heapProfile === undefined || !countTimers, 'Use separate runs for heap sampling and timer counts');
-const payload = '1234567890abcdef';
+const workload = process.env['MQTT_QOS0_WORKLOAD'] ?? 'text';
+assert.ok(
+  workload === 'text' || workload === 'bytes' || workload === 'properties',
+  'MQTT_QOS0_WORKLOAD must be text, bytes or properties',
+);
+const text = '1234567890abcdef';
+const payload = workload === 'text' ? text : new TextEncoder().encode(text);
 const topic = 'bench/qos0';
-const expected = Uint8Array.of(0x30, 29, 0, 10, ...Buffer.from(topic), 0, ...Buffer.from(payload));
+// Content Type 'bin' (6 bytes), Correlation Data of 4 bytes (7 bytes) and one User Property 'k' = 'v' (7 bytes).
+const options: PublishOptions | undefined =
+  workload === 'properties'
+    ? { contentType: 'bin', correlationData: Uint8Array.of(1, 2, 3, 4), userProperties: [['k', 'v']] }
+    : undefined;
+const properties =
+  workload === 'properties' ? [0x26, 0, 1, 0x6b, 0, 1, 0x76, 0x03, 0, 3, ...Buffer.from('bin'), 0x09, 0, 4, 1, 2, 3, 4] : [];
+const expected = Uint8Array.of(
+  0x30,
+  29 + properties.length,
+  0,
+  10,
+  ...Buffer.from(topic),
+  properties.length,
+  ...properties,
+  ...Buffer.from(text),
+);
 const completed = Promise.resolve();
 let publications = 0;
 let byteCount = 0;
@@ -48,7 +70,7 @@ const originalTimer = globalThis.setTimeout;
 let timerCalls = 0;
 let profiler: Session | undefined;
 try {
-  for (let index = 0; index < warmup; index++) await client.publish(topic, payload);
+  for (let index = 0; index < warmup; index++) await client.publish(topic, payload, options);
   if (countTimers) {
     globalThis.setTimeout = new Proxy(originalTimer, {
       // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The proxy forwards a native timer call with its original receiver and arguments.
@@ -72,13 +94,13 @@ try {
   const start = performance.now();
   for (let index = 0; index < iterations; index++) {
     const started = performance.now();
-    await client.publish(topic, payload);
+    await client.publish(topic, payload, options);
     if (heapProfile === undefined) samples.push(performance.now() - started);
   }
   const elapsed = performance.now() - start;
   assert.equal(publications, warmup + iterations);
   assert.equal(byteCount, (warmup + iterations) * expected.length);
-  const observation = { node: process.version, v8: process.versions.v8, warmup, iterations, publications, byteCount };
+  const observation = { node: process.version, v8: process.versions.v8, workload, warmup, iterations, publications, byteCount };
   if (heapProfile !== undefined && profiler !== undefined) {
     const { profile } = await profiler.post('HeapProfiler.stopSampling');
     writeFileSync(heapProfile, JSON.stringify(profile));
