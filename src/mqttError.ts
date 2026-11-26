@@ -13,8 +13,11 @@ export type MqttErrorCode =
   | 'ERR_MQTT_INVALID_ARGUMENT';
 
 export interface MqttErrorDetails {
-  /** Whether the session ended. A rejection with `fatal: false` leaves an active session usable. */
-  readonly fatal: boolean;
+  /**
+   * Whether the session ended. A rejection with `fatal: false` leaves an active session usable. Defaults to false for
+   * `ERR_MQTT_CAPACITY` and `ERR_MQTT_INVALID_ARGUMENT` and to true for every other code.
+   */
+  readonly fatal?: boolean;
   /** The MQTT reason code the broker sent, or the one the client sent in DISCONNECT. */
   readonly reasonCode?: number;
   /** The MQTT 5 Reason String the broker sent. */
@@ -25,6 +28,8 @@ export interface MqttErrorDetails {
   readonly cause?: unknown;
 }
 
+const usableAfter: ReadonlySet<MqttErrorCode> = new Set(['ERR_MQTT_CAPACITY', 'ERR_MQTT_INVALID_ARGUMENT']);
+
 /** A client rejection with a stable `code`. */
 export class MqttError extends Error {
   readonly code: MqttErrorCode;
@@ -34,11 +39,11 @@ export class MqttError extends Error {
   readonly userProperties?: readonly UserProperty[];
   readonly cause?: unknown;
 
-  constructor(code: MqttErrorCode, message: string, details: Readonly<MqttErrorDetails>) {
+  constructor(code: MqttErrorCode, message: string, details: Readonly<MqttErrorDetails> = {}) {
     super(message);
     this.name = 'MqttError';
     this.code = code;
-    this.fatal = details.fatal;
+    this.fatal = details.fatal ?? !usableAfter.has(code);
     if (details.reasonCode !== undefined) this.reasonCode = details.reasonCode;
     if (details.reasonString !== undefined) this.reasonString = details.reasonString;
     if (details.userProperties !== undefined) this.userProperties = details.userProperties;

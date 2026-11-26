@@ -117,7 +117,10 @@ test.each([0, 1])('advertises one inbound slot and accepts SUBACK grant %i', asy
 test('rejects a QoS 1 subscription locally without a handler', async () => {
   const broker = await peer({}, undefined, 0);
   expect(broker.sent[0]).not.toHaveProperty('receiveMaximum');
-  await expect(broker.client.subscribe('a', { qos: 1 })).rejects.toThrow('QoS 1 subscription requires onQosOneMessage');
+  await expect(broker.client.subscribe('a', { qos: 1 })).rejects.toMatchObject({
+    message: 'QoS 1 subscription requires onQosOneMessage',
+    code: 'ERR_MQTT_INVALID_ARGUMENT',
+  });
   expect(broker.sent).toHaveLength(1);
   await broker.client.ping();
   await broker.client.subscribe('a');

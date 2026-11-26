@@ -8,7 +8,7 @@ export class ProtocolInputError extends MqttError {
   declare readonly reasonCode: ProtocolInputCode;
 
   constructor(message: string, reasonCode: ProtocolInputCode) {
-    super('ERR_MQTT_PROTOCOL', message, { fatal: true, reasonCode });
+    super('ERR_MQTT_PROTOCOL', message, { reasonCode });
   }
 }
 

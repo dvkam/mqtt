@@ -64,7 +64,7 @@ async function openBrowserSocket(options: BrowserClientOptions, inbound: ByteInb
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
   const message = (event: MessageEvent) => {
     if (!(event.data instanceof ArrayBuffer)) {
-      inbound.fail(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket requires binary messages', { fatal: true }));
+      inbound.fail(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket requires binary messages'));
       return;
     }
     if (event.data.byteLength > maxWebSocketMessageBytes) {
@@ -74,7 +74,7 @@ async function openBrowserSocket(options: BrowserClientOptions, inbound: ByteInb
     inbound.bytes(new Uint8Array(event.data));
   };
   const errored = () => {
-    inbound.fail(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket failed', { fatal: true }));
+    inbound.fail(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket failed'));
   };
   // Stop listening once the socket closes or the core closes it, so a late event reaches nothing.
   const detach = () => {
@@ -87,7 +87,7 @@ async function openBrowserSocket(options: BrowserClientOptions, inbound: ByteInb
     socket.removeEventListener('close', nativeClosed);
     detach();
     try {
-      inbound.end(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket closed', { fatal: true }));
+      inbound.end(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket closed'));
     } finally {
       closeSeen();
     }
@@ -101,7 +101,7 @@ async function openBrowserSocket(options: BrowserClientOptions, inbound: ByteInb
     // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- A closed socket must reject through the writer's promise. The native socket keeps the encoded bytes.
     async write(bytes) {
       // send() on a closing socket drops the data without an error.
-      if (socket.readyState !== WebSocket.OPEN) throw new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket closed', { fatal: true });
+      if (socket.readyState !== WebSocket.OPEN) throw new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket closed');
       socket.send(bytes);
     },
     async close(force) {

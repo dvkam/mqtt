@@ -13,9 +13,11 @@ try {
 }
 ```
 
-`error.fatal` says whether the session ended. When it is `true`, later calls reject with the same error, except that each call after `disconnect()` gets a new `ERR_MQTT_CLOSING` error. Create a new client factory to connect again. If an `onQosOneMessage` handler rethrows a non-fatal rejection, the session ends with a fatal copy that keeps its code and sets `cause` to the original.
+`error.fatal` says whether the session ended. When it is `true`, later calls reject with the same error, except that each call after `disconnect()` gets a new `ERR_MQTT_CLOSING` error. Create a new client factory to connect again. If an `onQosOneMessage` handler rethrows a non-fatal rejection, the session ends with a fatal copy that keeps its code and sets `cause` to the original. An abort passes the signal's reason through unchanged, so an `MqttError` reason keeps the `fatal` value its creator gave it.
 
-MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputError` extends `MqttError`. Before, its numeric `code` held the reason code. Read `reasonCode` instead. `PacketDecoder` from `mqtt/codec` reports the same class. A broker DISCONNECT also carries `reasonString` and `userProperties` when the broker sent them.
+A later release can add a code. Check for the codes you handle, as `isMqttError(error, 'ERR_MQTT_CAPACITY')` does, and treat any other code as unhandled. A `switch` on `error.code` needs a `default` branch.
+
+MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputError` extends `MqttError`. Before, its numeric `code` held the reason code. Read `reasonCode` instead. `PacketDecoder` from `mqtt/codec` reports `ProtocolInputError` too. `mqtt/codec` does not export the class, so import it from `mqtt/portable` to narrow the error. A broker DISCONNECT also carries `reasonString` and `userProperties` when the broker sent them.
 
 | Code | Cause | `fatal` | `reasonCode` |
 | --- | --- | --- | --- |
@@ -36,13 +38,14 @@ MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputErr
 
 These still reject with their existing errors. Code them before treating the list above as complete.
 
-`test/error-code-baseline.test.ts` counts the plain `Error`, `RangeError` and `TypeError` constructions in each `src/` file. It fails when a count grows.
+Two acceptance items of #155 are still open. Some tests still assert only the message of a rejection that now has a code, and no check fails when `src/` adds an uncoded error.
 
 - A QoS 1 publish whose signal cannot be observed rejects with a plain `Error`.
 - A non-Error value thrown by an `onQosOneMessage` handler ends the session with a plain `Error`.
+- Errors from `ws` and the native socket, such as `Server sent no subprotocol`, pass through unchanged.
 - Codec failures that MQTT 5 gives no reason code, such as many property defects and packets over `maxPacketBytes`, are plain `Error` or `RangeError` values.
 - Option validation before connecting, such as `timeoutMs` or publication limits, throws `RangeError`.
-- Native socket and `ws` errors pass through unchanged, as do custom transport errors.
-- A write budget refusal is a plain `Error`. Whether it ends the session depends on the packet, so it needs a separate decision.
+- Custom transport errors pass through unchanged.
+- A write budget refusal is a plain `Error`. Whether it ends the session depends on the packet, so it needs a separate decision. Until then, `ERR_MQTT_WRITE_BUDGET` is not in the union, and `src/nativeWriteBudget.ts` keeps its `WeakMap` that marks which attempt a refusal belongs to.
 - The browser receive message limit is a `RangeError`.
 - An abort whose reason is an Error rejects with that Error unchanged.

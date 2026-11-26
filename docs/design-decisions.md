@@ -11,6 +11,30 @@ Two terms used below:
 - The inbound rules are what the client does with each packet the broker sends: which packet types it accepts, how it shapes QoS 0 and QoS 1 messages, how it handles AUTH, and how it closes. At 351f172 the Node clients apply them in `src/nodePacketListener.ts` and `src/nodePacketInput.ts`, and the browser client has its own in `src/browserClient.ts` and `src/browserTransport.ts`.
 - A packet-level seam is a public hook for a custom transport that sends and receives decoded MQTT packets instead of bytes.
 
+## Errors carry stable codes
+
+Proposed on 12 November 2026 by the owner in [#155](https://github.com/dvkam/mqtt/issues/155), which opens with the fix. Status: the first part is in the pull request for `feat/stable-error-codes`, not merged when this entry was written.
+
+Question: how does a caller tell a retryable rejection from one that ended the session without matching message text?
+
+| Option | Trade-off |
+| --- | --- |
+| One `MqttError` class with a closed string `code` and a `fatal` flag (chosen, proposed in #155) | One `instanceof` check. Codes that used to be numeric move to `reasonCode`, which breaks readers of `ProtocolInputError.code`. |
+| Keep plain errors and document the messages | No break, but every caller keeps parsing English text. |
+
+Reason given in #155: callers can only compare `error.message`, and a capacity rejection and a timeout look the same.
+
+Consequences: `ProtocolInputError` extends `MqttError`, so its reason code moves from `code` to `reasonCode`. Capacity rejections are no longer `RangeError`. [docs/errors.md](errors.md) lists each code.
+
+The implementation departs from the #155 proposal in four places. The owner has not confirmed them yet:
+
+- `fatal` defaults by code. Only `ERR_MQTT_CAPACITY`, `ERR_MQTT_INVALID_ARGUMENT` and a refused SUBACK, UNSUBACK or PUBACK are non-fatal.
+- `ERR_MQTT_WRITE_BUDGET` is not in the union yet, and the `WeakMap` in `src/nativeWriteBudget.ts` stays. The same refusal keeps a QoS 1 publish usable and ends the session for other packets, so one error object cannot carry one `fatal` value.
+- Option validation still throws `RangeError`. The choice is between a Node-style `RangeError` that also has a `code` and an `MqttError` that drops `instanceof RangeError`.
+- When an `onQosOneMessage` handler rethrows a non-fatal rejection, the session ends with a fatal copy that keeps the code and sets `cause` to the original.
+
+What follows: the remaining items in [docs/errors.md](errors.md#not-yet-coded).
+
 ## Browser client takes on the Node inbound rules
 
 Decided on 16 November 2026 (UTC), for [#171](https://github.com/dvkam/mqtt/issues/171). Status: step 4 of the #171 plan, not merged when this entry was written.

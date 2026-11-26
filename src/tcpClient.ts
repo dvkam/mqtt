@@ -58,14 +58,14 @@ async function openTcpSocket(options: Readonly<TcpClientOptions>, inbound: ByteI
   const closed = new Promise<void>((resolve) => {
     socket.once('close', () => {
       try {
-        inbound.end(new MqttError('ERR_MQTT_TRANSPORT', connectionLabel + ' socket closed', { fatal: true }));
+        inbound.end(new MqttError('ERR_MQTT_TRANSPORT', connectionLabel + ' socket closed'));
       } finally {
         resolve();
       }
     });
   });
   socket.once('end', () => {
-    inbound.end(new MqttError('ERR_MQTT_TRANSPORT', connectionLabel + ' socket closed', { fatal: true }));
+    inbound.end(new MqttError('ERR_MQTT_TRANSPORT', connectionLabel + ' socket closed'));
   });
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
   socket.on('data', (chunk) => {
@@ -99,7 +99,7 @@ async function openTcpSocket(options: Readonly<TcpClientOptions>, inbound: ByteI
   };
   context.signal.addEventListener('abort', cancel, { once: true });
   const timer = setTimeout(() => {
-    socket.destroy(new MqttError('ERR_MQTT_TIMEOUT', connectionLabel + ' connection timed out', { fatal: true }));
+    socket.destroy(new MqttError('ERR_MQTT_TIMEOUT', connectionLabel + ' connection timed out'));
   }, context.timeoutMs);
   return new Promise<ByteWriter>((resolve, reject) => {
     const settle = () => {
@@ -114,7 +114,7 @@ async function openTcpSocket(options: Readonly<TcpClientOptions>, inbound: ByteI
     const failed = () => {
       socket.off(connectionEvent, connected);
       settle();
-      reject(new MqttError('ERR_MQTT_TRANSPORT', connectionLabel + ' socket closed before connecting', { fatal: true }));
+      reject(new MqttError('ERR_MQTT_TRANSPORT', connectionLabel + ' socket closed before connecting'));
     };
     socket.once(connectionEvent, connected);
     socket.once('close', failed);

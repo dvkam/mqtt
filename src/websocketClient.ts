@@ -63,7 +63,7 @@ async function openSocket(options: Options, inbound: ByteInbound, context: OpenC
   const closed = new Promise<void>((resolve) => {
     socket.once('close', () => {
       try {
-        inbound.end(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket closed', { fatal: true }));
+        inbound.end(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket closed'));
       } finally {
         resolve();
       }
@@ -75,7 +75,7 @@ async function openSocket(options: Options, inbound: ByteInbound, context: OpenC
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
   socket.on('message', (data, binary) => {
     if (!binary || !Buffer.isBuffer(data)) {
-      inbound.fail(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket requires binary messages', { fatal: true }));
+      inbound.fail(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket requires binary messages'));
       return;
     }
     inbound.bytes(data);
@@ -88,7 +88,7 @@ async function openSocket(options: Options, inbound: ByteInbound, context: OpenC
     frameOverhead,
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The socket keeps the encoded bytes by identity.
     async write(bytes) {
-      if (socket.readyState !== WebSocket.OPEN) throw new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket closed', { fatal: true });
+      if (socket.readyState !== WebSocket.OPEN) throw new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket closed');
       return new Promise((resolve, reject) => {
         socket.send(bytes, (error?: Readonly<Error> | null) => {
           error ? reject(error) : resolve();
@@ -123,7 +123,7 @@ async function openSocket(options: Options, inbound: ByteInbound, context: OpenC
       };
       const failed = () => {
         socket.off('open', opened);
-        reject(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket closed before opening', { fatal: true }));
+        reject(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket closed before opening'));
       };
       socket.once('open', opened);
       socket.once('close', failed);

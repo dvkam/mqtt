@@ -236,7 +236,7 @@ describe('behavior the browser client keeps on the core', () => {
     const client = await createBrowserClient(options).connect();
     const pending = client.ping();
     ScriptedSocket.instance.dispatchEvent(new Event('error'));
-    await expect(pending).rejects.toThrow('MQTT WebSocket failed');
+    await expect(pending).rejects.toMatchObject({ message: 'MQTT WebSocket failed', code: 'ERR_MQTT_TRANSPORT' });
     expect(ScriptedSocket.instance.readyState).not.toBe(ScriptedSocket.OPEN);
   });
 

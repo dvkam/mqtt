@@ -477,7 +477,10 @@ describe('the core and shared subscriptions', () => {
       { clientId: 'no-share' },
       nodePlatform,
     ).connect();
-    await expect(client.subscribe('$share/g/t')).rejects.toThrow('Unsupported shared subscription');
+    await expect(client.subscribe('$share/g/t')).rejects.toMatchObject({
+      message: 'Unsupported shared subscription',
+      code: 'ERR_MQTT_INVALID_ARGUMENT',
+    });
     // The session refuses the filter itself, so the refusal does not end it.
     await client.ping();
     expect(peer.received).toEqual(['connect', 'pingreq']);

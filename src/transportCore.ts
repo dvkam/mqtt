@@ -65,7 +65,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
     const reason: unknown = signal?.reason;
     return reason instanceof Error
       ? reason
-      : Object.assign(new MqttError('ERR_MQTT_ABORTED', name + ' connection aborted', { fatal: true }), { name: 'AbortError' });
+      : Object.assign(new MqttError('ERR_MQTT_ABORTED', name + ' connection aborted'), { name: 'AbortError' });
   };
   if (isAborted()) throw abortReason();
 
@@ -120,7 +120,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
     end(reason) {
       let selected: Readonly<Error> | undefined;
       try {
-        selected = input.remoteEnd(reason ?? new MqttError('ERR_MQTT_TRANSPORT', name + ' connection closed', { fatal: true }));
+        selected = input.remoteEnd(reason ?? new MqttError('ERR_MQTT_TRANSPORT', name + ' connection closed'));
       } finally {
         finish(selected ?? input.reason);
       }

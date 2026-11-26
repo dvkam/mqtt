@@ -175,7 +175,7 @@ test('isMqttError narrows by class and code', () => {
 });
 
 test('a peer that closes the TCP connection ends the session with a transport error', async () => {
-  const peer = await startTcpPacketPeer('close-after-connack');
+  const peer = await startTcpPacketPeer('default');
   let ended = (_end: SessionEnd) => {};
   const end = new Promise<SessionEnd>((resolve) => {
     ended = resolve;
@@ -185,4 +185,30 @@ test('a peer that closes the TCP connection ends the session with a transport er
   await peer.close();
   expect(await end).toEqual({ kind: 'error', error: coded('ERR_MQTT_TRANSPORT', true) });
   await expect(client.ping()).rejects.toEqual(coded('ERR_MQTT_TRANSPORT', true));
+});
+
+test('an abort passes its own reason through, even a non-fatal MqttError', async () => {
+  const peer = await startTcpPacketPeer('default');
+  const controller = new AbortController();
+  const client = await createTcpClient({
+    host: peer.host,
+    port: peer.port,
+    clientId: 'abort',
+    signal: controller.signal,
+  }).connect();
+  const reason = new MqttError('ERR_MQTT_CAPACITY', 'caller gave up', { fatal: false });
+  controller.abort(reason);
+  try {
+    await expect(client.publish('a', 'late')).rejects.toBe(reason);
+  } finally {
+    await peer.close();
+  }
+});
+
+test('fatal defaults by code', () => {
+  expect(new MqttError('ERR_MQTT_CAPACITY', 'full').fatal).toBe(false);
+  expect(new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'bad').fatal).toBe(false);
+  expect(new MqttError('ERR_MQTT_REFUSED', 'refused').fatal).toBe(true);
+  expect(new MqttError('ERR_MQTT_REFUSED', 'refused', { fatal: false }).fatal).toBe(false);
+  expect(new MqttError('ERR_MQTT_TRANSPORT', 'closed').fatal).toBe(true);
 });

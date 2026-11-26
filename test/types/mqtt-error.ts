@@ -11,26 +11,10 @@ export type EntriesShareOneClass = RequireTrue<
   typeof BrowserMqttError extends typeof MqttError ? (typeof PortableMqttError extends typeof MqttError ? true : false) : false
 >;
 
+// A later release can add a code. Checking for the codes a consumer handles keeps working when that happens.
 export function retryable(error: unknown): boolean {
-  if (!(error instanceof MqttError)) return false;
-  switch (error.code) {
-    case 'ERR_MQTT_CAPACITY':
-      return !error.fatal;
-    case 'ERR_MQTT_REFUSED':
-      return error.reasonCode === 0x97;
-    case 'ERR_MQTT_TIMEOUT':
-    case 'ERR_MQTT_PROTOCOL':
-    case 'ERR_MQTT_BROKER_DISCONNECT':
-    case 'ERR_MQTT_CLOSING':
-    case 'ERR_MQTT_TRANSPORT':
-    case 'ERR_MQTT_ABORTED':
-    case 'ERR_MQTT_INVALID_ARGUMENT':
-      return false;
-    default: {
-      const unhandled: never = error.code;
-      return unhandled;
-    }
-  }
+  if (isMqttError(error, 'ERR_MQTT_CAPACITY')) return !error.fatal;
+  return isMqttError(error, 'ERR_MQTT_REFUSED') && error.reasonCode === 0x97;
 }
 
 export function brokerReason(error: unknown): string | undefined {

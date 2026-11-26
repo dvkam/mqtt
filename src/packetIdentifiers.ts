@@ -10,8 +10,7 @@ export class PacketIdentifiers {
   private cursor = 0;
 
   reserve(): IdentifierLease {
-    if (this.occupied.size === 65_535)
-      throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT packet identifiers exhausted', { fatal: false });
+    if (this.occupied.size === 65_535) throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT packet identifiers exhausted');
     let messageId = this.cursor;
     do {
       messageId = messageId === 65_535 ? 1 : messageId + 1;
