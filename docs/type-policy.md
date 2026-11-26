@@ -2,7 +2,7 @@
 
 `pnpm lint` runs the strict Oxlint checks and a repository-wide no-any check. `pnpm lint:policy` runs the latter alone. The policy uses the AST API supplied by the pinned TypeScript 7.1 beta. It adds no dependency and uses the same syntax parser as the compiler.
 
-Oxlint runs type-aware linting through the Rust `tsrs` backend. All 62 type-aware rules registered in Oxlint 1.95.0 are errors, including unsafe class instance assignment and unhandled promises. List the installed rules with `pnpm exec oxlint --rules --format json` and inspect the effective config with `pnpm exec oxlint -c oxlint.config.mjs --print-config`. [Oxlint type-aware linting](https://oxc.rs/docs/guide/usage/linter/type-aware.html)
+Oxlint runs type-aware linting through the Rust `tsrs` backend. `tsrs` is a prerelease, pinned to an exact version like the TypeScript beta, so rerun `pnpm lint` and `pnpm test:types` when either is updated. If `tsrs` is missing, `pnpm lint` fails instead of skipping the type-aware rules. Every type-aware rule registered in the pinned Oxlint, 62 in Oxlint 1.95.0, is an error, including unsafe class instance assignment and unhandled promises. List the installed rules with `pnpm exec oxlint --rules --format json` and inspect the effective config with `pnpm exec oxlint -c oxlint.config.mjs --print-config`. [Oxlint type-aware linting](https://oxc.rs/docs/guide/usage/linter/type-aware.html)
 
 CI runs the compiler's full `test:types` command separately. It checks the compiler-only ambient import attribute fixture, emits declarations used by lint, and compiles the declaration consumers. The Windows and Ubuntu checks run for every pull request and push to `main`. [CI workflow](../.github/workflows/ci.yml)
 
