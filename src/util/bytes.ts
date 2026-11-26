@@ -2,13 +2,8 @@ const typedArrayPrototype = Reflect.getPrototypeOf(Uint8Array.prototype) ?? Uint
 const arrayTag = Reflect.getOwnPropertyDescriptor(typedArrayPrototype, Symbol.toStringTag)?.get;
 const arrayByteLength = Reflect.getOwnPropertyDescriptor(typedArrayPrototype, 'byteLength')?.get;
 
-/** The largest MQTT Binary Data value, which has a two-byte length. */
 export const maxBinaryBytes = 65_535;
 
-/**
- * Copy `value` if it is a Uint8Array that fits MQTT Binary Data. The length comes from the typed array itself, so a
- * subclass that overrides `byteLength` cannot pass a larger array.
- */
 export function copyBinaryData(value: unknown): Uint8Array<ArrayBuffer> | 'not bytes' | 'too long' {
   if (!isBytes(value)) return 'not bytes';
   const length: unknown = arrayByteLength?.call(value);

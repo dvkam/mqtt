@@ -64,7 +64,9 @@ export const websocketFactory: ClientFactory = createWebSocketClient(websocketOp
 
 type NodePassword = NonNullable<TcpClientOptions['password']>;
 export type NodePasswordAcceptsText = RequireTrue<string extends NodePassword ? true : false>;
-export type NodePasswordAcceptsBytes = RequireTrue<Buffer extends NodePassword ? true : false>;
+export type NodePasswordAcceptsBytes = RequireTrue<
+  Buffer extends NodePassword ? (Uint8Array extends NodePassword ? true : false) : false
+>;
 export type NodePasswordRejectsNumbers = RequireFalse<number extends NodePassword ? true : false>;
 export type WebSocketPasswordMatchesTcp = RequireTrue<
   NonNullable<WebSocketClientOptions['password']> extends NodePassword
