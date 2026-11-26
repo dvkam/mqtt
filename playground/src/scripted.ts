@@ -16,7 +16,6 @@ export function matches(filter: string, topic: string): boolean {
 
 /** A broker in the page, and the way to end its open connection. */
 export interface ScriptedBroker {
-  /** Opens one connection for each attempt. */
   readonly transport: ByteTransport;
   /** Ends the open connection as a peer close would. Returns false when no connection is open. */
   drop(): boolean;

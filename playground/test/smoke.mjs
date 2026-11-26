@@ -55,7 +55,6 @@ try {
     await page.getByTestId('reconnects').getByText('connected generation 1 attempt 1, previous end: none').waitFor();
 
     if (mode === 'scripted') {
-      // The scripted broker never acknowledges this topic, so the drop leaves the publication uncertain.
       await page.fill('#topic', 'playground/unacknowledged');
       await page.selectOption('#publish-qos', '1');
       await page.click('#publish');
