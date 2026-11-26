@@ -15,8 +15,13 @@ export class PacketIdentifiers {
     do {
       messageId = messageId === 65_535 ? 1 : messageId + 1;
     } while (this.occupied.has(messageId));
-    this.occupied.add(messageId);
     this.cursor = messageId;
+    return this.claim(messageId);
+  }
+
+  /** Lease a Packet Identifier that a resumed session already uses. The caller claims each one once. */
+  claim(messageId: number): IdentifierLease {
+    this.occupied.add(messageId);
     let released = false;
     return {
       messageId,

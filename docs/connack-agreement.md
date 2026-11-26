@@ -18,7 +18,7 @@ The constructor captures the requested client ID before listener registration. B
 
 Refused CONNACK packets do not require an assigned identifier. Their existing refusal reason remains the result when assignment is absent. Authentication violations are checked before refusal handling when authentication fields are present. A later AUTH or transport close cannot replace an earlier terminal error.
 
-The portable codec reads and writes Assigned Client Identifier in CONNACK, rejects duplicate or misplaced occurrences, and forwards it through the browser adapter. The accepted identifier is available as `session.connection.clientId`. Supported sessions use Clean Start and no durable expiry. A [reconnecting client](reconnect.md) opens a new clean session each time. Durable identity storage is tracked separately. [Connection metadata](public-types.md#broker-acknowledgment-results)
+The portable codec reads and writes Assigned Client Identifier in CONNACK, rejects duplicate or misplaced occurrences, and forwards it through the browser adapter. The accepted identifier is available as `session.connection.clientId`. Sessions use Clean Start true unless the caller sets `cleanStart: false`, and a [reconnecting client](reconnect.md#resuming-the-session) with `resume` sends Clean Start false after its first session. Durable identity storage is tracked separately. [Connection metadata](public-types.md#broker-acknowledgment-results)
 
 ## Verification
 

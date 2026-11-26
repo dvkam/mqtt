@@ -11,6 +11,31 @@ Two terms used below:
 - The inbound rules are what the client does with each packet the broker sends: which packet types it accepts, how it shapes QoS 0 and QoS 1 messages, how it handles AUTH, and how it closes. At 351f172 the Node clients apply them in `src/nodePacketListener.ts` and `src/nodePacketInput.ts`, and the browser client has its own in `src/browserClient.ts` and `src/browserTransport.ts`.
 - A packet-level seam is a public hook for a custom transport that sends and receives decoded MQTT packets instead of bytes.
 
+## Resume a session with an in-memory session state
+
+Decided on 26 November 2026 (UTC), for [#12](https://github.com/dvkam/mqtt/issues/12) and the first part of [#14](https://github.com/dvkam/mqtt/issues/14). The owner asked in a working session for in-process session resumption to be built: the Clean Start and Session Expiry options, a session state with a small interface, both Session Present mismatches, the smaller packet limit on resume and an explicit session reset. The request proposed that a resent publication does not settle its original publish promise and that the reconnect events report its outcome. The options below were not put to the owner as a question. The pull request author chose among them, and the owner has not accepted them yet. Status: in the pull request for `feat/session-resume`, not merged when this entry was written.
+
+Question: where does the client keep the QoS 1 publications that a resumed session must send again, and who can reach them?
+
+| Option | Trade-off |
+| --- | --- |
+| A public opaque `SessionState` from `createSessionState()`, passed as the `sessionState` factory option, with an internal store interface behind it (chosen) | Each factory reaches the state through a typed option, so a one-shot factory can resume too, and a caller's `create` function passes it on as it passes `onSessionEnd`. Callers can read `inFlight` but cannot implement the type, so #14 can change the internal store without a break. |
+| Keep the state inside `createReconnectingClient` and pass it to the factory through a hidden channel, such as a symbol key or a map keyed by the attempt's `onSessionEnd` | No new public type, but the channel breaks without notice when a caller's `create` function copies the options field by field, and one-shot factories cannot resume. |
+| A public store interface that callers implement | A caller could persist the state now, but the synchronous interface would not fit the fenced, asynchronous journal that #14 needs, so #14 would break it. |
+
+Reason given by the pull request author: the explicit option keeps the factories self-contained and leaves the store interface free for #14.
+
+Consequences, added by the pull request author:
+
+- The internal `SessionStore` in `src/sessionState.ts` is a claim function, a `Map` from Packet Identifier to the publication and a drop function. A connection adds a copy of each QoS 1 publication before its first write and deletes it when its PUBACK arrives. Copying keeps the payload safe after the publish promise settles, and costs about 430 sampled heap bytes per QoS 1 publish in the in-memory benchmark, only when `sessionState` is set.
+- `createReconnectingClient` gains `resume`, which reads `sessionExpiryInterval` from the factory options and replaces `cleanStart` and `sessionState` on each attempt. The `connected` event gains `resumed`, `resent` and `dropped`, and a new `puback` event reports the broker's answer to each resent publication. `client.resetSession()` makes the next attempt start a new session.
+- A resent publication does not settle its original publish promise, which rejected when its session ended. Its outcome arrives in the `puback` event.
+- A stored publication larger than the new Maximum Packet Size, or a broker whose Maximum QoS is now 0, ends the connection with the new code `ERR_MQTT_SESSION_CONFLICT` before any PUBLISH. The client writes DISCONNECT with reason 0, so the broker keeps the session and does not publish the Will. The reconnecting client retries this code within `maxAttempts`, and the stored publications stay for a later resume or a reset.
+- `cleanStart`, `sessionExpiryInterval` and `sessionState` reject with `ERR_MQTT_INVALID_ARGUMENT`, as the Will and the password do, and not with the `RangeError` of the numeric options.
+- The client still sends no Topic Alias and advertises a Topic Alias Maximum of 0, so no alias map exists to carry over.
+
+What follows: the fenced journal that survives a process restart is #14, which waits for QoS 2 in #13. The finite models in `verification/` still assume Clean Start true.
+
 ## Reconnect with a supervisor that builds a factory per attempt
 
 Decided on 26 November 2026 (UTC), for [#12](https://github.com/dvkam/mqtt/issues/12). The owner asked in a working session for reconnect to be built and merged once review and CI passed. The options below were not put to the owner as a question, and the owner did not choose among them. The pull request author chose the API. The owner accepted the choice by asking for the reviewed work to be merged. Status: in the pull request for `feat/reconnect`, not merged when this entry was written.
@@ -28,6 +53,8 @@ Reason given by the pull request author: #12 asks for explicit session outcomes 
 Consequences: `SessionEnd` gains an optional `uncertain` list of QoS 1 publications that were in flight, without their payloads, so the event stays readonly. The retry and stop lists in [reconnecting](reconnect.md) are the pull request author's choice too, and the owner accepted them the same way. Every attempt opens a clean session.
 
 What follows: resuming a session with Clean Start false is #14. Page lifecycle events in the browser are #32.
+
+Update, 26 November 2026: the pull request for `feat/session-resume` adds the `resume` option, so later attempts can send Clean Start false and share one session state. [Resume a session with an in-memory session state](#resume-a-session-with-an-in-memory-session-state)
 
 ## Publish takes bytes, retain and the MQTT 5 PUBLISH properties
 

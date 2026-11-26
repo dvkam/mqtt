@@ -5,7 +5,9 @@ import { createByteClient, type ByteClientOptions } from './transportCore.js';
 
 export type { PublishProperties } from './publication.js';
 export type { ByteInbound, ByteTransport, ByteWriter, OpenContext } from './byteTransport.js';
-export type { ByteClientOptions } from './transportCore.js';
+export type { ByteClientOptions, SessionOptions } from './transportCore.js';
+export { createSessionState } from './sessionState.js';
+export type { SessionState } from './sessionState.js';
 export type { WillOptions } from './will.js';
 export type { ClientDiagnostic, DiagnosticObserver } from './diagnostics.js';
 export { MqttError, isMqttError } from './mqttError.js';

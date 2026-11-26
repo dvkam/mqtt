@@ -21,9 +21,9 @@ type Kind = (typeof kinds)[number];
 const acknowledgments: readonly Kind[] = ['puback', 'pubrec', 'pubrel', 'pubcomp', 'suback', 'unsuback'];
 
 // MQTT 5 table 2-4 (section 2.2.2.2), restricted to this client's profile: no Will, no AUTH, no enhanced
-// authentication exchange, no Subscription Identifier in SUBSCRIBE, and no CONNECT property other than Receive Maximum.
-// Each row is an identifier, one valid encoded value and the packets that may carry it. This table is written from the
-// specification, not derived from the source.
+// authentication exchange, no Subscription Identifier in SUBSCRIBE, and no CONNECT property other than Receive Maximum
+// and Session Expiry Interval. Each row is an identifier, one valid encoded value and the packets that may carry it.
+// This table is written from the specification, not derived from the source.
 const properties: readonly Readonly<{ identifier: number; value: readonly number[]; packets: readonly Kind[] }>[] = [
   { identifier: 0x01, value: [1], packets: ['publish'] },
   { identifier: 0x02, value: [0, 0, 0, 1], packets: ['publish'] },
@@ -31,7 +31,7 @@ const properties: readonly Readonly<{ identifier: number; value: readonly number
   { identifier: 0x08, value: [0, 1, 0x61], packets: ['publish'] },
   { identifier: 0x09, value: [0, 1, 1], packets: ['publish'] },
   { identifier: 0x0b, value: [1], packets: ['publish'] },
-  { identifier: 0x11, value: [0, 0, 0, 1], packets: ['connack'] },
+  { identifier: 0x11, value: [0, 0, 0, 1], packets: ['connect', 'connack'] },
   { identifier: 0x12, value: [0, 1, 0x61], packets: ['connack'] },
   { identifier: 0x13, value: [0, 1], packets: ['connack'] },
   { identifier: 0x15, value: [0, 1, 0x61], packets: ['connack'] },

@@ -124,15 +124,15 @@ The [concurrent subscription guide](docs/concurrent-subscriptions.md) defines in
 
 The [native write reserve](docs/native-write-reserve.md) checks observed queued bytes before each application send and preserves control admission room. TCP and WS/WSS default to a 1 MiB total with a 128 KiB control reserve. These settings preserve wire order and do not give control packets priority over queued data.
 
-- The supported clients open MQTT 5 clean sessions with Keep Alive set to zero. They support ordinary QoS 0 and 1 subscriptions, text and byte publishing with retain and the MQTT 5 PUBLISH properties, received binary payloads, explicit ping and graceful disconnect. [Publishing](docs/publishing.md)
+- The supported clients open MQTT 5 sessions with Keep Alive set to zero, a clean one by default. `cleanStart: false` with a `sessionExpiryInterval` resumes the broker session. [Reconnecting](docs/reconnect.md#resuming-the-session) They support ordinary QoS 0 and 1 subscriptions, text and byte publishing with retain and the MQTT 5 PUBLISH properties, received binary payloads, explicit ping and graceful disconnect. [Publishing](docs/publishing.md)
 - A positive Server Keep Alive in CONNACK makes the client send pings when its outbound connection is idle. Manual and automatic pings share one PINGRESP exchange. A failed ping retires the connection because a later PINGRESP cannot identify which request it answers.
 - Session rejections are `MqttError` values with a stable `code` and a `fatal` flag. MQTT reason codes are in `reasonCode`. The [error code guide](docs/errors.md) lists each code.
 - Any operation timeout retires the session and starts forced cleanup. Later work cannot send. Already-admitted QoS 0 bytes may still reach the broker; a timeout does not prove non-delivery. The deadline guide explains custom transport cleanup requirements.
 - Successful QoS 0 publication reports local send completion or admission according to the adapter. It does not prove broker receipt or durable storage.
 - Publishing rejects empty topic names, wildcards, null characters, unpaired surrogates and names exceeding 65,535 UTF-8 bytes before sending. Rejection leaves an active session usable. Topic aliases are not supported by this publishing API.
 - The browser transport has a write budget and the browser codec has a separate packet allocation limit. These are not a bound on every retained application object or an offline message queue.
-- [Reconnecting](docs/reconnect.md) opens a new clean session after a failure, makes the subscriptions again and reports QoS 1 publications with an unknown outcome.
-- QoS 2, durable sessions, configurable CONNECT Keep Alive, full authentication and the complete MQTT 5 property set remain planned work. The [codec profile](docs/codec.md) lists accepted packets and properties.
+- [Reconnecting](docs/reconnect.md) opens a new connection after a failure and reports QoS 1 publications with an unknown outcome. With `resume`, it resumes the MQTT session and sends unacknowledged QoS 1 publications again with their Packet Identifiers. Otherwise it makes the subscriptions again.
+- QoS 2, a session state that survives a process restart (#14), configurable CONNECT Keep Alive, full authentication and the complete MQTT 5 property set remain planned work. The [codec profile](docs/codec.md) lists accepted packets and properties.
 - The package has no `connect()` export. Create a client with `createTcpClient`, `createWebSocketClient` or `createBrowserClient`. The MQTT.js-style client that earlier previews kept for baseline comparisons was removed in #170.
 
 ## Entry points

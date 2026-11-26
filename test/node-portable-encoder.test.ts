@@ -23,6 +23,19 @@ const sessionPackets: [string, ClientPacket, Packet][] = [
     },
   ],
   [
+    'CONNECT with Clean Start false and a Session Expiry Interval',
+    { cmd: 'connect', clientId: 'c', cleanStart: false, keepAlive: 0, receiveMaximum: 1, sessionExpiryInterval: 3600 },
+    {
+      cmd: 'connect',
+      protocolVersion: 5,
+      protocolId: 'MQTT',
+      clean: false,
+      keepalive: 0,
+      clientId: 'c',
+      properties: { receiveMaximum: 1, sessionExpiryInterval: 3600 },
+    },
+  ],
+  [
     'SUBSCRIBE at QoS 1',
     { cmd: 'subscribe', messageId: 2, topics: ['a/+'], qos: 1 },
     { cmd: 'subscribe', messageId: 2, subscriptions: [{ topic: 'a/+', qos: 1 }] },
@@ -46,6 +59,11 @@ const sessionPackets: [string, ClientPacket, Packet][] = [
     'QoS 1 PUBLISH',
     { cmd: 'publish', topic: 'a/b', payload: new TextEncoder().encode('x'), qos: 1, messageId: 5, dup: false, retain: false },
     { cmd: 'publish', topic: 'a/b', payload: 'x', qos: 1, messageId: 5, dup: false, retain: false },
+  ],
+  [
+    'QoS 1 PUBLISH sent again with DUP',
+    { cmd: 'publish', topic: 'a/b', payload: new TextEncoder().encode('x'), qos: 1, messageId: 7, dup: true, retain: false },
+    { cmd: 'publish', topic: 'a/b', payload: 'x', qos: 1, messageId: 7, dup: true, retain: false },
   ],
   ['PUBACK', { cmd: 'puback', messageId: 6, reasonCode: 0 }, { cmd: 'puback', messageId: 6, reasonCode: 0 }],
   ['PINGREQ', { cmd: 'pingreq' }, { cmd: 'pingreq' }],
@@ -77,6 +95,30 @@ test.each(sessionPackets)('mqtt-packet reads the portable encoding of %s as the 
   const reference = parse(Array.from(generate(legacy, { protocolVersion: 5 })));
   expect(portable).toHaveLength(1);
   expect(comparable(portable[0])).toEqual(comparable(reference[0]));
+});
+
+test('encodes the CONNECT Session Expiry Interval with the same bytes as mqtt-packet', () => {
+  const portable = encodePacket({
+    cmd: 'connect',
+    clientId: 'c',
+    cleanStart: false,
+    receiveMaximum: 1,
+    sessionExpiryInterval: 3600,
+  });
+  const reference = generate(
+    {
+      cmd: 'connect',
+      protocolVersion: 5,
+      protocolId: 'MQTT',
+      clean: false,
+      keepalive: 0,
+      clientId: 'c',
+      properties: { receiveMaximum: 1, sessionExpiryInterval: 3600 },
+    },
+    { protocolVersion: 5 },
+  );
+  expect(Buffer.from(portable)).toEqual(reference);
+  expect(parse(Array.from(portable))[0]).toMatchObject({ clean: false, properties: { sessionExpiryInterval: 3600 } });
 });
 
 test.each(['$share//a', '$share/g', '$share/g/', '$share/+/a', '$share/g#/a'])(

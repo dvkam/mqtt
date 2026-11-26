@@ -8,10 +8,21 @@ import type {
   SessionEnd,
   SessionEndObserver,
   SubscribeResult,
+  UncertainPublication,
 } from './session.js';
+import { bindSessionState, type SessionState } from './sessionState.js';
 
-/** The factory options that `createReconnectingClient` replaces with its own on each attempt. */
+/** The factory options that `createReconnectingClient` reads, or replaces with its own on each attempt. */
 export interface Reconnectable {
+  /**
+   * The Clean Start flag of the first attempt. With `resume`, the client replaces it on each attempt: false once a session
+   * connected, and true again after `resetSession()`.
+   */
+  cleanStart?: boolean;
+  /** Read only. With `resume`, it must be an integer from 1 to 4,294,967,295, so the broker keeps the session. */
+  sessionExpiryInterval?: number;
+  /** With `resume`, the client replaces it with its own session state, which every attempt shares. */
+  sessionState?: SessionState;
   /** Called with every session end of every attempt, after the reconnecting client has handled that end. */
   onSessionEnd?: SessionEndObserver;
   /**
@@ -51,7 +62,10 @@ export type SubscriptionRestore = Readonly<
 /** What `onReconnect` receives. */
 export type ReconnectEvent =
   | Readonly<{
-      /** A session connected and its subscriptions were made, and `session()` resolves with it. */
+      /**
+       * A session connected and its subscriptions were made, or it resumed a broker session, and `session()` resolves
+       * with it.
+       */
       kind: 'connected';
       /** The number of sessions that connected, starting at 1. A failed attempt does not count. */
       generation: number;
@@ -64,8 +78,35 @@ export type ReconnectEvent =
        * outcome is unknown. Failed attempts since then do not replace it. Absent on the first `connected` event.
        */
       previous?: SessionEnd;
-      /** One outcome for each entry of `subscriptions` in the options, in the same order. */
+      /**
+       * One outcome for each entry of `subscriptions` in the options, in the same order. Empty when `resumed` is true,
+       * because the broker kept the subscriptions.
+       */
       subscriptions: readonly SubscriptionRestore[];
+      /** The CONNACK Session Present flag. True when the broker resumed the session that an earlier CONNECT started. */
+      resumed: boolean;
+      /**
+       * With `resume`, the stored QoS 1 publications that this session sends again with DUP set and their Packet
+       * Identifiers, in the order they were first sent. Absent when there are none. A `puback` event reports the
+       * broker's answer to each.
+       */
+      resent?: readonly UncertainPublication[];
+      /**
+       * With `resume`, the stored QoS 1 publications the client dropped since the last `connected` event, because the
+       * broker answered with Session Present false or `resetSession()` was called. The client does not send them again,
+       * and their outcome is unknown. Absent when there are none.
+       */
+      dropped?: readonly UncertainPublication[];
+    }>
+  | Readonly<{
+      /** A PUBACK arrived for a QoS 1 publication that a resumed session sent again. */
+      kind: 'puback';
+      /** The topic it was published to. */
+      topic: string;
+      /** The Packet Identifier it was sent with. */
+      messageId: number;
+      /** The PUBACK reason code. Below 0x80 means the broker accepted the publication. */
+      reasonCode: number;
     }>
   | Readonly<{
       /** An attempt failed or a session ended, and the client waits before the next attempt. */
@@ -93,8 +134,14 @@ export type ReconnectEvent =
  * The reconnect policy. `createReconnectingClient` throws a RangeError at once when a number in it is invalid.
  */
 export interface ReconnectOptions {
-  /** Subscriptions to make after every CONNACK. */
+  /** Subscriptions to make after every CONNACK with Session Present false. */
   readonly subscriptions?: readonly SubscriptionIntent[];
+  /**
+   * Resume the MQTT session on later attempts. Every attempt after a connected session sends Clean Start false and shares
+   * one session state, so a session the broker resumed sends the unacknowledged QoS 1 publications again and keeps its
+   * subscriptions. Needs `sessionExpiryInterval` from 1 to 4,294,967,295 in the factory options. Defaults to false.
+   */
+  readonly resume?: boolean;
   /**
    * The ceiling of the delay before the second attempt, in milliseconds. The client draws the delay from half to all of
    * the ceiling, and the ceiling doubles for each later attempt. A finite number of 0 or more. Defaults to 1,000.
@@ -132,6 +179,12 @@ export interface ReconnectingClient {
   session(): Promise<ClientSession>;
   /** Stops reconnecting, then disconnects the current session with `options`. */
   disconnect(options?: Readonly<DisconnectOptions>): Promise<void>;
+  /**
+   * With `resume`, start a new session on the next attempt. That attempt drops the stored QoS 1 publications, lists them in
+   * `dropped` of the next `connected` event and sends Clean Start true until a session connects. A connected session
+   * keeps running. Has no effect without `resume`.
+   */
+  resetSession(): void;
 }
 
 // MQTT 5 CONNACK reasons worth another attempt: Server unavailable, Server busy, Quota exceeded, Connection rate exceeded.
@@ -140,7 +193,7 @@ const retryRefusals: ReadonlySet<number | undefined> = new Set([0x88, 0x89, 0x97
 // server and Server moved.
 const stopDisconnects: ReadonlySet<number | undefined> = new Set([0x81, 0x82, 0x87, 0x8e, 0x9c, 0x9d]);
 // The codes besides ERR_MQTT_REFUSED and ERR_MQTT_BROKER_DISCONNECT that retry. The reason code decides for those two.
-const retryCodes: ReadonlySet<MqttErrorCode> = new Set(['ERR_MQTT_TRANSPORT', 'ERR_MQTT_TIMEOUT']);
+const retryCodes: ReadonlySet<MqttErrorCode> = new Set(['ERR_MQTT_TRANSPORT', 'ERR_MQTT_TIMEOUT', 'ERR_MQTT_SESSION_CONFLICT']);
 
 // The factories reject with a RangeError for an invalid option. Broker input over a receive limit is a RangeError too,
 // either a ReceiveLimitError or the error with this code that ws/lib/receiver.js raises for a message over maxPayload.
@@ -188,9 +241,10 @@ function waiter(): Waiter {
 
 /**
  * Keep a connection to the broker. `create` builds a fresh one-shot factory for each attempt, such as
- * `(options) => createTcpClient(options)`. Each attempt opens a clean session, so the client makes `subscriptions` again
- * after every CONNACK. A QoS 1 publication that was in flight when a session ended is reported in the next `connected`
- * event and never sent again. Throws a RangeError at once when a number in `reconnect` is invalid.
+ * `(options) => createTcpClient(options)`. After a CONNACK with Session Present false, the client makes `subscriptions`
+ * again. A QoS 1 publication that was in flight when a session ended is reported in the next `connected` event. Without
+ * `resume`, the client never sends it again. With `resume`, a session the broker resumed sends it again with its Packet
+ * Identifier. Throws a RangeError at once when an option in `reconnect` is invalid.
  */
 export function createReconnectingClient<Options extends Reconnectable>(
   create: (options: Options) => ClientFactory,
@@ -212,6 +266,12 @@ export function createReconnectingClient<Options extends Reconnectable>(
   const { onReconnect } = reconnect;
   const userSignal = options.signal;
   const userEnd = options.onSessionEnd;
+  const resume = reconnect.resume === true;
+  if (resume) {
+    const { sessionExpiryInterval: expiry } = options;
+    if (expiry === undefined || !Number.isInteger(expiry) || expiry < 1 || expiry > 0xffff_ffff)
+      throw new RangeError('resume needs a sessionExpiryInterval from 1 to 4294967295');
+  }
 
   let state: 'connecting' | 'connected' | 'waiting' | 'stopped' = 'connecting';
   // The number of sessions reported in a connected event.
@@ -225,6 +285,13 @@ export function createReconnectingClient<Options extends Reconnectable>(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopError: Readonly<Error> | undefined;
   let opening: AbortController | undefined;
+  // The Clean Start flag of the next attempt, and whether resetSession() asked for a new session.
+  let cleanStart = options.cleanStart;
+  let resetRequested = false;
+  // Stored publications dropped since the last connected event.
+  let dropped: UncertainPublication[] = [];
+  // PUBACK events of a resumed session, held until its connected event or its end.
+  let held: ReconnectEvent[] | undefined;
 
   // A function, so a check after an await reads the state instead of the type narrowed before it.
   const stopped = (): boolean => state === 'stopped';
@@ -232,6 +299,22 @@ export function createReconnectingClient<Options extends Reconnectable>(
   const report = (event: ReconnectEvent): void => {
     if (onReconnect !== undefined) void notifyObserver(onReconnect, event);
   };
+
+  const release = (): void => {
+    const events = held;
+    held = undefined;
+    for (const event of events ?? []) report(event);
+  };
+
+  const shared = resume
+    ? bindSessionState({
+        resent(topic, messageId, reasonCode) {
+          const event: ReconnectEvent = { kind: 'puback', topic, messageId, reasonCode };
+          if (held === undefined) report(event);
+          else held.push(event);
+        },
+      })
+    : undefined;
 
   const stop = (reason: StopReason, error: Readonly<Error>): void => {
     if (stopped()) return;
@@ -242,6 +325,7 @@ export function createReconnectingClient<Options extends Reconnectable>(
     userSignal?.removeEventListener('abort', onUserAbort);
     opening?.abort(error);
     next.reject(error);
+    release();
     report(reason === 'disconnect' ? { kind: 'stopped', reason } : { kind: 'stopped', reason, error });
   };
 
@@ -262,6 +346,7 @@ export function createReconnectingClient<Options extends Reconnectable>(
     }
     if (current !== undefined && performance.now() - connectedAt >= stableAfterMs) attempt = 0;
     current = undefined;
+    release();
     if (state === 'connected') previous = event;
     if (event.kind === 'disconnect') {
       stop('disconnect', closed());
@@ -319,9 +404,21 @@ export function createReconnectingClient<Options extends Reconnectable>(
       end(event);
       await userEnd?.(event);
     };
+    let stored: readonly UncertainPublication[] = [];
+    let attemptOptions: Options = { ...options, onSessionEnd, signal };
+    if (shared !== undefined) {
+      if (resetRequested) {
+        resetRequested = false;
+        dropped.push(...shared.store.drop());
+        cleanStart = true;
+      }
+      stored = shared.state.inFlight;
+      held = [];
+      attemptOptions = { ...attemptOptions, cleanStart, sessionState: shared.state };
+    }
     let factory: ClientFactory;
     try {
-      factory = create({ ...options, onSessionEnd, signal });
+      factory = create(attemptOptions);
     } catch (error) {
       stop('fatal', transportFailure(error, 'MQTT client factory failed'));
       return;
@@ -338,9 +435,14 @@ export function createReconnectingClient<Options extends Reconnectable>(
       opening = undefined;
       current = session;
       connectedAt = performance.now();
-      let subscriptions: SubscriptionRestore[];
+      const resumed = session.connection.sessionPresent;
+      if (shared !== undefined) {
+        cleanStart = false;
+        if (!resumed) dropped.push(...stored);
+      }
+      let subscriptions: SubscriptionRestore[] = [];
       try {
-        subscriptions = await restore(session);
+        if (!resumed) subscriptions = await restore(session);
       } catch {
         return;
       }
@@ -348,7 +450,20 @@ export function createReconnectingClient<Options extends Reconnectable>(
       state = 'connected';
       generation++;
       next.resolve(session);
-      report({ kind: 'connected', generation, attempt, session, subscriptions, ...(previous === undefined ? {} : { previous }) });
+      const lost = dropped;
+      dropped = [];
+      report({
+        kind: 'connected',
+        generation,
+        attempt,
+        session,
+        subscriptions,
+        resumed,
+        ...(previous === undefined ? {} : { previous }),
+        ...(resumed && stored.length > 0 ? { resent: stored } : {}),
+        ...(lost.length > 0 ? { dropped: lost } : {}),
+      });
+      release();
     })();
   }
 
@@ -368,6 +483,9 @@ export function createReconnectingClient<Options extends Reconnectable>(
       const session = current;
       stop('disconnect', closed());
       if (session !== undefined) await session.disconnect(disconnectOptions);
+    },
+    resetSession() {
+      if (shared !== undefined) resetRequested = true;
     },
   };
 }

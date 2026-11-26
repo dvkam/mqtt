@@ -6,7 +6,7 @@ import { portablePlatform } from './portablePlatform.js';
 import type { PublicationLimits } from './publicationAdmission.js';
 import type { ClientFactory, ClientSession, QosOneMessage, SessionEndObserver } from './session.js';
 import type { SubscriptionLimits } from './subscriptionExchanges.js';
-import { createByteClient } from './transportCore.js';
+import { createByteClient, type SessionOptions } from './transportCore.js';
 import { openMqttWebSocket } from './websocket.js';
 import { resolveWebSocketMessageLimit } from './websocketLimits.js';
 import { MqttError, ReceiveLimitError } from './mqttError.js';
@@ -18,7 +18,7 @@ export type BrowserQosOneMessage = QosOneMessage<BrowserMessage>;
 
 export type BrowserSession = ClientSession;
 
-export interface BrowserClientOptions extends PublicationLimits, SubscriptionLimits, NativeWriteLimits {
+export interface BrowserClientOptions extends PublicationLimits, SubscriptionLimits, NativeWriteLimits, SessionOptions {
   url: string | URL;
   clientId: string;
   username?: string;

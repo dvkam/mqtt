@@ -155,7 +155,8 @@ test('opens a new session after the connection ends, once the jittered delay has
   const second = await client.session();
   expect(second).not.toBe(first);
   expect(peer.connections[1]?.packets[0]?.cmd).toBe('connect');
-  expect(events[2]).toMatchObject({ kind: 'connected', generation: 2, attempt: 2, previous: { kind: 'error' } });
+  expect(events[2]).toMatchObject({ kind: 'connected', generation: 2, attempt: 2, resumed: false, previous: { kind: 'error' } });
+  expect(peer.connections[1]?.packets[0]).toMatchObject({ cleanStart: true });
   await client.disconnect();
 });
 

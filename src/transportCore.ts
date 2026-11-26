@@ -16,17 +16,67 @@ import { resolveTimeout } from './timeout.js';
 import { invalidOption, MqttError, transportFailure } from './mqttError.js';
 import { capturePassword } from './password.js';
 import { captureWill, type WillMessage, type WillOptions } from './will.js';
+import { sessionBinding, type SessionBinding, type SessionState } from './sessionState.js';
 
 export const flushNativeWrites = Symbol('flushNativeWrites');
 export type ByteWriterWithFlush = ByteWriter & { [flushNativeWrites]?(): void };
 
 export interface ByteClientOptions<Bytes extends Uint8Array = Uint8Array>
-  extends Omit<PortableOptions<Bytes>, 'will' | 'password'>, NativeWriteLimits {
+  extends
+    Omit<PortableOptions<Bytes>, 'will' | 'password' | 'cleanStart' | 'sessionExpiryInterval' | 'session'>,
+    SessionOptions,
+    NativeWriteLimits {
   /** The CONNECT password, at most 65,535 bytes. A string is sent as its UTF-8 bytes. */
   password?: string | Uint8Array;
   signal?: AbortSignal;
   maxPacketBytes?: number;
   will?: WillOptions;
+}
+
+/** The CONNECT fields and the client state that decide which MQTT session a connection opens or resumes. */
+export interface SessionOptions {
+  /**
+   * The CONNECT Clean Start flag. True asks the broker to discard any session it keeps for the client identifier and start
+   * a new one. False asks it to resume that session, and the CONNACK Session Present flag in `connection.sessionPresent`
+   * says whether it did. Defaults to true.
+   */
+  cleanStart?: boolean;
+  /**
+   * The CONNECT Session Expiry Interval: how many seconds the broker keeps the session after the connection closes. An
+   * integer from 0 to 4,294,967,295, where 4,294,967,295 means the session does not expire. When it is absent the client
+   * sends none, and the broker ends the session with the connection. The broker can lower it in CONNACK, and
+   * `connection.sessionExpiryInterval` holds the value in effect.
+   */
+  sessionExpiryInterval?: number;
+  /**
+   * The QoS 1 publications that a connection wrote and the broker did not acknowledge, kept for the next connection of
+   * the same session. Pass the object `createSessionState()` returns. A connection with Clean Start false that the broker
+   * answers with Session Present true sends them again before any new publication.
+   */
+  sessionState?: SessionState;
+}
+
+function captureSessionOptions(
+  options: Readonly<SessionOptions>,
+): Readonly<{ cleanStart: boolean; sessionExpiryInterval: number | undefined; session: SessionBinding | undefined }> {
+  const {
+    cleanStart = true,
+    sessionExpiryInterval,
+    sessionState,
+  }: Readonly<Partial<Record<keyof SessionOptions, unknown>>> = options;
+  if (typeof cleanStart !== 'boolean') throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'MQTT cleanStart must be a boolean');
+  if (
+    sessionExpiryInterval !== undefined &&
+    (typeof sessionExpiryInterval !== 'number' ||
+      !Number.isInteger(sessionExpiryInterval) ||
+      sessionExpiryInterval < 0 ||
+      sessionExpiryInterval > 0xffff_ffff)
+  )
+    throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'MQTT sessionExpiryInterval must be an integer from 0 to 4294967295');
+  const session = sessionBinding(sessionState);
+  if (sessionState !== undefined && session === undefined)
+    throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'MQTT sessionState must come from createSessionState()');
+  return { cleanStart, sessionExpiryInterval, session };
 }
 
 /**
@@ -85,9 +135,11 @@ async function connectOverBytes<Bytes extends Uint8Array>(
   const input = new PacketInput(options.maxPacketBytes, platform);
   let will: WillMessage | undefined;
   let password: Uint8Array | undefined;
+  let session: ReturnType<typeof captureSessionOptions>;
   try {
     password = supportsPassword ? capturePassword(options.password) : undefined;
     will = captureWill(options.will);
+    session = captureSessionOptions(options);
   } catch (error) {
     if (isAborted()) throw abortReason();
     throw invalidOption(error, 'Invalid MQTT connection option');
@@ -225,6 +277,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
         username: options.username,
         password,
         will,
+        ...session,
         onMessage: options.onMessage,
         onDiagnostic,
         onSessionEnd,

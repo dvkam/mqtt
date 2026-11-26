@@ -20,15 +20,16 @@ import { validateTopic, validateTopicName } from './util/validateTopic.js';
 import { resolveTimeout } from './timeout.js';
 import { isAbortSignal } from './util/signal.js';
 import { capturePublication, type OutgoingPublication } from './publication.js';
-import { PublicationAdmission, type PublicationLimits } from './publicationAdmission.js';
+import { maxMqttPacketBytes, PublicationAdmission, publishSize, type PublicationLimits } from './publicationAdmission.js';
 import { SubscriptionExchanges, type SubscriptionLimits } from './subscriptionExchanges.js';
-import { PacketIdentifiers } from './packetIdentifiers.js';
+import { PacketIdentifiers, type IdentifierLease } from './packetIdentifiers.js';
 import { OutboundQosOne } from './outboundQosOne.js';
 import { QosZeroWrites } from './qosZeroWrites.js';
 import { isPubackReason } from './pubackReason.js';
 import { takeNativeBudgetFailure } from './nativeWriteBudget.js';
 import type { WillMessage } from './will.js';
 import { copyUserProperties } from './userProperties.js';
+import type { SessionBinding } from './sessionState.js';
 
 export type { ClientDiagnostic, DiagnosticObserver } from './diagnostics.js';
 export type { SessionEnd, SessionEndObserver } from './session.js';
@@ -67,6 +68,12 @@ export interface PortableOptions<Bytes extends Uint8Array = Uint8Array> extends 
   username?: string;
   password?: Uint8Array;
   will?: WillMessage;
+  /** Defaults to true. */
+  cleanStart?: boolean;
+  /** Seconds, sent as the CONNECT Session Expiry Interval when set. */
+  sessionExpiryInterval?: number;
+  /** The store that keeps in-flight QoS 1 publications across connections. */
+  session?: SessionBinding;
   timeoutMs?: number;
   onDiagnostic?: DiagnosticObserver;
   onSessionEnd?: SessionEndObserver;
@@ -113,6 +120,9 @@ class PortableClient<Bytes extends Uint8Array> {
   private readonly options: PortableOptions<Bytes>;
   private readonly clientId: string;
   private readonly will: WillMessage | undefined;
+  private readonly cleanStart: boolean;
+  private readonly session: SessionBinding | undefined;
+  private readonly releaseSession: (() => void) | undefined;
   private pendingAck?: (packet: Acknowledgment) => void;
   private keepAlive?: KeepAlive;
   private automaticPing?: Promise<void>;
@@ -150,6 +160,11 @@ class PortableClient<Bytes extends Uint8Array> {
     this.options = options;
     this.clientId = options.clientId;
     this.will = options.will;
+    this.cleanStart = options.cleanStart ?? true;
+    this.session = options.session;
+    this.releaseSession = this.session?.store.claim();
+    if (this.session !== undefined && this.releaseSession === undefined)
+      throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'MQTT session state is in use by another connection');
     this.onQosOneMessage = options.onQosOneMessage;
     this.unlisten = transport.listen(
       packetReceiver(
@@ -200,7 +215,8 @@ class PortableClient<Bytes extends Uint8Array> {
               void this.abort(new MqttError('ERR_MQTT_PROTOCOL', 'Invalid PUBACK reason code')).catch(() => {});
               return;
             }
-            this.outbound?.accept(messageId, code);
+            const matched = this.outbound?.accept(messageId, code);
+            if (matched !== undefined && this.session !== undefined) this.settleStored(messageId, code, matched === 'resent');
           }
           if (packet.cmd === 'pingresp') this.pendingAck?.(packet);
           if (this.closing || packet.cmd !== 'publish') return;
@@ -238,7 +254,7 @@ class PortableClient<Bytes extends Uint8Array> {
       return;
     }
     this.connackReceived = true;
-    if (packet.sessionPresent) {
+    if (packet.sessionPresent && (this.cleanStart || packet.reasonCode !== 0)) {
       this.rejectProtocolInput(new ProtocolInputError('Unexpected MQTT Session Present', 0x82));
       return;
     }
@@ -279,6 +295,8 @@ class PortableClient<Bytes extends Uint8Array> {
       return;
     }
     const {
+      sessionPresent,
+      sessionExpiryInterval = this.options.sessionExpiryInterval ?? 0,
       maximumPacketSize,
       retainAvailable = true,
       serverKeepAlive = 0,
@@ -295,7 +313,8 @@ class PortableClient<Bytes extends Uint8Array> {
     if (this.failure) return;
     const connection = Object.freeze({
       clientId: assignedClientIdentifier ?? this.clientId,
-      sessionPresent: false,
+      sessionPresent,
+      sessionExpiryInterval,
       receiveMaximum,
       maximumQos: maximumQoS ?? 2,
       retainAvailable,
@@ -319,8 +338,9 @@ class PortableClient<Bytes extends Uint8Array> {
       {
         cmd: 'connect',
         clientId: this.clientId,
-        cleanStart: true,
+        cleanStart: this.cleanStart,
         keepAlive: 0,
+        ...(this.options.sessionExpiryInterval === undefined ? {} : { sessionExpiryInterval: this.options.sessionExpiryInterval }),
         username: this.options.username,
         password: this.options.password,
         ...(this.will === undefined ? {} : { will: this.will }),
@@ -344,7 +364,19 @@ class PortableClient<Bytes extends Uint8Array> {
       this.subscriptions.limitPacketSize(connection.maximumPacketSize);
     }
     if (maximumQos !== 0) {
-      this.outbound = new OutboundQosOne<OutgoingPublication>(receiveMaximum, this.identifiers, this.transmitQosOne.bind(this));
+      this.outbound = new OutboundQosOne<OutgoingPublication>(
+        receiveMaximum,
+        this.identifiers,
+        this.transmitter(false),
+        this.session === undefined ? undefined : this.store.bind(this),
+      );
+    }
+    if (this.session !== undefined) {
+      const conflict = this.resume(connection);
+      if (conflict !== undefined) {
+        await this.abort(conflict, 0);
+        throw conflict;
+      }
     }
     this.activation = 'active';
     if (serverKeepAlive > 0) this.startKeepAlive(serverKeepAlive * 1000, connectSentAt);
@@ -352,6 +384,56 @@ class PortableClient<Bytes extends Uint8Array> {
     const interrupted = this.reportConnection('active');
     if (interrupted) throw interrupted;
     return connection;
+  }
+
+  /**
+   * Continue the stored session. After Session Present false, drop the stored publications. After Session Present true,
+   * send them again in order, unless one no longer fits the connection. Returns the conflict that ends the connection.
+   */
+  private resume(connection: Readonly<ConnectionInfo>): MqttError | undefined {
+    const publications = this.session?.store.publications;
+    if (publications === undefined) return undefined;
+    if (!connection.sessionPresent) {
+      publications.clear();
+      return undefined;
+    }
+    if (publications.size === 0) return undefined;
+    const outbound = this.outbound;
+    if (outbound === undefined)
+      return new MqttError('ERR_MQTT_SESSION_CONFLICT', 'MQTT broker no longer accepts the stored QoS 1 publications');
+    const limit = Math.min(connection.maximumPacketSize ?? maxMqttPacketBytes, maxMqttPacketBytes);
+    for (const { topic, payloadBytes, propertyBytes } of publications.values()) {
+      if (publishSize(topic, payloadBytes, propertyBytes, 1) > limit)
+        return new MqttError('ERR_MQTT_SESSION_CONFLICT', 'Stored MQTT publication exceeds the Maximum Packet Size');
+    }
+    const resends: (readonly [OutgoingPublication, IdentifierLease])[] = [];
+    for (const [messageId, publication] of publications) resends.push([publication, this.identifiers.claim(messageId)]);
+    outbound.resume(resends, this.transmitter(true));
+    return undefined;
+  }
+
+  /** The caller may reuse its payload and Correlation Data once the publish settles, so the store keeps copies. */
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- OutgoingPublication carries the caller's Uint8Array payload and Correlation Data (src/publication.ts), which this method copies.
+  private store(publication: OutgoingPublication, messageId: number): void {
+    const { payload, properties } = publication;
+    const correlationData = properties?.correlationData;
+    this.session?.store.publications.set(messageId, {
+      ...publication,
+      payload: new Uint8Array(payload),
+      properties:
+        properties === undefined || correlationData === undefined
+          ? properties
+          : { ...properties, correlationData: new Uint8Array(correlationData) },
+    });
+  }
+
+  private settleStored(messageId: number, code: number, resent: boolean): void {
+    const session = this.session;
+    if (session === undefined) return;
+    const { publications } = session.store;
+    const topic = resent ? publications.get(messageId)?.topic : undefined;
+    publications.delete(messageId);
+    if (topic !== undefined) session.events?.resent(topic, messageId, code);
   }
 
   changeSubscription(topic: string, command: 'subscribe', qos?: number): Promise<SubscribeResult>;
@@ -464,23 +546,26 @@ class PortableClient<Bytes extends Uint8Array> {
     );
   }
 
-  private async transmitQosOne(
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- OutgoingPublication carries the caller's Uint8Array payload, which the PUBLISH must reference without a copy (src/publication.ts).
-    publication: OutgoingPublication,
-    messageId: number,
-    acknowledgment: Readonly<Promise<number>>,
-  ): Promise<number> {
-    let sent: Promise<void> | undefined;
-    try {
-      return await this.run(async () => {
-        sent = this.sendIdentified(publishPacket(publication, messageId), 'MQTT publication send failed');
-        const [code] = await Promise.all([acknowledgment, sent]);
-        return code;
-      }, 'outbound-publish');
-    } finally {
-      // Terminal failure can settle the caller before the native write releases its bytes.
-      await sent?.catch(() => {});
-    }
+  /** Write each QoS 1 PUBLISH with the DUP flag `dup` and wait for its PUBACK. */
+  private transmitter(dup: boolean) {
+    return async (
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- OutgoingPublication carries the caller's Uint8Array payload, which the PUBLISH must reference without a copy (src/publication.ts).
+      publication: OutgoingPublication,
+      messageId: number,
+      acknowledgment: Readonly<Promise<number>>,
+    ): Promise<number> => {
+      let sent: Promise<void> | undefined;
+      try {
+        return await this.run(async () => {
+          sent = this.sendIdentified(publishPacket(publication, messageId, dup), 'MQTT publication send failed');
+          const [code] = await Promise.all([acknowledgment, sent]);
+          return code;
+        }, 'outbound-publish');
+      } finally {
+        // Terminal failure can settle the caller before the native write releases its bytes.
+        await sent?.catch(() => {});
+      }
+    };
   }
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The transport accepts the original mutable packet shape.
@@ -488,10 +573,10 @@ class PortableClient<Bytes extends Uint8Array> {
     try {
       await this.sendPacket(packet);
     } catch (reason) {
-      const refusedBeforeWrite =
-        packet.cmd === 'publish' && packet.qos === 1 && takeNativeBudgetFailure(packet, reason) !== undefined;
       const failure = transportFailure(reason, fallback);
-      if (!refusedBeforeWrite) void this.abort(failure).catch(() => {});
+      if (packet.cmd === 'publish' && packet.qos === 1 && takeNativeBudgetFailure(packet, reason) !== undefined) {
+        if (packet.dup !== true) this.session?.store.publications.delete(packet.messageId);
+      } else void this.abort(failure).catch(() => {});
       throw failure;
     }
   }
@@ -710,6 +795,7 @@ class PortableClient<Bytes extends Uint8Array> {
   private fail(error: Readonly<Error>, kind: 'error' | 'disconnect' = 'error'): void {
     if (this.failure) return;
     this.failure = error;
+    this.releaseSession?.();
     this.drainingPublications = false;
     this.stopKeepAlive();
     this.nextInbound = undefined;
@@ -738,8 +824,12 @@ class PortableClient<Bytes extends Uint8Array> {
 }
 
 // Each PUBLISH with properties has every property key, set or undefined, so the encoder sees one object shape for them.
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- OutgoingPublication carries the caller's Uint8Array payload, which the PUBLISH must reference without a copy (src/publication.ts).
-function publishPacket({ topic, payload, retain, properties: p }: OutgoingPublication, messageId?: number): ClientPacket {
+function publishPacket(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- OutgoingPublication carries the caller's Uint8Array payload, which the PUBLISH must reference without a copy (src/publication.ts).
+  { topic, payload, retain, properties: p }: OutgoingPublication,
+  messageId?: number,
+  dup = false,
+): ClientPacket {
   if (messageId === undefined) {
     if (p === undefined) return { cmd: 'publish', topic, payload, retain };
     return {
@@ -755,14 +845,14 @@ function publishPacket({ topic, payload, retain, properties: p }: OutgoingPublic
       userProperties: p.userProperties,
     };
   }
-  if (p === undefined) return { cmd: 'publish', topic, payload, qos: 1, messageId, dup: false, retain };
+  if (p === undefined) return { cmd: 'publish', topic, payload, qos: 1, messageId, dup, retain };
   return {
     cmd: 'publish',
     topic,
     payload,
     qos: 1,
     messageId,
-    dup: false,
+    dup,
     retain,
     payloadFormatIndicator: p.payloadFormatIndicator,
     messageExpiryInterval: p.messageExpiryInterval,

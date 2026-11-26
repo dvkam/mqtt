@@ -1,6 +1,6 @@
 # Session Present and Clean Start
 
-The supported factories always send CONNECT with Clean Start true. They hold no prior broker session state. A CONNACK with Session Present true contradicts that request, so the shared session rejects it synchronously before acceptance with protocol error 0x82.
+The supported factories send CONNECT with Clean Start true unless the caller sets `cleanStart: false`. After Clean Start true, a CONNACK with Session Present true contradicts the request, so the shared session rejects it synchronously before acceptance with protocol error 0x82. After Clean Start false, the session accepts Session Present true and false, and `session.connection.sessionPresent` reports the flag. With a `sessionState`, Session Present true sends the stored QoS 1 publications again and Session Present false drops them. [Resuming the session](reconnect.md#resuming-the-session)
 
 [MQTT 5 section 3.2.2.1](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html) requires Session Present false when the server accepts Clean Start true. It also requires a client without prior session state to close when Session Present is true. Refused CONNACK packets must have Session Present false as well.
 
@@ -12,7 +12,7 @@ The same guard runs if a contradictory CONNACK arrives after an earlier acceptan
 
 The standalone portable codec still encodes and decodes successful CONNACK packets with Session Present true. It has no CONNECT context, and callers outside the supported factories can request Clean Start false. Its existing rejection of refused CONNACK plus Session Present true remains unchanged. The browser adapter may therefore reject that malformed refusal during decoding rather than produce the shared session's error text.
 
-This change adds no resume option, persistence store, reconnect policy or local session restoration. Future support for Clean Start false must change the CONNECT request, agreement checks, tests and verification together. Valid Session Present false remains accepted by the current profile.
+When this guard was added, it came with no resume option, persistence store, reconnect policy or local session restoration. Update, 26 November 2026: the pull request for `feat/session-resume` adds `cleanStart`, `sessionExpiryInterval` and an in-memory `sessionState`, and limits the guard to Clean Start true and to refused CONNACK packets. `test/session-resume.test.ts` covers both Session Present answers after Clean Start false and the refused CONNACK. The finite models below were not extended. They still assume Clean Start true.
 
 ## Evidence
 

@@ -63,7 +63,7 @@ const assignedKinds: Readonly<Record<number, number>> = {
   0x08: kinds.publish | kinds.will,
   0x09: kinds.publish | kinds.will,
   0x0b: kinds.publish,
-  0x11: kinds.connack,
+  0x11: kinds.connect | kinds.connack,
   0x12: kinds.connack,
   0x13: kinds.connack,
   0x15: kinds.connack,
