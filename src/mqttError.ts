@@ -34,10 +34,11 @@ const nonFatalByDefault: ReadonlySet<MqttErrorCode> = new Set(['ERR_MQTT_CAPACIT
 export class MqttError extends Error {
   readonly code: MqttErrorCode;
   readonly fatal: boolean;
-  readonly reasonCode?: number;
-  readonly reasonString?: string;
-  readonly userProperties?: readonly UserProperty[];
-  readonly cause?: unknown;
+  // The optional fields are declared without a runtime field, so an error that lacks one has no such key.
+  declare readonly reasonCode?: number;
+  declare readonly reasonString?: string;
+  declare readonly userProperties?: readonly UserProperty[];
+  declare readonly cause?: unknown;
 
   constructor(code: MqttErrorCode, message: string, details: Readonly<MqttErrorDetails> = {}) {
     super(message);
