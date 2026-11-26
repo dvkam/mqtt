@@ -299,9 +299,12 @@ class FrameWriter {
     this.offset = index;
   }
 
-  /** Copies a Uint8Array that `binarySize` measured. */
+  /**
+   * Copies a Uint8Array that `binarySize` measured. A Subscription Identifier getter runs after Correlation Data is sized
+   * and can resize its buffer, so the length is compared again.
+   */
   bytes(value: unknown, length: number): void {
-    if (!isBytes(value)) throw new RangeError('Invalid MQTT binary data');
+    if (!isBytes(value) || ownByteLength(value) !== length) throw new RangeError('MQTT bytes changed during encoding');
     this.frame.set(value, this.offset);
     this.offset += length;
   }
@@ -463,16 +466,12 @@ export function encodePacket(
       const topicSize = stringSize(name);
       const messageId = qos === 1 ? integer(packet.messageId, 65_535, 1) : undefined;
       let propertySize = 0;
-      // Key, value, key, value. Allocated only when the packet has User Properties.
-      let strings: readonly string[] = none;
-      // `?.` also treats a null from a JavaScript caller as empty, as the other packets' `?? []` does.
-      if ((pairs?.length ?? 0) > 0 && pairs !== undefined) {
-        const recorded: string[] = [];
-        for (const [key, value] of pairs) {
-          propertySize += 1 + stringSize(key) + stringSize(value);
-          recorded.push(key, value);
-        }
-        strings = recorded;
+      // Key, value, key, value. Allocated only when the packet has User Properties. `??` treats a null from a JavaScript
+      // caller as empty, as the other packets do.
+      let strings: string[] | undefined;
+      for (const [key, value] of pairs ?? none) {
+        propertySize += 1 + stringSize(key) + stringSize(value);
+        (strings ??= []).push(key, value);
       }
       if (payloadFormatIndicator !== undefined) {
         integer(payloadFormatIndicator, 1);
@@ -487,14 +486,10 @@ export function encodePacket(
       if (reply !== undefined) propertySize += 1 + stringSize(reply);
       const correlationSize = correlationData === undefined ? 0 : binarySize(correlationData, 65_535);
       if (correlationData !== undefined) propertySize += 3 + correlationSize;
-      let identifiers: readonly number[] = none;
-      if ((identifiersIn?.length ?? 0) > 0 && identifiersIn !== undefined) {
-        const recorded: number[] = [];
-        for (const identifier of identifiersIn) {
-          propertySize += 1 + variableSize(integer(identifier, 268_435_455, 1));
-          recorded.push(identifier);
-        }
-        identifiers = recorded;
+      let identifiers: number[] | undefined;
+      for (const identifier of identifiersIn ?? none) {
+        propertySize += 1 + variableSize(integer(identifier, 268_435_455, 1));
+        (identifiers ??= []).push(identifier);
       }
       const payloadSize = binarySize(payload, 268_435_455);
       const remaining = topicSize + (messageId === undefined ? 0 : 2) + variableSize(propertySize) + propertySize + payloadSize;
@@ -504,10 +499,10 @@ export function encodePacket(
       writer.string(name);
       if (messageId !== undefined) writer.uint16(messageId);
       writer.variable(propertySize);
-      for (let index = 0; index < strings.length; index += 2) {
+      for (let index = 0; index < (strings?.length ?? 0); index += 2) {
         writer.byte(0x26);
-        writer.string(strings[index] ?? '');
-        writer.string(strings[index + 1] ?? '');
+        writer.string(strings?.[index] ?? '');
+        writer.string(strings?.[index + 1] ?? '');
       }
       if (payloadFormatIndicator !== undefined) {
         writer.byte(0x01);
@@ -531,7 +526,7 @@ export function encodePacket(
         writer.uint16(correlationSize);
         writer.bytes(correlationData, correlationSize);
       }
-      for (const identifier of identifiers) {
+      for (const identifier of identifiers ?? none) {
         writer.byte(0x0b);
         writer.variable(identifier);
       }

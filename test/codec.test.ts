@@ -512,6 +512,26 @@ test('reads each User Property once and writes the value it checked', () => {
   expect(reads).toBe(1);
 });
 
+test('never emits a frame with a stale length if a Subscription Identifier getter resizes the Correlation Data', () => {
+  const { storage, resize } = resizableStorage(2);
+  const identifiers = [1];
+  Object.defineProperty(identifiers, 0, {
+    get: () => {
+      resize(1);
+      return 1;
+    },
+  });
+  expect(() =>
+    encodePacket({
+      cmd: 'publish',
+      topic: 'a',
+      payload: Uint8Array.of(1),
+      correlationData: new Uint8Array(storage),
+      subscriptionIdentifiers: identifiers,
+    }),
+  ).toThrow(new RangeError('MQTT bytes changed during encoding'));
+});
+
 test('treats a null User Property list from a JavaScript caller as empty', () => {
   const packet: Record<string, unknown> = { cmd: 'publish', topic: 'a', payload: Uint8Array.of(1), userProperties: null };
   expect(Reflect.apply(encodePacket, undefined, [packet])).toEqual(Uint8Array.of(0x30, 5, 0, 1, 97, 0, 1));
