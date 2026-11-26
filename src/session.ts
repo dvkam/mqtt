@@ -5,10 +5,12 @@ export type SessionEndObserver = (event: SessionEnd) => void | Promise<void>;
 
 /**
  * Publish options. A signal that is already aborted rejects the call before anything is sent. At QoS 1 a later abort
- * withdraws a publication that has not been written yet. At QoS 0 a later abort has no effect.
+ * withdraws a publication that is still queued. At QoS 0 a later abort has no effect.
  */
 export interface PublishOptions extends PublishProperties {
+  /** 0 sends the message once without an acknowledgment. 1 waits for the broker's PUBACK. Defaults to 0. */
   qos?: 0 | 1;
+  /** Cancels the publish while it is still queued. */
   signal?: AbortSignal;
 }
 

@@ -1,7 +1,7 @@
 import { MqttError } from './mqttError.js';
 import type { UserProperty } from './wireProperties.js';
-import { isBytes, maxBinaryBytes, ownByteLength } from './util/bytes.js';
-import { utf8Length } from './util/utf8.js';
+import { isBytes, maxBinaryBytes, ownByteLength, variableByteIntegerSize } from './util/bytes.js';
+import { loneSurrogate, utf8Length } from './util/utf8.js';
 import { validateMqttString, validateTopicName } from './util/validateTopic.js';
 
 /** The MQTT 5 properties and flags a caller can set on a PUBLISH. */
@@ -10,8 +10,9 @@ export interface PublishProperties {
   retain?: boolean;
   /** 1 marks the payload as UTF-8 text. A byte payload is then checked before it is sent. */
   payloadFormatIndicator?: 0 | 1;
-  /** Seconds the broker keeps the message for subscribers that have not received it. */
+  /** Seconds the broker keeps the message for subscribers that have not received it, from 0 to 4,294,967,295. */
   messageExpiryInterval?: number;
+  /** A description of the payload, such as a MIME type. */
   contentType?: string;
   /** The topic a responder publishes the reply to. */
   responseTopic?: string;
@@ -37,7 +38,7 @@ export interface OutgoingPublication {
   readonly payload: Uint8Array;
   readonly payloadBytes: number;
   readonly retain: boolean;
-  /** Absent when the caller set no property, which keeps the common PUBLISH small. */
+  /** Undefined when the caller set no property, so the PUBLISH packet carries no property keys. */
   readonly properties: PublicationProperties | undefined;
   /** Encoded property section, including its variable byte integer length. An empty section is one byte. */
   readonly propertyBytes: number;
@@ -47,14 +48,9 @@ type RuntimeOptions = Readonly<Partial<Record<keyof PublishProperties, unknown>>
 
 const payloadEncoder = new TextEncoder();
 const utf8Check = new TextDecoder('utf-8', { fatal: true });
-const loneSurrogate = /[\uD800-\uDFFF]/u;
 
 function invalid(message: string): MqttError {
   return new MqttError('ERR_MQTT_INVALID_ARGUMENT', message);
-}
-
-function variableLength(value: number): number {
-  return value < 128 ? 1 : value < 16_384 ? 2 : value < 2_097_152 ? 3 : 4;
 }
 
 function encodePayload(payload: unknown, maxBytes: number): Uint8Array {
@@ -90,11 +86,7 @@ function optionalUserProperties(value: unknown): UserProperty[] | undefined {
   return pairs;
 }
 
-// `byteSource` is the byte payload, or undefined for a text payload, which is valid UTF-8 already.
-function capturedProperties(
-  options: RuntimeOptions,
-  byteSource: unknown,
-): { properties: PublicationProperties | undefined; propertyBytes: number } {
+function capturedProperties(options: RuntimeOptions): { properties: PublicationProperties | undefined; propertyBytes: number } {
   const { payloadFormatIndicator, messageExpiryInterval, contentType, responseTopic, correlationData, userProperties } = options;
   if (
     payloadFormatIndicator === undefined &&
@@ -108,13 +100,6 @@ function capturedProperties(
   let size = 0;
   if (payloadFormatIndicator !== undefined) {
     if (payloadFormatIndicator !== 0 && payloadFormatIndicator !== 1) throw invalid('Invalid MQTT Payload Format Indicator');
-    if (payloadFormatIndicator === 1 && isBytes(byteSource)) {
-      try {
-        utf8Check.decode(byteSource);
-      } catch {
-        throw invalid('MQTT publish payload is not valid UTF-8');
-      }
-    }
     size += 2;
   }
   if (messageExpiryInterval !== undefined) {
@@ -150,7 +135,7 @@ function capturedProperties(
       correlationData,
       userProperties: pairs,
     },
-    propertyBytes: variableLength(size) + size,
+    propertyBytes: variableByteIntegerSize(size) + size,
   };
 }
 
@@ -171,6 +156,14 @@ export function capturePublication(
   const { retain } = options;
   if (retain !== undefined && typeof retain !== 'boolean') throw invalid('Invalid MQTT retain flag');
   if (retain === true && !retainAvailable) throw invalid('Broker does not support retained messages');
-  const { properties, propertyBytes } = capturedProperties(options, typeof payload === 'string' ? undefined : bytes);
+  const { properties, propertyBytes } = capturedProperties(options);
+  // A text payload is valid UTF-8 already. A byte payload marked as UTF-8 is checked once here.
+  if (properties?.payloadFormatIndicator === 1 && typeof payload !== 'string') {
+    try {
+      utf8Check.decode(bytes);
+    } catch {
+      throw invalid('MQTT publish payload is not valid UTF-8');
+    }
+  }
   return { topic, payload: bytes, payloadBytes, retain: retain === true, properties, propertyBytes };
 }

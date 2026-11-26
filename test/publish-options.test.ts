@@ -1,13 +1,14 @@
 import { expect, test } from 'vitest';
 import { encodePacket, PacketDecoder, type ClientPacket } from '../src/codec.js';
 import { connectPortable, type PacketTransport } from '../src/portable.js';
+import { capturePublication, type PublishProperties } from '../src/publication.js';
 
 // Accepts CONNECT and answers every QoS 1 PUBLISH with a successful PUBACK. Records the packets the session sends.
 async function connected(limits: Readonly<{ maxPendingPublishBytes?: number }> = {}, retainAvailable = true) {
   let deliver: Parameters<PacketTransport['listen']>[0] | undefined;
   const sent: ClientPacket[] = [];
   const transport: PacketTransport = {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- PacketTransport.send in src/portable.ts receives the session's ClientPacket, whose PUBLISH payload is a native Uint8Array.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- PacketTransport.send in src/portable.ts receives the session's ClientPacket, whose PUBLISH payload is a native Uint8Array, and returns a promise. This fixture replies synchronously inside it.
     async send(packet) {
       sent.push(packet);
       if (packet.cmd === 'connect') deliver?.({ cmd: 'connack', sessionPresent: false, reasonCode: 0, retainAvailable });
@@ -133,6 +134,8 @@ test.each([
   ['a User Property that is not a pair', (): Record<string, unknown> => ({ userProperties: [['k']] })],
   ['a User Property with an unpaired surrogate', (): Record<string, unknown> => ({ userProperties: [['k', '\uD800']] })],
   ['a retain flag that is not a boolean', (): Record<string, unknown> => ({ retain: 'yes' })],
+  ['a signal that is not an AbortSignal at QoS 0', (): Record<string, unknown> => ({ signal: {} })],
+  ['a signal that is not an AbortSignal at QoS 1', (): Record<string, unknown> => ({ qos: 1, signal: {} })],
   [
     'a byte payload marked as UTF-8 that is not UTF-8',
     (): Record<string, unknown> => ({ payloadFormatIndicator: 1, payload: Uint8Array.of(0xff) }),
@@ -205,4 +208,33 @@ test('republishes a received message with its properties', async () => {
     retain: false,
     contentType: 'c',
   });
+});
+
+test.each([
+  ['no property', (): PublishProperties => ({})],
+  ['every property', (): PublishProperties => properties],
+  [
+    'non-ASCII strings',
+    (): PublishProperties => ({ contentType: 'tëxt/π', responseTopic: 'réply/😀', userProperties: [['ключ', '値']] }),
+  ],
+  [
+    'a property section over 127 bytes',
+    (): PublishProperties => ({ correlationData: new Uint8Array(200), userProperties: [['k', 'v'.repeat(20_000)]] }),
+  ],
+])('admission sizes the property section the encoder writes, with %s', (_name, make) => {
+  const options = make();
+  const topic = 'sized';
+  const payload = Uint8Array.of(1, 2, 3);
+  const publication = capturePublication(topic, payload, options, true, Number.MAX_SAFE_INTEGER);
+  const { retain: _retain, ...propertyFields } = options;
+  const frame = encodePacket({ cmd: 'publish', topic, payload, ...propertyFields });
+  let remaining = 0;
+  let headerBytes = 1;
+  for (let shift = 0; ; shift += 7) {
+    const digit = frame[headerBytes++] ?? 0;
+    remaining += (digit & 127) * 2 ** shift;
+    if (digit < 128) break;
+  }
+  expect(headerBytes + remaining).toBe(frame.length);
+  expect(publication.propertyBytes).toBe(remaining - (2 + topic.length) - payload.length);
 });

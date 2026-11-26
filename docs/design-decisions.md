@@ -24,7 +24,7 @@ Question: how does a caller publish bytes, set retain and attach MQTT 5 properti
 
 Reason given in #151: callers cannot send bytes, retain or properties, and a lone surrogate silently changes on the wire.
 
-Consequences: a string with an unpaired surrogate, an invalid property and `retain` without broker support each reject with `ERR_MQTT_INVALID_ARGUMENT` before admission. A QoS 0 publish honors a signal that is already aborted. Admission counts the property section. The client writes a byte payload and Correlation Data without a copy, so callers must not change them before the publish settles. #151 does not say whether to copy.
+Consequences: a string with an unpaired surrogate, an invalid property and `retain` without broker support each reject with `ERR_MQTT_INVALID_ARGUMENT` before admission. A QoS 0 publish honors a signal that is already aborted. Admission counts the property section. The client keeps a reference to a byte payload and to Correlation Data until it writes the PUBLISH, so callers must not change them before the publish settles. #151 does not say whether to copy.
 
 What follows: the client does not yet check a PUBLISH against the broker's Maximum Packet Size from CONNACK.
 

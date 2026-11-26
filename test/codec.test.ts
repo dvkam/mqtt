@@ -480,6 +480,52 @@ test('sizes and copies the same PUBLISH payload when options use a getter', () =
   expect(reads).toBe(1);
 });
 
+test('reads each PUBLISH field once', () => {
+  const reads = { topic: 0, qos: 0, dup: 0 };
+  const frame = encodePacket({
+    cmd: 'publish',
+    payload: Uint8Array.of(0x5a),
+    messageId: 7,
+    get topic() {
+      reads.topic++;
+      return reads.topic === 1 ? 'ab' : 'a';
+    },
+    get qos(): 1 {
+      reads.qos++;
+      return 1;
+    },
+    get dup() {
+      reads.dup++;
+      return reads.dup === 1;
+    },
+  });
+  expect(frame).toEqual(Uint8Array.of(0x3a, 8, 0, 2, 97, 98, 0, 7, 0, 0x5a));
+  expect(reads).toEqual({ topic: 1, qos: 1, dup: 1 });
+});
+
+test.each([
+  ['shrinks', 'v'],
+  ['grows', 'vvv'],
+])('never emits a frame with a stale length if a User Property %s on its second read', (_change, second) => {
+  // The encoder reads each User Property once to size the frame and once to write it.
+  const pair: [string, string] = ['k', 'vv'];
+  let reads = 0;
+  Object.defineProperty(pair, 1, { get: () => (++reads === 1 ? 'vv' : second) });
+  expect(() => encodePacket({ cmd: 'publish', topic: 'a', payload: Uint8Array.of(1), userProperties: [pair] })).toThrow(RangeError);
+});
+
+test.each([
+  ['a string', (): unknown => 'abc'],
+  ['a DataView', (): unknown => new DataView(new ArrayBuffer(2))],
+  ['a Uint16Array', (): unknown => Uint16Array.of(1)],
+])('rejects %s as a PUBLISH payload', (_name, make) => {
+  // The test passes a value the types exclude, as a JavaScript caller could.
+  const packet: Record<string, unknown> = { cmd: 'publish', topic: 'a', payload: make() };
+  expect(() => {
+    Reflect.apply(encodePacket, undefined, [packet]);
+  }).toThrow(new RangeError('Invalid MQTT binary data'));
+});
+
 function resizableStorage(length: number) {
   const storage: unknown = Reflect.construct(ArrayBuffer, [length, { maxByteLength: 2 }]);
   if (!(storage instanceof ArrayBuffer)) throw new Error('Expected resizable storage');

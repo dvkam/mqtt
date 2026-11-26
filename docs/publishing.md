@@ -7,11 +7,11 @@ await session.publish('sensor/7/reading', '24.1');
 await session.publish('sensor/7/frame', Uint8Array.of(0x01, 0x02, 0x03), { qos: 1 });
 ```
 
-The client writes a `Uint8Array` payload and Correlation Data as given, without a copy. Do not change those bytes before the returned promise settles.
+The client keeps a reference to a `Uint8Array` payload and to Correlation Data, and copies them into the frame when it writes the PUBLISH. Do not change those bytes before the returned promise settles.
 
 ## Options
 
-`PublishOptions` holds the QoS, a cancellation signal, the retain flag and the MQTT 5 PUBLISH properties. Leave out a property to send none.
+`PublishOptions` holds the QoS, a cancellation signal, the retain flag and the MQTT 5 PUBLISH properties. An omitted property is not sent.
 
 | Option | Type | Sent as |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ const source = await createTcpClient({
   host: 'broker.example',
   clientId: 'forwarder',
   onMessage(message) {
-    void archive.publish('archive/' + message.topic, message.payload, message);
+    archive.publish('archive/' + message.topic, message.payload, message).catch(report);
   },
 }).connect();
 ```
@@ -62,7 +62,7 @@ Each check runs before the publication is admitted or written. A failed check re
 - A string payload with an unpaired surrogate is rejected. The UTF-8 encoder would otherwise replace it with U+FFFD.
 - With `payloadFormatIndicator: 1`, a byte payload must be valid UTF-8.
 - `retain: true` is rejected when the broker's CONNACK set Retain Available to 0.
-- Strings follow the MQTT UTF-8 string rules: at most 65,535 bytes, no U+0000 and no unpaired surrogate.
+- The Content Type, Response Topic and User Property strings follow the MQTT UTF-8 string rules: at most 65,535 bytes, no U+0000 and no unpaired surrogate. A text payload has no length or U+0000 limit, but it must not contain an unpaired surrogate.
 
 The publication byte limit, `maxPendingPublishBytes`, counts the whole PUBLISH, including the property section. A publication that does not fit rejects with `ERR_MQTT_CAPACITY`. [Outgoing admission](outgoing-admission.md)
 

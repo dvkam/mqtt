@@ -97,8 +97,8 @@ export type PublishOptionsCarryProperties = RequireTrue<
   NonNullable<Parameters<Publish>[2]> extends Readonly<PublishProperties> ? true : false
 >;
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture passes a native AbortSignal and Buffer payload as ClientSession.publish declares them.
-export async function publishWithProperties(session: ClientSession, signal: AbortSignal): Promise<void> {
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- AbortSignal is a native mutable object, and ClientSession.publish takes it by identity.
+export async function publishWithProperties(session: Readonly<ClientSession>, signal: AbortSignal): Promise<void> {
   await session.publish('bytes', Buffer.from([1, 2]), { signal });
   await session.publish('reply', 'text', {
     qos: 1,

@@ -3,8 +3,8 @@ import { ProtocolInputError } from './protocolInputError.js';
 import { isSubscriptionReason } from './subscriptionReason.js';
 import { isPubackReason } from './pubackReason.js';
 import { captureWill, validateWillPayload, type WillMessage } from './will.js';
-import { isBytes, ownByteLength } from './util/bytes.js';
-import { utf8Length } from './util/utf8.js';
+import { isBytes, ownByteLength, variableByteIntegerSize } from './util/bytes.js';
+import { loneSurrogate, utf8Length } from './util/utf8.js';
 import {
   decodeUtf8,
   readProperties,
@@ -227,26 +227,37 @@ function join(parts: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
   return result;
 }
 
+function checkString(value: string): void {
+  if (value.includes('\u0000') || loneSurrogate.test(value)) throw new Error('Invalid MQTT UTF-8 string');
+}
+
 function utf8(value: string): Uint8Array<ArrayBuffer> {
-  if (value.includes('\u0000') || /[\uD800-\uDFFF]/u.test(value)) throw new Error('Invalid MQTT UTF-8 string');
+  checkString(value);
   const bytes = encoder.encode(value);
   return join([uint16(bytes.length), bytes]);
 }
 
-const loneSurrogate = /[\uD800-\uDFFF]/u;
-
 /** The encoded size of an MQTT UTF-8 string, including its two-byte length. */
 function stringSize(value: string): number {
-  if (value.includes('\u0000') || loneSurrogate.test(value)) throw new Error('Invalid MQTT UTF-8 string');
+  checkString(value);
   return 2 + integer(utf8Length(value), 65_535);
 }
 
 function variableSize(value: number): number {
-  integer(value, 268_435_455);
-  return value < 128 ? 1 : value < 16_384 ? 2 : value < 2_097_152 ? 3 : 4;
+  return variableByteIntegerSize(integer(value, 268_435_455));
 }
 
-/** Writes one frame into a single allocation. The caller sizes the frame first and checks each value. */
+function binarySize(value: unknown, maximum: number): number {
+  if (!isBytes(value)) throw new RangeError('Invalid MQTT binary data');
+  return integer(ownByteLength(value), maximum);
+}
+
+const none: readonly never[] = [];
+
+/**
+ * Writes one frame into a single allocation. The caller sizes the frame first and checks each value. A getter can return a
+ * different value on the second read, so `checkpoint` and `finish` compare each section with the size measured for it.
+ */
 class FrameWriter {
   readonly frame: Uint8Array<ArrayBuffer>;
   offset = 0;
@@ -286,6 +297,7 @@ class FrameWriter {
       frame[index++] = code;
     }
     const length = index - start - 2;
+    if (length > 65_535) throw new RangeError('MQTT string changed during encoding');
     frame[start] = length >> 8;
     frame[start + 1] = length & 255;
     this.offset = index;
@@ -296,6 +308,15 @@ class FrameWriter {
     if (!isBytes(value) || ownByteLength(value) !== length) throw new RangeError('MQTT bytes changed during encoding');
     this.frame.set(value, this.offset);
     this.offset += length;
+  }
+
+  checkpoint(expected: number): void {
+    if (this.offset !== expected) throw new RangeError('MQTT field changed during encoding');
+  }
+
+  finish(): Uint8Array<ArrayBuffer> {
+    this.checkpoint(this.frame.length);
+    return this.frame;
   }
 }
 
@@ -375,11 +396,6 @@ function properties(
     if (packet.sharedSubscriptionAvailable !== undefined)
       parts.push(Uint8Array.of(0x2a, packet.sharedSubscriptionAvailable ? 1 : 0));
   }
-  if (packet.cmd === 'publish') {
-    appendPublicationProperties(parts, packet);
-    for (const identifier of packet.subscriptionIdentifiers ?? [])
-      parts.push(Uint8Array.of(0x0b), variable(integer(identifier, 268_435_455, 1)));
-  }
   if ((packet.cmd === 'connack' || packet.cmd === 'disconnect') && packet.serverReference !== undefined)
     parts.push(Uint8Array.of(0x1c), utf8(packet.serverReference));
   if (
@@ -436,25 +452,30 @@ export function encodePacket(
       body = join([Uint8Array.of(packet.sessionPresent ? 1 : 0, packet.reasonCode), properties(packet)]);
       break;
     case 'publish': {
-      // Every field is sized first, so the frame is allocated once. The checks run in the same order as before.
-      topic(packet.topic, false);
-      header = 0x30 | (packet.retain === true ? 1 : 0);
-      integer(packet.qos ?? 0, 1);
-      if (packet.qos === 1) header |= 2 | (packet.dup === true ? 8 : 0);
-      else if ('messageId' in packet || 'dup' in packet) throw new Error('Unsupported QoS 0 PUBLISH field');
-      const topicSize = stringSize(packet.topic);
-      const messageId = packet.qos === 1 ? integer(packet.messageId, 65_535, 1) : undefined;
+      // Every field is read once and sized first, so the frame is allocated once.
       const {
+        topic: name,
+        qos,
+        dup,
+        retain,
         payload,
-        userProperties,
+        userProperties = none,
         payloadFormatIndicator,
         messageExpiryInterval,
         contentType,
+        responseTopic: replyTopic,
         correlationData,
-        subscriptionIdentifiers,
+        subscriptionIdentifiers = none,
       } = packet;
+      topic(name, false);
+      header = 0x30 | (retain === true ? 1 : 0);
+      integer(qos ?? 0, 1);
+      if (qos === 1) header |= 2 | (dup === true ? 8 : 0);
+      else if ('messageId' in packet || 'dup' in packet) throw new Error('Unsupported QoS 0 PUBLISH field');
+      const topicSize = stringSize(name);
+      const messageId = qos === 1 ? integer(packet.messageId, 65_535, 1) : undefined;
       let propertySize = 0;
-      for (const [key, value] of userProperties ?? []) propertySize += 1 + stringSize(key) + stringSize(value);
+      for (const [key, value] of userProperties) propertySize += 1 + stringSize(key) + stringSize(value);
       if (payloadFormatIndicator !== undefined) {
         integer(payloadFormatIndicator, 1);
         propertySize += 2;
@@ -464,20 +485,23 @@ export function encodePacket(
         propertySize += 5;
       }
       if (contentType !== undefined) propertySize += 1 + stringSize(contentType);
-      const reply = packet.responseTopic === undefined ? undefined : responseTopic(packet.responseTopic);
+      const reply = replyTopic === undefined ? undefined : responseTopic(replyTopic);
       if (reply !== undefined) propertySize += 1 + stringSize(reply);
-      const correlationSize = correlationData === undefined ? 0 : integer(ownByteLength(correlationData), 65_535);
+      const correlationSize = correlationData === undefined ? 0 : binarySize(correlationData, 65_535);
       if (correlationData !== undefined) propertySize += 3 + correlationSize;
-      for (const identifier of subscriptionIdentifiers ?? []) propertySize += 1 + variableSize(integer(identifier, 268_435_455, 1));
-      const payloadSize = ownByteLength(payload);
+      for (const identifier of subscriptionIdentifiers) propertySize += 1 + variableSize(integer(identifier, 268_435_455, 1));
+      const payloadSize = binarySize(payload, 268_435_455);
       const remaining = topicSize + (messageId === undefined ? 0 : 2) + variableSize(propertySize) + propertySize + payloadSize;
       const writer = new FrameWriter(1 + variableSize(remaining) + remaining);
       writer.byte(header);
       writer.variable(remaining);
-      writer.string(packet.topic);
+      const fieldsStart = writer.offset;
+      writer.string(name);
       if (messageId !== undefined) writer.uint16(messageId);
       writer.variable(propertySize);
-      for (const [key, value] of userProperties ?? []) {
+      const propertiesStart = writer.offset;
+      writer.checkpoint(fieldsStart + topicSize + (messageId === undefined ? 0 : 2) + variableSize(propertySize));
+      for (const [key, value] of userProperties) {
         writer.byte(0x26);
         writer.string(key);
         writer.string(value);
@@ -504,12 +528,13 @@ export function encodePacket(
         writer.uint16(correlationSize);
         writer.bytes(correlationData, correlationSize);
       }
-      for (const identifier of subscriptionIdentifiers ?? []) {
+      for (const identifier of subscriptionIdentifiers) {
         writer.byte(0x0b);
         writer.variable(identifier);
       }
+      writer.checkpoint(propertiesStart + propertySize);
       writer.bytes(payload, payloadSize);
-      return writer.frame;
+      return writer.finish();
     }
     case 'puback': {
       const identifier = uint16(integer(packet.messageId, 65_535, 1));

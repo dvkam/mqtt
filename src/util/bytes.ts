@@ -14,8 +14,17 @@ export function isBytes(value: unknown): value is Uint8Array {
   return ArrayBuffer.isView(value) && arrayTag?.call(value) === 'Uint8Array';
 }
 
-// A subclass can override the byteLength getter. Size checks read the typed array's own length instead.
+/**
+ * The length of a Uint8Array as its internal slot holds it, because a subclass can override the byteLength getter.
+ * Infinity for any other value, so a size check rejects it.
+ */
 export function ownByteLength(value: unknown): number {
+  if (!isBytes(value)) return Number.POSITIVE_INFINITY;
   const length: unknown = arrayByteLength?.call(value);
   return typeof length === 'number' ? length : Number.POSITIVE_INFINITY;
+}
+
+/** The size of an MQTT Variable Byte Integer for a value from 0 to 268,435,455. */
+export function variableByteIntegerSize(value: number): number {
+  return value < 128 ? 1 : value < 16_384 ? 2 : value < 2_097_152 ? 3 : 4;
 }

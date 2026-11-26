@@ -14,7 +14,7 @@ Use `import type` for the named contracts. TypeScript 7.0.2 is the supported com
 | `ClientFactory`                                                                   | Both client entries                     | One cached connection attempt through `connect()`                                                                                            |
 | `ClientSession`                                                                   | Both client entries                     | Subscribe, unsubscribe, text and byte publish, ping and disconnect promises |
 | `BrowserSession`                                                                  | `mqtt/browser`                          | Alias for `ClientSession`                                                                                                                    |
-| `PublishOptions`, `SubscribeOptions`                                              | Both client entries                     | QoS, cancellation, retain and the MQTT 5 PUBLISH properties. See [publishing](publishing.md). |
+| `PublishOptions`, `PublishProperties`, `SubscribeOptions` | Both client entries and `mqtt/portable` | QoS, cancellation, retain and the MQTT 5 PUBLISH properties. See [publishing](publishing.md). |
 | `DisconnectOptions` | `mqtt`, `mqtt/browser`, `mqtt/portable` | QoS 1 drain, drain timeout, and normal or Will disconnection reason |
 | `WillOptions` | `mqtt`, `mqtt/ws`, `mqtt/browser`, `mqtt/portable` | Will topic, string or byte payload, QoS 0, 1, or 2, retain, and Will properties |
 | `ConnectionInfo`, `SubscribeResult`, `UnsubscribeResult` | `mqtt`, `mqtt/ws`, `mqtt/browser`, `mqtt/portable` | Negotiated connection snapshot and successful subscription outcomes |

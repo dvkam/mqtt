@@ -439,7 +439,9 @@ class PortableClient<Bytes extends Uint8Array> {
     if (!validateTopicName(topic)) throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'Invalid MQTT topic name');
     const qos: unknown = options?.qos ?? 0;
     if (qos !== 0 && qos !== 1) throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'Unsupported MQTT publish QoS');
-    const signal = options?.signal;
+    const signal: unknown = options?.signal;
+    if (signal !== undefined && !(signal instanceof AbortSignal))
+      throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'MQTT publish signal must be an AbortSignal');
     signal?.throwIfAborted();
     if (qos === 1 && !this.outbound) throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'Broker does not support QoS 1');
     const publication = capturePublication(topic, payload, options, this.retainAvailable, this.publications.byteLimit);

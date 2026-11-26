@@ -1,3 +1,6 @@
+/** Matches an unpaired surrogate. With the u flag, a surrogate pair reads as one code point outside the range. */
+export const loneSurrogate = /[\uD800-\uDFFF]/u;
+
 /** UTF-8 byte length of a well-formed string. Stops counting once the count passes `limit`. */
 export function utf8Length(value: string, limit = Number.POSITIVE_INFINITY): number {
   let bytes = 0;

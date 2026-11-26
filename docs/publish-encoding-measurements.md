@@ -24,9 +24,9 @@ Median sampled bytes from three runs, with the same sampling settings as the all
 | ascii-65536 | 2,000 | 4,456,184 | 2,341,728 | 5,183,232 |
 | properties-256 | 10,000 | 80,669,792 | 23,588,968 | Outside matched workload |
 
-The 4 KiB and 64 KiB ranges overlap, because the payload copy dominates them. The isolated minified Vite ESM codec measured 28,602 bytes before and 30,841 after. Gzip measured 7,368 and 7,976 bytes.
+In Node, the 4 KiB and 64 KiB ranges overlap, because the payload copy dominates them. In Chromium, the new encoder is faster for both sizes. The isolated minified Vite ESM codec measured 28,602 bytes before and 30,841 after. Gzip measured 7,368 and 7,976 bytes.
 
-The installed client shows the same change. Five pairs of 500,000 sequential QoS 0 publishes through `test/bench/packed-qos0.ts` measured a median of 295,615 publishes per second on `74234c0` (263,220 to 313,770) and 426,145 with this encoder (398,220 to 462,310). V8 sampling estimated 4,704 allocated bytes per publish before and 3,051 after. With the same payload as bytes, the median was 637,158 publishes per second and 2,854 bytes per publish. With a Content Type, 4 bytes of Correlation Data and one User Property, the median was 141,620 before this encoder and 479,440 after, and the allocation estimate fell from 9,314 to 3,399 bytes per publish. A `--trace-deopt` run of each workload showed only single deoptimizations during warmup.
+The installed client shows the same change. Five pairs of 500,000 sequential QoS 0 publishes through `test/bench/packed-qos0.ts` measured a median of 285,829 publishes per second on `74234c0` (274,690 to 299,960) and 394,160 with this encoder (359,320 to 414,910). V8 sampling estimated 4,706 allocated bytes per publish before and 3,090 after. With the same payload as bytes, the median was 617,759 publishes per second and 2,848 bytes per publish. With a Content Type, 4 bytes of Correlation Data and one User Property, the median was 141,620 on the first commit of this change, which uses the earlier encoder, and 457,235 after, and the allocation estimate fell from 9,314 to 3,358 bytes per publish. A `--trace-deopt` run of each workload showed only single deoptimizations during warmup.
 
 ## Field assembly from encoded parts
 
