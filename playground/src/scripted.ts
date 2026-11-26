@@ -14,15 +14,29 @@ export function matches(filter: string, topic: string): boolean {
   return filterLevels.length === topicLevels.length;
 }
 
+/** A broker in the page, and the way to end its open connection. */
+export interface ScriptedBroker {
+  /** Opens one connection for each attempt. */
+  readonly transport: ByteTransport;
+  /** Ends the open connection as a peer close would. Returns false when no connection is open. */
+  drop(): boolean;
+}
+
 /**
  * A broker that runs in the page. It accepts CONNECT, grants every SUBSCRIBE, acknowledges QoS 1 PUBLISH, answers
  * PINGREQ and sends each PUBLISH back to the subscriptions it matches. It refuses the topic `playground/refused` with
- * PUBACK reason 0x87, so the page can show a refusal.
+ * PUBACK reason 0x87, so the page can show a refusal. It never acknowledges `playground/unacknowledged`, so a drop leaves
+ * that publication uncertain. Each connection starts with no subscriptions, as a clean session does.
  */
-export function scriptedBroker(): ByteTransport {
-  return {
+export function scriptedBroker(): ScriptedBroker {
+  let end: (() => void) | undefined;
+  const transport: ByteTransport = {
     name: 'Scripted broker',
     async open(inbound) {
+      const current = () => {
+        inbound.end();
+      };
+      end = current;
       const decoder = new PacketDecoder();
       const subscriptions = new Map<string, 0 | 1>();
       let nextId = 1;
@@ -53,6 +67,7 @@ export function scriptedBroker(): ByteTransport {
                 break;
               case 'publish': {
                 const refused = packet.topic === 'playground/refused';
+                if (packet.qos === 1 && packet.topic === 'playground/unacknowledged') break;
                 if (packet.qos === 1) reply({ cmd: 'puback', messageId: packet.messageId, reasonCode: refused ? 0x87 : 0 });
                 if (refused) break;
                 for (const [filter, granted] of subscriptions) {
@@ -71,8 +86,20 @@ export function scriptedBroker(): ByteTransport {
             }
           }
         },
-        async close() {},
+        async close() {
+          if (end === current) end = undefined;
+        },
       };
+    },
+  };
+  return {
+    transport,
+    drop() {
+      if (end === undefined) return false;
+      const current = end;
+      end = undefined;
+      current();
+      return true;
     },
   };
 }

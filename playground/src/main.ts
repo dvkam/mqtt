@@ -1,14 +1,17 @@
 import {
   createBrowserClient,
+  createReconnectingClient,
   isMqttError,
   type BrowserMessage,
   type BrowserQosOneMessage,
   type ClientDiagnostic,
   type ClientSession,
+  type ReconnectEvent,
+  type ReconnectingClient,
   type SessionEnd,
 } from 'mqtt/browser';
 import { createTransportClient } from 'mqtt/portable';
-import { scriptedBroker } from './scripted.js';
+import { scriptedBroker, type ScriptedBroker } from './scripted.js';
 
 function element<Type extends HTMLElement>(id: string, type: new () => Type): Type {
   const found = document.getElementById(id);
@@ -35,11 +38,16 @@ const publishButton = element('publish', HTMLButtonElement);
 const drain = element('drain', HTMLInputElement);
 const sendWill = element('send-will', HTMLInputElement);
 const disconnectButton = element('disconnect', HTMLButtonElement);
+const dropButton = element('drop', HTMLButtonElement);
+const reconnects = element('reconnects', HTMLOListElement);
 const results = element('results', HTMLOListElement);
 const messages = element('messages', HTMLOListElement);
 const diagnostics = element('diagnostics', HTMLOListElement);
 
+let client: ReconnectingClient | undefined;
 let session: ClientSession | undefined;
+let broker: ScriptedBroker | undefined;
+const subscribed = new Map<string, 0 | 1>();
 const decoder = new TextDecoder();
 
 function log(list: HTMLOListElement, text: string, kind = 'info'): void {
@@ -58,11 +66,12 @@ function describe(error: unknown): string {
   return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }
 
-function setConnected(connected: boolean): void {
-  connectButton.disabled = connected;
-  subscribeButton.disabled = !connected;
-  publishButton.disabled = !connected;
-  disconnectButton.disabled = !connected;
+function setState(state: 'idle' | 'waiting' | 'connected'): void {
+  connectButton.disabled = state !== 'idle';
+  subscribeButton.disabled = state !== 'connected';
+  publishButton.disabled = state !== 'connected';
+  disconnectButton.disabled = state === 'idle';
+  dropButton.disabled = state !== 'connected' || broker === undefined;
 }
 
 function qos(select: HTMLSelectElement): 0 | 1 {
@@ -78,50 +87,98 @@ function showMessage(message: BrowserMessage | BrowserQosOneMessage): void {
   log(messages, `${message.topic} [QoS ${String(message.qos)}] ${decoder.decode(message.payload)}`);
 }
 
+function previousEnd(end: SessionEnd | undefined): string {
+  if (end === undefined) return 'none';
+  if (end.kind === 'disconnect') return 'disconnect';
+  const uncertain = (end.uncertain ?? []).map(
+    (publication) => `${publication.topic} #${String(publication.messageId)}${publication.acknowledged ? ' acknowledged' : ''}`,
+  );
+  return `${describe(end.error)}; uncertain publications: ${uncertain.length === 0 ? 'none' : uncertain.join(', ')}`;
+}
+
+async function subscribeAgain(current: ClientSession): Promise<void> {
+  for (const [filter, level] of subscribed) {
+    try {
+      await current.subscribe(filter, { qos: level });
+      log(results, `subscribed ${filter} again after the reconnect`, 'ok');
+    } catch (error) {
+      log(results, `subscribe ${filter} again failed: ${describe(error)}`, 'error');
+    }
+  }
+}
+
+function onReconnect(event: ReconnectEvent): void {
+  if (event.kind === 'connected') {
+    session = event.session;
+    snapshot.textContent = JSON.stringify(event.session.connection, undefined, 2);
+    log(
+      reconnects,
+      `connected generation ${String(event.generation)} attempt ${String(event.attempt)}, previous end: ${previousEnd(event.previous)}`,
+      'ok',
+    );
+    if (event.generation === 1) log(results, `connected as ${event.session.connection.clientId}`, 'ok');
+    setState('connected');
+    if (event.generation > 1) void subscribeAgain(event.session);
+  } else if (event.kind === 'retrying') {
+    session = undefined;
+    snapshot.textContent = 'Waiting to reconnect';
+    log(
+      reconnects,
+      `retrying attempt ${String(event.attempt)} in ${String(Math.round(event.delayMs))} ms after ${describe(event.error)}`,
+      'error',
+    );
+    setState('waiting');
+  } else {
+    client = undefined;
+    session = undefined;
+    broker = undefined;
+    subscribed.clear();
+    snapshot.textContent = 'Not connected';
+    log(
+      reconnects,
+      `stopped: ${event.reason}${event.error === undefined ? '' : ` ${describe(event.error)}`}`,
+      event.error === undefined ? 'info' : 'error',
+    );
+    setState('idle');
+  }
+}
+
 mode.addEventListener('change', () => {
   url.disabled = mode.value === 'scripted';
 });
 url.disabled = mode.value === 'scripted';
 
 connectButton.addEventListener('click', () => {
-  void (async () => {
-    connectButton.disabled = true;
-    // The credentials stay in the form fields and this call. The page stores nothing.
-    const shared = {
-      clientId: clientId.value,
-      onDiagnostic,
-      onMessage: showMessage,
-      onQosOneMessage: showMessage,
-      onSessionEnd(event: SessionEnd) {
-        log(results, event.kind === 'error' ? `session ended: ${describe(event.error)}` : 'session ended: disconnect', event.kind);
-        session = undefined;
-        setConnected(false);
-        snapshot.textContent = 'Not connected';
-      },
-      ...(username.value === '' ? {} : { username: username.value }),
-      ...(password.value === '' ? {} : { password: password.value }),
-      ...(willTopic.value === '' ? {} : { will: { topic: willTopic.value, payload: 'offline' } }),
-    };
-    try {
-      const factory =
-        mode.value === 'scripted'
-          ? createTransportClient(scriptedBroker(), shared)
-          : createBrowserClient({ ...shared, url: url.value });
-      session = await factory.connect();
-      snapshot.textContent = JSON.stringify(session.connection, undefined, 2);
-      log(results, `connected as ${session.connection.clientId}`, 'ok');
-      setConnected(true);
-    } catch (error) {
-      log(results, `connect failed: ${describe(error)}`, 'error');
-      setConnected(false);
-    }
-  })();
+  setState('waiting');
+  // The credentials stay in the form fields and this call. The page stores nothing.
+  const shared = {
+    clientId: clientId.value,
+    onDiagnostic,
+    onMessage: showMessage,
+    onQosOneMessage: showMessage,
+    onSessionEnd(event: SessionEnd) {
+      log(results, event.kind === 'error' ? `session ended: ${describe(event.error)}` : 'session ended: disconnect', event.kind);
+    },
+    ...(username.value === '' ? {} : { username: username.value }),
+    ...(password.value === '' ? {} : { password: password.value }),
+    ...(willTopic.value === '' ? {} : { will: { topic: willTopic.value, payload: 'offline' } }),
+  };
+  if (mode.value === 'scripted') {
+    const scripted = scriptedBroker();
+    broker = scripted;
+    client = createReconnectingClient((options) => createTransportClient(scripted.transport, options), shared, { onReconnect });
+  } else {
+    broker = undefined;
+    client = createReconnectingClient(createBrowserClient, { ...shared, url: url.value }, { onReconnect });
+  }
 });
 
 subscribeButton.addEventListener('click', () => {
   void (async () => {
     try {
-      const result = await session?.subscribe(filter.value, { qos: qos(subscribeQos) });
+      const level = qos(subscribeQos);
+      const result = await session?.subscribe(filter.value, { qos: level });
+      if (result !== undefined) subscribed.set(filter.value, level);
       log(results, `subscribed ${filter.value}: granted QoS ${String(result?.grantedQos)}`, 'ok');
     } catch (error) {
       log(results, `subscribe ${filter.value} failed: ${describe(error)}`, 'error');
@@ -144,7 +201,7 @@ publishButton.addEventListener('click', () => {
 disconnectButton.addEventListener('click', () => {
   void (async () => {
     try {
-      await session?.disconnect({ drain: drain.checked, reasonCode: sendWill.checked ? 4 : 0 });
+      await client?.disconnect({ drain: drain.checked, reasonCode: sendWill.checked ? 4 : 0 });
       log(results, `disconnected${sendWill.checked ? ' with the Will' : ''}`, 'ok');
     } catch (error) {
       log(results, `disconnect failed: ${describe(error)}`, 'error');
@@ -152,4 +209,8 @@ disconnectButton.addEventListener('click', () => {
   })();
 });
 
-setConnected(false);
+dropButton.addEventListener('click', () => {
+  log(results, broker?.drop() === true ? 'dropped the scripted connection' : 'no scripted connection to drop', 'info');
+});
+
+setState('idle');

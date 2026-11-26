@@ -52,6 +52,35 @@ try {
       await page.getByTestId('messages').getByText(`hello at QoS ${qos}`).waitFor();
     }
     await page.getByTestId('results').getByText(': PUBACK').waitFor();
+    await page.getByTestId('reconnects').getByText('connected generation 1 attempt 1, previous end: none').waitFor();
+
+    if (mode === 'scripted') {
+      // The scripted broker never acknowledges this topic, so the drop leaves the publication uncertain.
+      await page.fill('#topic', 'playground/unacknowledged');
+      await page.selectOption('#publish-qos', '1');
+      await page.click('#publish');
+      await page.click('#drop');
+      await page.getByTestId('results').getByText('dropped the scripted connection').waitFor();
+      await page.getByTestId('results').getByText('publish playground/unacknowledged failed: ERR_MQTT_TRANSPORT').waitFor();
+      await page
+        .getByTestId('reconnects')
+        .getByText(/^retrying attempt 2 in \d+ ms after ERR_MQTT_TRANSPORT/u)
+        .waitFor();
+      await page
+        .getByTestId('reconnects')
+        .getByText(
+          /^connected generation 2 attempt 2, previous end: ERR_MQTT_TRANSPORT .*uncertain publications: playground\/unacknowledged #\d+$/u,
+        )
+        .waitFor();
+      await page.getByTestId('results').getByText(`subscribed playground/${process.pid}/# again after the reconnect`).waitFor();
+      await page.fill('#topic', `playground/${process.pid}/again`);
+      await page.fill('#payload', 'hello after the reconnect');
+      await page.selectOption('#publish-qos', '0');
+      await page.click('#publish');
+      await page.getByTestId('messages').getByText('hello after the reconnect').waitFor();
+    } else {
+      assert.equal(await page.isDisabled('#drop'), true, 'only the scripted broker can drop its connection');
+    }
 
     // An invalid topic shows its stable code and leaves the session usable.
     await page.fill('#topic', 'playground/+');
@@ -63,11 +92,14 @@ try {
       .getByTestId('results')
       .getByText(/^disconnected/u)
       .waitFor();
+    await page.getByTestId('reconnects').getByText('stopped: disconnect').waitFor();
     const diagnostics = (await page.getByTestId('diagnostics').textContent()) ?? '';
     assert.match(diagnostics, /outbound connect/u);
     assert.doesNotMatch(diagnostics, /hello/u, 'diagnostics hold no payload');
     assert.deepEqual(pageErrors, []);
-    console.log(`Playground ${mode} mode connected, subscribed, published at QoS 0 and 1 and disconnected in Chromium`);
+    console.log(
+      `Playground ${mode} mode connected, subscribed, published at QoS 0 and 1${mode === 'scripted' ? ', reconnected after a drop' : ''} and disconnected in Chromium`,
+    );
     await page.close();
   }
 } finally {
