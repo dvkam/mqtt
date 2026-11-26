@@ -35,7 +35,7 @@ The event's `generation` counts the sessions that connected, starting at 1. A fa
 
 ## Lost publications
 
-When a session ends, every pending publish rejects with the session's error. A QoS 1 publication that was written but not acknowledged may or may not have reached the broker. The next `connected` event lists it in `previous.uncertain` with its topic and Packet Identifier. Its `acknowledged` field is true when a PUBACK with a reason below 0x80 arrived before the write settled, and only then does the broker have the message. The client never sends it again. A publication that was still queued was never written and is not listed. `onSessionEnd` receives the same `uncertain` list.
+When a session ends, every pending publish rejects with the session's error. A QoS 1 publication that was written but not acknowledged may or may not have reached the broker. The next `connected` event lists it in `previous.uncertain` with its topic and Packet Identifier. Its `acknowledged` field is true when a PUBACK with a reason below 0x80 arrived before the write settled, and only then is it known that the broker has the message. The client never sends it again. A publication that was still queued was never written and is not listed. `onSessionEnd` receives the same `uncertain` list.
 
 `previous` is the end of the session reported by the previous `connected` event. Failed attempts in between do not replace it, so a publication lost before a refused CONNACK is still listed once a session connects.
 

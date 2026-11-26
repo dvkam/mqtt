@@ -547,3 +547,45 @@ test('retries after a broker packet over maxPacketBytes', async () => {
   expect(events.at(-1)).toMatchObject({ kind: 'connected', generation: 2 });
   await client.disconnect();
 });
+
+test.each([
+  ['a topic that is not a string', (): Record<string, unknown> => ({ topic: 5 })],
+  ['an invalid topic filter', (): Record<string, unknown> => ({ topic: 'a/#/b' })],
+  ['an unsupported QoS', (): Record<string, unknown> => ({ topic: 'a', qos: 2 })],
+])('rejects a subscription with %s before any attempt', (_name, make) => {
+  const peer = broker();
+  // The test passes a value the types exclude, as a JavaScript caller could.
+  const subscriptions: unknown = [make()];
+  expect(() => {
+    Reflect.apply(reconnecting, undefined, [peer.transport, { subscriptions }]);
+  }).toThrow(RangeError);
+  expect(peer.connections).toHaveLength(0);
+});
+
+test('disconnect() after an abort while connected resolves', async () => {
+  const peer = broker();
+  const controller = new AbortController();
+  const { client } = reconnecting(peer.transport, {}, { signal: controller.signal });
+  await client.session();
+  controller.abort('page hidden');
+  await vi.advanceTimersByTimeAsync(0);
+  await expect(client.disconnect()).resolves.toBeUndefined();
+});
+
+test('reports a stop before any attempt after createReconnectingClient returns', async () => {
+  const peer = broker();
+  const events: string[] = [];
+  let client: ReturnType<typeof createReconnectingClient> | undefined;
+  client = createReconnectingClient(
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteClientOptions in src/transportCore.ts holds a native AbortSignal, which createTransportClient keeps by identity.
+    (options) => createTransportClient(peer.transport, options),
+    { clientId: 'early', signal: AbortSignal.abort(new Error('gone')) },
+    {
+      onReconnect(event) {
+        events.push(`${event.kind} ${String(client !== undefined)}`);
+      },
+    },
+  );
+  await vi.advanceTimersByTimeAsync(0);
+  expect(events).toEqual(['stopped true']);
+});

@@ -1,4 +1,5 @@
 import { notifyObserver } from './diagnostics.js';
+import { validateTopic } from './util/validateTopic.js';
 import { MqttError, ReceiveLimitError, transportFailure, type MqttErrorCode } from './mqttError.js';
 import type {
   ClientFactory,
@@ -203,6 +204,11 @@ export function createReconnectingClient<Options extends Reconnectable>(
   const stableAfterMs = milliseconds(reconnect.stableAfterMs, maxDelayMs, 'stableAfterMs');
   const random = reconnect.random ?? Math.random;
   const intents = [...(reconnect.subscriptions ?? [])];
+  for (const intent of intents) {
+    const { topic, qos }: Readonly<Partial<Record<'topic' | 'qos', unknown>>> = intent;
+    if (typeof topic !== 'string' || !validateTopic(topic)) throw new RangeError('Invalid MQTT subscription topic filter');
+    if (qos !== undefined && qos !== 0 && qos !== 1) throw new RangeError('Invalid MQTT subscription QoS');
+  }
   const { onReconnect } = reconnect;
   const userSignal = options.signal;
   const userEnd = options.onSessionEnd;
@@ -250,7 +256,10 @@ export function createReconnectingClient<Options extends Reconnectable>(
   }
 
   const ended = (event: SessionEnd): void => {
-    if (stopped()) return;
+    if (stopped()) {
+      current = undefined;
+      return;
+    }
     if (current !== undefined && performance.now() - connectedAt >= stableAfterMs) attempt = 0;
     current = undefined;
     if (state === 'connected') previous = event;
@@ -344,8 +353,11 @@ export function createReconnectingClient<Options extends Reconnectable>(
   }
 
   userSignal?.addEventListener('abort', onUserAbort, { once: true });
-  if (userSignal?.aborted === true) onUserAbort();
-  else open();
+  // The first attempt starts after this function returns, so an onReconnect that refers to the returned client can run.
+  queueMicrotask(() => {
+    if (userSignal?.aborted === true) onUserAbort();
+    else open();
+  });
 
   return {
     // oxlint-disable-next-line typescript/promise-function-async -- An async function returns a new promise on each call. The test 'returns the same session promise until that session ends' in test/reconnect.test.ts checks with toBe that repeated calls return one promise.
