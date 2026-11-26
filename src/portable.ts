@@ -20,7 +20,7 @@ import { validateTopic, validateTopicName } from './util/validateTopic.js';
 import { resolveTimeout } from './timeout.js';
 import { isAbortSignal } from './util/signal.js';
 import { capturePublication, type OutgoingPublication } from './publication.js';
-import { maxMqttPacketBytes, PublicationAdmission, publishSize, type PublicationLimits } from './publicationAdmission.js';
+import { PublicationAdmission, type PublicationLimits } from './publicationAdmission.js';
 import { SubscriptionExchanges, type SubscriptionLimits } from './subscriptionExchanges.js';
 import { PacketIdentifiers, type IdentifierLease } from './packetIdentifiers.js';
 import { OutboundQosOne } from './outboundQosOne.js';
@@ -72,8 +72,10 @@ export interface PortableOptions<Bytes extends Uint8Array = Uint8Array> extends 
   cleanStart?: boolean;
   /** Seconds, sent as the CONNECT Session Expiry Interval when set. */
   sessionExpiryInterval?: number;
-  /** The store that keeps in-flight QoS 1 publications across connections. */
+  /** The state that keeps in-flight QoS 1 publications across connections, claimed for this connection. */
   session?: SessionBinding;
+  /** Releases the claim on `session`. The client calls it when the connection ends. */
+  releaseSession?: () => void;
   timeoutMs?: number;
   onDiagnostic?: DiagnosticObserver;
   onSessionEnd?: SessionEndObserver;
@@ -162,9 +164,7 @@ class PortableClient<Bytes extends Uint8Array> {
     this.will = options.will;
     this.cleanStart = options.cleanStart ?? true;
     this.session = options.session;
-    this.releaseSession = this.session?.store.claim();
-    if (this.session !== undefined && this.releaseSession === undefined)
-      throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'MQTT session state is in use by another connection');
+    this.releaseSession = options.releaseSession;
     this.onQosOneMessage = options.onQosOneMessage;
     this.unlisten = transport.listen(
       packetReceiver(
@@ -216,7 +216,7 @@ class PortableClient<Bytes extends Uint8Array> {
               return;
             }
             const matched = this.outbound?.accept(messageId, code);
-            if (matched !== undefined && this.session !== undefined) this.settleStored(messageId, code, matched === 'resent');
+            if (matched !== undefined) this.session?.settle(messageId, code, matched === 'resent');
           }
           if (packet.cmd === 'pingresp') this.pendingAck?.(packet);
           if (this.closing || packet.cmd !== 'publish') return;
@@ -373,15 +373,18 @@ class PortableClient<Bytes extends Uint8Array> {
         receiveMaximum,
         this.identifiers,
         this.transmitter(false),
-        this.session === undefined ? undefined : this.store.bind(this),
+        this.session?.record,
       );
     }
-    if (this.session !== undefined) {
-      const conflict = this.resume(connection);
-      if (conflict !== undefined) {
-        await this.abort(conflict, 0);
-        throw conflict;
-      }
+    const resumed = this.session?.resume(connection);
+    if (resumed instanceof MqttError) {
+      await this.abort(resumed, 0);
+      throw resumed;
+    }
+    if (resumed !== undefined && resumed.size > 0 && this.outbound !== undefined) {
+      const resends: (readonly [OutgoingPublication, IdentifierLease])[] = [];
+      for (const [messageId, publication] of resumed) resends.push([publication, this.identifiers.claim(messageId)]);
+      this.outbound.resume(resends, this.transmitter(true));
     }
     this.activation = 'active';
     if (serverKeepAlive > 0) this.startKeepAlive(serverKeepAlive * 1000, connectSentAt);
@@ -389,56 +392,6 @@ class PortableClient<Bytes extends Uint8Array> {
     const interrupted = this.reportConnection('active');
     if (interrupted) throw interrupted;
     return connection;
-  }
-
-  /**
-   * Continue the stored session. After Session Present false, drop the stored publications. After Session Present true,
-   * send them again in order, unless one no longer fits the connection. Returns the conflict that ends the connection.
-   */
-  private resume(connection: Readonly<ConnectionInfo>): MqttError | undefined {
-    const publications = this.session?.store.publications;
-    if (publications === undefined) return undefined;
-    if (!connection.sessionPresent) {
-      publications.clear();
-      return undefined;
-    }
-    if (publications.size === 0) return undefined;
-    const outbound = this.outbound;
-    if (outbound === undefined)
-      return new MqttError('ERR_MQTT_SESSION_CONFLICT', 'MQTT broker no longer accepts the stored QoS 1 publications');
-    const limit = Math.min(connection.maximumPacketSize ?? maxMqttPacketBytes, maxMqttPacketBytes);
-    for (const { topic, payloadBytes, propertyBytes } of publications.values()) {
-      if (publishSize(topic, payloadBytes, propertyBytes, 1) > limit)
-        return new MqttError('ERR_MQTT_SESSION_CONFLICT', 'Stored MQTT publication exceeds the Maximum Packet Size');
-    }
-    const resends: (readonly [OutgoingPublication, IdentifierLease])[] = [];
-    for (const [messageId, publication] of publications) resends.push([publication, this.identifiers.claim(messageId)]);
-    outbound.resume(resends, this.transmitter(true));
-    return undefined;
-  }
-
-  /** The caller may reuse its payload and Correlation Data once the publish settles, so the store keeps copies. */
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- OutgoingPublication carries the caller's Uint8Array payload and Correlation Data (src/publication.ts), which this method copies.
-  private store(publication: OutgoingPublication, messageId: number): void {
-    const { payload, properties } = publication;
-    const correlationData = properties?.correlationData;
-    this.session?.store.publications.set(messageId, {
-      ...publication,
-      payload: new Uint8Array(payload),
-      properties:
-        properties === undefined || correlationData === undefined
-          ? properties
-          : { ...properties, correlationData: new Uint8Array(correlationData) },
-    });
-  }
-
-  private settleStored(messageId: number, code: number, resent: boolean): void {
-    const session = this.session;
-    if (session === undefined) return;
-    const { publications } = session.store;
-    const topic = resent ? publications.get(messageId)?.topic : undefined;
-    publications.delete(messageId);
-    if (topic !== undefined) session.events?.resent(topic, messageId, code);
   }
 
   changeSubscription(topic: string, command: 'subscribe', qos?: number): Promise<SubscribeResult>;
@@ -587,7 +540,9 @@ class PortableClient<Bytes extends Uint8Array> {
     } catch (reason) {
       const failure = transportFailure(reason, fallback);
       if (packet.cmd === 'publish' && packet.qos === 1 && takeNativeBudgetFailure(packet, reason) !== undefined) {
-        if (packet.dup !== true) this.session?.store.publications.delete(packet.messageId);
+        // A resend that the budget refuses ends the connection, so the publication stays stored with its identifier.
+        if (packet.dup === true) void this.abort(failure).catch(() => {});
+        else this.session?.forget(packet.messageId);
       } else void this.abort(failure).catch(() => {});
       throw failure;
     }

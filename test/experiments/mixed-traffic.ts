@@ -16,9 +16,14 @@ export interface MixedTrafficOptions {
   deadlineMs?: number;
   echoFault?: 'duplicate' | 'corrupt' | 'missing';
 }
+// The packed benchmark passes the factories of the installed package. Its SessionState brand is a different unique
+// symbol from the one in src/sessionState.ts, so the probe leaves that option out of the factory type.
+type WithoutSessionState<Factory> = Factory extends (options: infer Options) => infer Result
+  ? (options: Omit<Options, 'sessionState'>) => Result
+  : never;
 export interface MixedTrafficFactories {
-  readonly createTcpClient: typeof createTcpClient;
-  readonly createWebSocketClient: typeof createWebSocketClient;
+  readonly createTcpClient: WithoutSessionState<typeof createTcpClient>;
+  readonly createWebSocketClient: WithoutSessionState<typeof createWebSocketClient>;
 }
 type ProbeMetrics = Awaited<ReturnType<ReturnType<typeof observeProbe>['stop']>>;
 export interface MixedTrafficResult extends ProbeMetrics {

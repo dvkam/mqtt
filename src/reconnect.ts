@@ -10,13 +10,13 @@ import type {
   SubscribeResult,
   UncertainPublication,
 } from './session.js';
-import { bindSessionState, type SessionState } from './sessionState.js';
+import { bindSessionState, isSessionExpiryInterval, type SessionState } from './sessionState.js';
 
 /** The factory options that `createReconnectingClient` reads, or replaces with its own on each attempt. */
 export interface Reconnectable {
   /**
-   * The Clean Start flag of the first attempt. With `resume`, the client replaces it on each attempt: false once a session
-   * connected, and true again after `resetSession()`.
+   * The Clean Start flag of each attempt. With `resume`, only the first attempt uses it. Later attempts send false once a
+   * session connected, and true again after `resetSession()`. Without `resume`, false needs a `sessionState`.
    */
   cleanStart?: boolean;
   /**
@@ -90,8 +90,9 @@ export type ReconnectEvent =
       resumed: boolean;
       /**
        * With `resume`, the stored QoS 1 publications that this session sends again with DUP set and their Packet
-       * Identifiers, in the order they were first sent. Absent when there are none. A `puback` event reports the
-       * broker's answer to each.
+       * Identifiers, in the order they were first sent, within the broker's Receive Maximum. Absent when there are none. A
+       * `puback` event reports the broker's answer to each. A publication that the session does not write before it
+       * ends stays stored, so a later `connected` event lists it in `resent` or `dropped` again.
        */
       resent?: readonly UncertainPublication[];
       /**
@@ -134,7 +135,8 @@ export type ReconnectEvent =
     }>;
 
 /**
- * The reconnect policy. `createReconnectingClient` throws a RangeError at once when a number in it is invalid.
+ * The reconnect policy. `createReconnectingClient` throws a RangeError at once when a number in it is invalid, or when
+ * `resume` is set and the factory options have no `sessionExpiryInterval` from 1 to 4,294,967,295.
  */
 export interface ReconnectOptions {
   /** Subscriptions to make after every CONNACK with Session Present false. */
@@ -247,7 +249,8 @@ function waiter(): Waiter {
  * `(options) => createTcpClient(options)`. After a CONNACK with Session Present false, the client makes `subscriptions`
  * again. A QoS 1 publication that was in flight when a session ended is reported in the next `connected` event. Without
  * `resume`, the client never sends it again. With `resume`, a session the broker resumed sends it again with its Packet
- * Identifier. Throws a RangeError at once when an option in `reconnect` is invalid.
+ * Identifier. Throws a RangeError at once when an option in `reconnect` is invalid, or when `resume` is set and
+ * `options` has no `sessionExpiryInterval` from 1 to 4,294,967,295.
  */
 export function createReconnectingClient<Options extends Reconnectable>(
   create: (options: Options) => ClientFactory,
@@ -270,11 +273,8 @@ export function createReconnectingClient<Options extends Reconnectable>(
   const userSignal = options.signal;
   const userEnd = options.onSessionEnd;
   const resume = reconnect.resume === true;
-  if (resume) {
-    const { sessionExpiryInterval: expiry } = options;
-    if (expiry === undefined || !Number.isInteger(expiry) || expiry < 1 || expiry > 0xffff_ffff)
-      throw new RangeError('resume needs a sessionExpiryInterval from 1 to 4294967295');
-  }
+  if (resume && !isSessionExpiryInterval(options.sessionExpiryInterval, 1))
+    throw new RangeError('resume needs a sessionExpiryInterval from 1 to 4294967295');
 
   let state: 'connecting' | 'connected' | 'waiting' | 'stopped' = 'connecting';
   // The number of sessions reported in a connected event.
@@ -288,10 +288,8 @@ export function createReconnectingClient<Options extends Reconnectable>(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopError: Readonly<Error> | undefined;
   let opening: AbortController | undefined;
-  // The Clean Start flag of the next attempt, and whether resetSession() asked for a new session.
   let cleanStart = options.cleanStart;
   let resetRequested = false;
-  // Stored publications dropped since the last connected event.
   let dropped: UncertainPublication[] = [];
   // PUBACK events of a resumed session, held until its connected event or its end.
   let held: ReconnectEvent[] | undefined;
@@ -412,7 +410,7 @@ export function createReconnectingClient<Options extends Reconnectable>(
     if (shared !== undefined) {
       if (resetRequested) {
         resetRequested = false;
-        dropped.push(...shared.store.drop());
+        dropped.push(...shared.drop());
         cleanStart = true;
       }
       stored = shared.state.inFlight;

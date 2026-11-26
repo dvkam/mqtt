@@ -16,7 +16,7 @@ import { resolveTimeout } from './timeout.js';
 import { invalidOption, MqttError, transportFailure } from './mqttError.js';
 import { capturePassword } from './password.js';
 import { captureWill, type WillMessage, type WillOptions } from './will.js';
-import { sessionBinding, type SessionBinding, type SessionState } from './sessionState.js';
+import { isSessionExpiryInterval, sessionBinding, type SessionBinding, type SessionState } from './sessionState.js';
 
 export const flushNativeWrites = Symbol('flushNativeWrites');
 export type ByteWriterWithFlush = ByteWriter & { [flushNativeWrites]?(): void };
@@ -56,27 +56,30 @@ export interface SessionOptions {
   sessionState?: SessionState;
 }
 
-function captureSessionOptions(
-  options: Readonly<SessionOptions>,
-): Readonly<{ cleanStart: boolean; sessionExpiryInterval: number | undefined; session: SessionBinding | undefined }> {
+function captureSessionOptions(options: Readonly<SessionOptions>): Readonly<{
+  cleanStart: boolean;
+  sessionExpiryInterval: number | undefined;
+  session: SessionBinding | undefined;
+  releaseSession: (() => void) | undefined;
+}> {
   const {
     cleanStart = true,
     sessionExpiryInterval,
     sessionState,
   }: Readonly<Partial<Record<keyof SessionOptions, unknown>>> = options;
   if (typeof cleanStart !== 'boolean') throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'MQTT cleanStart must be a boolean');
-  if (
-    sessionExpiryInterval !== undefined &&
-    (typeof sessionExpiryInterval !== 'number' ||
-      !Number.isInteger(sessionExpiryInterval) ||
-      sessionExpiryInterval < 0 ||
-      sessionExpiryInterval > 0xffff_ffff)
-  )
+  if (sessionExpiryInterval !== undefined && !isSessionExpiryInterval(sessionExpiryInterval, 0))
     throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'MQTT sessionExpiryInterval must be an integer from 0 to 4294967295');
   const session = sessionBinding(sessionState);
   if (sessionState !== undefined && session === undefined)
     throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'MQTT sessionState must come from createSessionState()');
-  return { cleanStart, sessionExpiryInterval, session };
+  // MQTT-3.2.2-4: a client without session state must close on Session Present true, so Clean Start false needs one.
+  if (!cleanStart && session === undefined)
+    throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'MQTT cleanStart false needs a sessionState');
+  const releaseSession = session?.claim();
+  if (session !== undefined && releaseSession === undefined)
+    throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'MQTT session state is in use by another connection');
+  return { cleanStart, sessionExpiryInterval, session, releaseSession };
 }
 
 /**
@@ -296,6 +299,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
   } catch (error) {
     input.detachCore();
     release();
+    session.releaseSession?.();
     throw error;
   }
 }

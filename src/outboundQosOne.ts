@@ -56,7 +56,10 @@ export class OutboundQosOne<Item> {
   private activeSettled?: () => void;
   private draining = false;
 
-  /** `dispatched` learns the Packet Identifier of each new exchange before `transmit` writes it. */
+  /**
+   * `dispatched` learns the Packet Identifier of each new exchange before `transmit` writes it. When it throws, the
+   * publication rejects with that error and its identifier returns.
+   */
   constructor(
     quota: number,
     identifiers: Readonly<Pick<PacketIdentifiers, 'reserve'>>,
@@ -213,10 +216,12 @@ export class OutboundQosOne<Item> {
         if (publication === undefined) break;
         if (publication.cancelIfAborted()) continue;
         this.queued.delete(publication);
-        let identifier: IdentifierLease;
+        let identifier: IdentifierLease | undefined;
         try {
           identifier = this.identifiers.reserve();
+          this.dispatched?.(publication.outgoing, identifier.messageId);
         } catch (reason) {
+          identifier?.release();
           publication.detach();
           publication.releaseBudget();
           publication.reject(reason);
@@ -238,7 +243,6 @@ export class OutboundQosOne<Item> {
     });
     const exchange: Exchange<Item> = { publication, identifier, resent, acknowledge, rejectAck, acknowledgmentCode: undefined };
     this.active.set(identifier.messageId, exchange);
-    if (!resent) this.dispatched?.(publication.outgoing, identifier.messageId);
     void this.complete(exchange, acknowledgment);
   }
 

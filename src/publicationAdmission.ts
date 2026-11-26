@@ -26,24 +26,6 @@ export function oversizedPacket(): MqttError {
   return new MqttError('ERR_MQTT_CAPACITY', 'MQTT packet exceeds the Maximum Packet Size');
 }
 
-/**
- * The size of a PUBLISH: the first header byte, the Remaining Length, the topic with its length, the Packet Identifier
- * at QoS 1, the property section and the payload. `PublicationAdmission.reserve` counts the same bytes inline, so the
- * publish path makes no extra call. Counting stops once the topic passes `limit`.
- */
-export function publishSize(
-  topic: string,
-  payloadBytes: number,
-  propertyBytes: number,
-  qos: 0 | 1,
-  limit = Number.POSITIVE_INFINITY,
-): number {
-  const remaining = 2 + utf8Length(topic, limit) + (qos === 1 ? 2 : 0) + propertyBytes + payloadBytes;
-  let lengthBytes = 1;
-  for (let value = remaining; value >= 128; value = Math.floor(value / 128)) lengthBytes++;
-  return 1 + lengthBytes + remaining;
-}
-
 export class PublicationAdmission {
   private readonly limits: ReturnType<typeof resolvePublicationLimits>;
   private items = 0;

@@ -19,7 +19,10 @@ export class PacketIdentifiers {
     return this.claim(messageId);
   }
 
-  /** Lease a Packet Identifier that a resumed session already uses. The caller claims each one once. */
+  /**
+   * Lease `messageId`, which must be free. `reserve` leases the identifier it picks this way, and a resumed session
+   * leases the identifier of each stored publication.
+   */
   claim(messageId: number): IdentifierLease {
     this.occupied.add(messageId);
     let released = false;

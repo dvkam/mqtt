@@ -3,6 +3,7 @@ import type { ByteInbound, ByteTransport } from '../src/byteTransport.js';
 import { encodePacket, PacketDecoder, type BrokerPacket, type ClientPacket } from '../src/codec.js';
 import { createSessionState, createTransportClient, type ByteClientOptions, type SessionOptions } from '../src/portableClient.js';
 import { createReconnectingClient, type ReconnectEvent, type ReconnectOptions } from '../src/reconnect.js';
+import { bindSessionState } from '../src/sessionState.js';
 
 type Connack = Extract<BrokerPacket, { cmd: 'connack' }>;
 type Publish = Extract<ClientPacket, { cmd: 'publish' }>;
@@ -23,6 +24,8 @@ interface Script {
   connack?: (connection: number) => Partial<Omit<Connack, 'cmd'>>;
   /** Whether the broker answers a QoS 1 PUBLISH on the nth connection with PUBACK. Defaults to true. */
   puback?: (connection: number) => boolean;
+  /** The writer's `bufferedBytes` on the nth connection, given the PUBLISH bytes written on it so far. Defaults to 0. */
+  buffered?: (connection: number, publishBytes: number) => number;
 }
 
 // A broker over the byte transport. It answers CONNECT, SUBSCRIBE and, when the script says so, QoS 1 PUBLISH. It records
@@ -57,7 +60,11 @@ function broker(script: Readonly<Script> = {}) {
       };
       connections.push(connection);
       return {
-        bufferedBytes: 0,
+        get bufferedBytes() {
+          let written = 0;
+          for (const bytes of connection.publishBytes) written += bytes;
+          return script.buffered?.(index, written) ?? 0;
+        },
         // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- ByteWriter.write in src/byteTransport.ts takes the encoded Uint8Array by identity and returns a promise. This writer replies without waiting.
         async write(bytes: Uint8Array) {
           for (const packet of decoder.push(bytes)) {
@@ -115,14 +122,18 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const client = (transport: Readonly<ByteTransport>, options: Readonly<SessionOptions & { maxPendingPublishes?: number }> = {}) =>
+const client = (transport: Readonly<ByteTransport>, options: Readonly<SessionOptions> = {}) =>
   createTransportClient(transport, { clientId: 'resume', onQosOneMessage() {}, ...options });
 
 test('CONNECT carries Clean Start false and the Session Expiry Interval, and CONNACK may lower the interval', async () => {
   const peer = broker({
     connack: (index) => (index === 1 ? { sessionPresent: true } : index === 2 ? { sessionExpiryInterval: 30 } : {}),
   });
-  const first = await client(peer.transport, { cleanStart: false, sessionExpiryInterval: 600 }).connect();
+  const first = await client(peer.transport, {
+    cleanStart: false,
+    sessionExpiryInterval: 600,
+    sessionState: createSessionState(),
+  }).connect();
   expect(peer.connect(0)).toMatchObject({ cleanStart: false, sessionExpiryInterval: 600 });
   expect(first.connection).toMatchObject({ sessionPresent: true, sessionExpiryInterval: 600 });
   await first.disconnect();
@@ -143,7 +154,7 @@ test.each([
   const factory = createTransportClient(
     {
       name: 'Raw broker',
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- ByteTransport.open in src/byteTransport.ts takes the mutable ByteInbound and returns a promise. The codec cannot encode a refused CONNACK with Session Present, so this opener writes its bytes.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- ByteTransport.open in src/byteTransport.ts takes the mutable ByteInbound and returns a promise, and promise-function-async requires an async function for that. The codec cannot encode a refused CONNACK with Session Present, so this opener writes its bytes.
       async open(inbound: ByteInbound) {
         return {
           bufferedBytes: 0,
@@ -155,7 +166,7 @@ test.each([
         };
       },
     },
-    { clientId: 'resume', cleanStart },
+    { clientId: 'resume', cleanStart, sessionState: createSessionState() },
   );
   await expect(factory.connect()).rejects.toMatchObject({ message });
 });
@@ -178,6 +189,7 @@ test.each([
     'MQTT sessionExpiryInterval must be an integer from 0 to 4294967295',
   ],
   ['a sessionState from elsewhere', { sessionState: { inFlight: [] } }, 'MQTT sessionState must come from createSessionState()'],
+  ['Clean Start false without a sessionState', { cleanStart: false }, 'MQTT cleanStart false needs a sessionState'],
 ])('rejects %s before the transport opens', async (_name, invalid: Readonly<Record<string, unknown>>, message) => {
   const peer = broker();
   // The test passes values the types exclude, as a JavaScript caller could.
@@ -190,7 +202,7 @@ test.each([
   expect(peer.connections).toHaveLength(0);
 });
 
-test('one session state serves one connection at a time', async () => {
+test('one session state serves one connection at a time, and a second one opens no transport', async () => {
   const peer = broker();
   const sessionState = createSessionState();
   const first = await client(peer.transport, { sessionState }).connect();
@@ -198,6 +210,7 @@ test('one session state serves one connection at a time', async () => {
     code: 'ERR_MQTT_INVALID_ARGUMENT',
     message: 'MQTT session state is in use by another connection',
   });
+  expect(peer.connections).toHaveLength(1);
   await first.disconnect();
   const third = await client(peer.transport, { sessionState }).connect();
   await third.disconnect();
@@ -299,6 +312,7 @@ test('a stored publication larger than the new Maximum Packet Size ends the conn
   await expect(client(peer.transport, options).connect()).rejects.toMatchObject({
     code: 'ERR_MQTT_SESSION_CONFLICT',
     fatal: true,
+    reasonCode: 0,
     message: 'Stored MQTT publication exceeds the Maximum Packet Size',
   });
   expect(peer.commands(1)).toEqual(['connect', 'disconnect']);
@@ -309,6 +323,121 @@ test('a stored publication larger than the new Maximum Packet Size ends the conn
   expect(peer.sent(2)).toEqual([['large', 1, true]]);
   expect(sessionState.inFlight).toEqual([]);
   await third.disconnect();
+});
+
+test('a failed open releases the session state', async () => {
+  const sessionState = createSessionState();
+  const refused: ByteTransport = {
+    name: 'Refusing transport',
+    // oxlint-disable-next-line typescript/require-await -- ByteTransport.open in src/byteTransport.ts returns a promise, and promise-function-async requires an async function for that. This opener rejects at once.
+    async open() {
+      throw new Error('connect ECONNREFUSED');
+    },
+  };
+  await expect(createTransportClient(refused, { clientId: 'resume', sessionState }).connect()).rejects.toThrow(
+    'connect ECONNREFUSED',
+  );
+  const peer = broker();
+  const session = await client(peer.transport, { sessionState }).connect();
+  await session.disconnect();
+});
+
+test('a retained stored publication conflicts after CONNACK Retain Available 0', async () => {
+  const peer = broker({
+    puback: (index) => index !== 1,
+    connack: (index) => (index === 1 ? {} : { sessionPresent: true, retainAvailable: index !== 2 }),
+  });
+  const sessionState = createSessionState();
+  const options = { cleanStart: false, sessionExpiryInterval: 600, sessionState };
+  const first = await client(peer.transport, options).connect();
+  const lost = first.publish('kept', 'k', { qos: 1, retain: true });
+  await vi.advanceTimersByTimeAsync(0);
+  peer.connections[0]?.end();
+  await expect(lost).rejects.toMatchObject({ code: 'ERR_MQTT_TRANSPORT' });
+  await expect(client(peer.transport, options).connect()).rejects.toMatchObject({
+    code: 'ERR_MQTT_SESSION_CONFLICT',
+    reasonCode: 0,
+    message: 'Stored MQTT publication is retained, and the broker no longer allows retained messages',
+  });
+  expect(peer.commands(1)).toEqual(['connect', 'disconnect']);
+  const third = await client(peer.transport, options).connect();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(peer.publishes(2)).toMatchObject([{ topic: 'kept', messageId: 1, dup: true, retain: true }]);
+  await third.disconnect();
+});
+
+test('a resend that the write budget refuses ends the connection and stays stored with its identifier', async () => {
+  const peer = broker({ puback: (index) => index === 3, connack: (index) => ({ sessionPresent: index !== 1 }) });
+  const sessionState = createSessionState();
+  const options = { cleanStart: false, sessionExpiryInterval: 600, sessionState };
+  const first = await client(peer.transport, options).connect();
+  const lost = first.publish('a', new Uint8Array(1000), { qos: 1 });
+  await vi.advanceTimersByTimeAsync(0);
+  peer.connections[0]?.end();
+  await expect(lost).rejects.toMatchObject({ code: 'ERR_MQTT_TRANSPORT' });
+  const ends: unknown[] = [];
+  const second = await createTransportClient(peer.transport, {
+    clientId: 'resume',
+    onQosOneMessage() {},
+    ...options,
+    maxBufferedBytes: 600,
+    reservedControlBytes: 0,
+    onSessionEnd(end) {
+      ends.push(end);
+    },
+  }).connect();
+  await vi.advanceTimersByTimeAsync(0);
+  await expect(second.publish('b', 'b', { qos: 1 })).rejects.toThrow('Session broker write budget exceeded');
+  expect(peer.sent(1)).toEqual([]);
+  expect(ends).toMatchObject([
+    { kind: 'error', error: { message: 'Session broker write budget exceeded' }, uncertain: [{ topic: 'a', messageId: 1 }] },
+  ]);
+  expect(sessionState.inFlight).toEqual([{ topic: 'a', messageId: 1, acknowledged: false }]);
+  const third = await client(peer.transport, options).connect();
+  await third.publish('c', 'c', { qos: 1 });
+  expect(peer.sent(2)).toEqual([
+    ['a', 1, true],
+    ['c', 2, false],
+  ]);
+  expect(sessionState.inFlight).toEqual([]);
+  await third.disconnect();
+});
+
+test('a resend refused once the native queue fills ends the connection before a new publication takes its identifier', async () => {
+  const peer = broker({
+    puback: () => false,
+    connack: (index) => ({ sessionPresent: index !== 1 }),
+    buffered: (index, written) => (index === 2 ? written : 0),
+  });
+  const sessionState = createSessionState();
+  const options = { cleanStart: false, sessionExpiryInterval: 600, sessionState };
+  const first = await client(peer.transport, options).connect();
+  const lost = ['a', 'b', 'c'].map(async (topic) => first.publish(topic, new Uint8Array(320_000), { qos: 1 }));
+  await vi.advanceTimersByTimeAsync(0);
+  peer.connections[0]?.end();
+  for (const publication of lost) await expect(publication).rejects.toMatchObject({ code: 'ERR_MQTT_TRANSPORT' });
+  const second = await client(peer.transport, options).connect();
+  await vi.advanceTimersByTimeAsync(0);
+  await expect(second.publish('d', 'd', { qos: 1 })).rejects.toThrow('Session broker write budget exceeded');
+  expect(peer.sent(1)).toEqual([
+    ['a', 1, true],
+    ['b', 2, true],
+  ]);
+  expect(sessionState.inFlight).toEqual([
+    { topic: 'a', messageId: 1, acknowledged: false },
+    { topic: 'b', messageId: 2, acknowledged: false },
+    { topic: 'c', messageId: 3, acknowledged: false },
+  ]);
+});
+
+test('the store refuses a new publication whose Packet Identifier a stored publication holds', () => {
+  const binding = bindSessionState();
+  const stored = { topic: 'a', payload: Uint8Array.of(1), payloadBytes: 1, retain: false, properties: undefined, propertyBytes: 1 };
+  binding.record(stored, 1);
+  expect(() => {
+    binding.record({ ...stored, topic: 'b' }, 1);
+  }).toThrow(expect.objectContaining({ code: 'ERR_MQTT_SESSION_CONFLICT', fatal: false }));
+  expect(binding.state.inFlight).toEqual([{ topic: 'a', messageId: 1, acknowledged: false }]);
 });
 
 test('a resumed session whose broker no longer allows QoS 1 ends before any PUBLISH', async () => {

@@ -143,6 +143,9 @@ export const resumedTcp = createTcpClient({
   sessionExpiryInterval: 3600,
   sessionState: createSessionState(),
 });
+export type SessionStateIsBranded = RequireFalse<
+  { readonly inFlight: readonly { topic: string; messageId: number; acknowledged: boolean }[] } extends SessionState ? true : false
+>;
 export type SessionStateListsUncertainPublications = RequireTrue<
   SessionState['inFlight'] extends readonly { readonly topic: string; readonly messageId: number }[] ? true : false
 >;
