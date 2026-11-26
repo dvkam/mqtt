@@ -6,11 +6,25 @@ export const maxBinaryBytes = 65_535;
 
 export function copyBinaryData(value: unknown): Uint8Array<ArrayBuffer> | 'not bytes' | 'too long' {
   if (!isBytes(value)) return 'not bytes';
-  const length: unknown = arrayByteLength?.call(value);
   // The TypedArray constructor copies through internal slots, not through getters a subclass overrides.
-  return typeof length === 'number' && length <= maxBinaryBytes ? new Uint8Array(value) : 'too long';
+  return ownByteLength(value) <= maxBinaryBytes ? new Uint8Array(value) : 'too long';
 }
 
-function isBytes(value: unknown): value is Uint8Array {
+export function isBytes(value: unknown): value is Uint8Array {
   return ArrayBuffer.isView(value) && arrayTag?.call(value) === 'Uint8Array';
+}
+
+/**
+ * The length of a Uint8Array as its internal slot holds it, because a subclass can override the byteLength getter.
+ * Infinity for any other value, so a size check rejects it.
+ */
+export function ownByteLength(value: unknown): number {
+  if (!isBytes(value)) return Number.POSITIVE_INFINITY;
+  const length: unknown = arrayByteLength?.call(value);
+  return typeof length === 'number' ? length : Number.POSITIVE_INFINITY;
+}
+
+/** The size of an MQTT Variable Byte Integer for a value from 0 to 268,435,455. */
+export function variableByteIntegerSize(value: number): number {
+  return value < 128 ? 1 : value < 16_384 ? 2 : value < 2_097_152 ? 3 : 4;
 }

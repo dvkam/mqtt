@@ -51,4 +51,18 @@ export const bytePassword = createBrowserClient({
   password: Uint8Array.of(1, 2),
 });
 
+export async function publishBrowserBytes(session: Readonly<BrowserSession>): Promise<void> {
+  await session.publish('bytes', Uint8Array.of(1, 2), {
+    qos: 1,
+    retain: true,
+    payloadFormatIndicator: 0,
+    messageExpiryInterval: 60,
+    contentType: 'application/octet-stream',
+    responseTopic: 'reply',
+    correlationData: Uint8Array.of(9),
+    userProperties: [['k', 'v']],
+    signal: AbortSignal.timeout(1000),
+  });
+}
+
 export * from '../../packed/browser/consumer.js';

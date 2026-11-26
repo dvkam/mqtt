@@ -1,6 +1,6 @@
 # Design decisions
 
-This file records decisions about the public API and the package layout. The repository owner, dvkam, made each choice or accepted it by asking for the reviewed work to be merged, as the entry says. The questions were put to the owner in a working session outside GitHub, so this file is the first written record of the options and the trade-offs listed with them. In each table, "recommended" marks the option the question recommended. Eight of the nine choices with a recommendation followed it. The four entries for #147, #150, #161 and #152 were decided together. The three entries of 16 November were answered together, so their order among themselves means nothing.
+This file records decisions about the public API and the package layout. The repository owner, dvkam, made each choice or accepted it by asking for the reviewed work to be merged, as the entry says. The questions were put to the owner in a working session outside GitHub, so this file is the first written record of the options and the trade-offs listed with them. In each table, "recommended" marks the option the question recommended. Nine of the ten choices with a recommendation followed it. The four entries for #147, #150, #161 and #152 were decided together. The three entries of 16 November were answered together, so their order among themselves means nothing.
 
 Each entry gives the question, the options, the choice, the stated reason, any consequences the author of this file adds, and what follows. Several entries describe steps of the [#171 plan](https://github.com/dvkam/mqtt/issues/171#issuecomment-6912613511) that had not been merged when the entry was written. The status line says which.
 
@@ -10,6 +10,23 @@ Two terms used below:
 
 - The inbound rules are what the client does with each packet the broker sends: which packet types it accepts, how it shapes QoS 0 and QoS 1 messages, how it handles AUTH, and how it closes. At 351f172 the Node clients apply them in `src/nodePacketListener.ts` and `src/nodePacketInput.ts`, and the browser client has its own in `src/browserClient.ts` and `src/browserTransport.ts`.
 - A packet-level seam is a public hook for a custom transport that sends and receives decoded MQTT packets instead of bytes.
+
+## Publish takes bytes, retain and the MQTT 5 PUBLISH properties
+
+Decided on 26 November 2026 (UTC), for [#151](https://github.com/dvkam/mqtt/issues/151). The owner proposed the design in the "Proposed fix" section of #151. On 26 November, in a working session, the owner asked for the work to be merged once review and CI passed. Status: in the pull request for `feat/publish-bytes-properties`, not merged when this entry was written.
+
+Question: how does a caller publish bytes, set retain and attach MQTT 5 properties?
+
+| Option | Trade-off |
+| --- | --- |
+| `publish(topic, string \| Uint8Array, options)` with retain and the PUBLISH properties in `PublishOptions` (chosen, recommended in #151) | One call for text and bytes. A received message can be passed back as the options. `PublishOptions` changes from a QoS union to one interface. |
+| A separate `publishBytes` method | Keeps the old signature, but splits the API and its option checks. |
+
+Reason given in #151: callers cannot send bytes, retain or properties, and a lone surrogate silently changes on the wire.
+
+Consequences: a string with an unpaired surrogate, an invalid property and `retain` without broker support each reject with `ERR_MQTT_INVALID_ARGUMENT` before admission. A QoS 0 publish honors a signal that is already aborted. Admission counts the property section. The client keeps a reference to a byte payload and to Correlation Data until it writes the PUBLISH, so callers must not change them before the publish settles. #151 does not say whether to copy.
+
+What follows: the client does not yet check a PUBLISH against the broker's Maximum Packet Size from CONNACK.
 
 ## Every client accepts a text or byte password
 

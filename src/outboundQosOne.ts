@@ -1,9 +1,8 @@
 import type { IdentifierLease, PacketIdentifiers } from './packetIdentifiers.js';
 import { MqttError } from './mqttError.js';
 
-interface Publication {
-  readonly topic: string;
-  readonly payload: string;
+interface Publication<Item> {
+  readonly outgoing: Item;
   readonly releaseBudget: () => void;
   readonly detach: () => void;
   readonly cancelIfAborted: () => boolean;
@@ -11,39 +10,40 @@ interface Publication {
   readonly reject: (reason: unknown) => void;
 }
 
-interface Exchange {
-  readonly publication: Publication;
+interface Exchange<Item> {
+  readonly publication: Publication<Item>;
   readonly identifier: IdentifierLease;
   readonly acknowledge: (code: number) => void;
   readonly rejectAck: (reason: Readonly<Error>) => void;
   acknowledgmentCode: number | undefined;
 }
 
-type Transmit = (topic: string, payload: string, messageId: number, acknowledgment: Readonly<Promise<number>>) => Promise<number>;
+type Transmit<Item> = (outgoing: Item, messageId: number, acknowledgment: Readonly<Promise<number>>) => Promise<number>;
 
-function reportAcknowledgment(publication: Readonly<Publication>, code: number): void {
+function reportAcknowledgment<Item>(publication: Readonly<Publication<Item>>, code: number): void {
   if (code >= 128)
     publication.reject(new MqttError('ERR_MQTT_REFUSED', 'MQTT publication refused', { fatal: false, reasonCode: code }));
   else publication.resolve();
 }
 
-export class OutboundQosOne {
-  private readonly queued = new Set<Publication>();
-  private readonly active = new Map<number, Exchange>();
+/** Ordered QoS 1 exchanges. `Item` is the publication the session hands to `transmit`; the queue never reads it. */
+export class OutboundQosOne<Item> {
+  private readonly queued = new Set<Publication<Item>>();
+  private readonly active = new Map<number, Exchange<Item>>();
   private readonly quota: number;
   private readonly identifiers: Readonly<Pick<PacketIdentifiers, 'reserve'>>;
-  private readonly transmit: Transmit;
+  private readonly transmit: Transmit<Item>;
   private stopped?: Readonly<Error>;
   private activeSettled?: () => void;
   private draining = false;
 
-  constructor(quota: number, identifiers: Readonly<Pick<PacketIdentifiers, 'reserve'>>, transmit: Transmit) {
+  constructor(quota: number, identifiers: Readonly<Pick<PacketIdentifiers, 'reserve'>>, transmit: Transmit<Item>) {
     this.quota = quota;
     this.identifiers = identifiers;
     this.transmit = transmit;
   }
 
-  async enqueue(topic: string, payload: string, releaseBudget: () => void, signal?: Readonly<AbortSignal>): Promise<void> {
+  async enqueue(outgoing: Item, releaseBudget: () => void, signal?: Readonly<AbortSignal>): Promise<void> {
     return new Promise((resolve, reject) => {
       if (this.stopped) {
         releaseBudget();
@@ -51,7 +51,7 @@ export class OutboundQosOne {
         return;
       }
       let cancellation: AbortSignal | undefined;
-      const publication: Publication = { topic, payload, releaseBudget, detach, cancelIfAborted, resolve, reject };
+      const publication: Publication<Item> = { outgoing, releaseBudget, detach, cancelIfAborted, resolve, reject };
       const queue = this.queued;
       function detach() {
         cancellation?.removeEventListener('abort', cancel);
@@ -165,13 +165,13 @@ export class OutboundQosOne {
           publication.reject(reason);
           continue;
         }
-        let acknowledge!: Exchange['acknowledge'];
-        let rejectAck!: Exchange['rejectAck'];
+        let acknowledge!: Exchange<Item>['acknowledge'];
+        let rejectAck!: Exchange<Item>['rejectAck'];
         const acknowledgment = new Promise<number>((resolve, reject) => {
           acknowledge = resolve;
           rejectAck = reject;
         });
-        const exchange: Exchange = { publication, identifier, acknowledge, rejectAck, acknowledgmentCode: undefined };
+        const exchange: Exchange<Item> = { publication, identifier, acknowledge, rejectAck, acknowledgmentCode: undefined };
         this.active.set(identifier.messageId, exchange);
         void this.complete(exchange, acknowledgment);
       }
@@ -180,10 +180,10 @@ export class OutboundQosOne {
     }
   }
 
-  private async complete(exchange: Readonly<Exchange>, acknowledgment: Readonly<Promise<number>>): Promise<void> {
+  private async complete(exchange: Readonly<Exchange<Item>>, acknowledgment: Readonly<Promise<number>>): Promise<void> {
     const { publication, identifier } = exchange;
     try {
-      const code = await this.transmit(publication.topic, publication.payload, identifier.messageId, acknowledgment);
+      const code = await this.transmit(publication.outgoing, identifier.messageId, acknowledgment);
       reportAcknowledgment(publication, code);
     } catch (reason) {
       publication.reject(reason);

@@ -1,4 +1,5 @@
 import { MqttError } from './mqttError.js';
+import { utf8Length } from './util/utf8.js';
 
 export interface PublicationLimits {
   maxPendingPublishes?: number;
@@ -18,27 +19,6 @@ export function resolvePublicationLimits(options: Readonly<PublicationLimits>) {
   return { maxPendingPublishes, maxPendingPublishBytes };
 }
 
-function utf8Bytes(value: string, limit: number): number {
-  let bytes = 0;
-  for (let index = 0; index < value.length; index++) {
-    const code = value.charCodeAt(index);
-    if (code <= 0x7f) bytes++;
-    else if (code <= 0x7ff) bytes += 2;
-    else if (
-      code >= 0xd800 &&
-      code <= 0xdbff &&
-      index + 1 < value.length &&
-      value.charCodeAt(index + 1) >= 0xdc00 &&
-      value.charCodeAt(index + 1) <= 0xdfff
-    ) {
-      bytes += 4;
-      index++;
-    } else bytes += 3;
-    if (bytes > limit) return bytes;
-  }
-  return bytes;
-}
-
 export class PublicationAdmission {
   private readonly limits: ReturnType<typeof resolvePublicationLimits>;
   private items = 0;
@@ -48,12 +28,18 @@ export class PublicationAdmission {
     this.limits = resolvePublicationLimits(options);
   }
 
-  reserve(topic: string, payload: string, qos: 0 | 1 = 0): () => void {
+  /** The byte limit for pending publications. A larger publication can never be admitted. */
+  get byteLimit(): number {
+    return this.limits.maxPendingPublishBytes;
+  }
+
+  /** `propertyBytes` is the encoded property section with its length. An empty section is one byte. */
+  reserve(topic: string, payloadBytes: number, propertyBytes: number, qos: 0 | 1 = 0): () => void {
     const available = this.limits.maxPendingPublishBytes - this.bytes;
     if (this.items >= this.limits.maxPendingPublishes)
       throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT publication capacity exceeded');
     const identifierBytes = qos === 1 ? 2 : 0;
-    const remaining = 3 + identifierBytes + utf8Bytes(topic, available) + utf8Bytes(payload, available);
+    const remaining = 2 + utf8Length(topic, available) + identifierBytes + propertyBytes + payloadBytes;
     let lengthBytes = 1;
     for (let value = remaining; value >= 128; value = Math.floor(value / 128)) lengthBytes++;
     const size = 1 + lengthBytes + remaining;

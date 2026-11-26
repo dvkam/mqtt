@@ -133,6 +133,8 @@ MQTT_TEST_TIMER_COUNT=1 MQTT_TEST_ITERATIONS=1000 node bench/packed-qos0.ts
 MQTT_QOS0_HEAP_PROFILE=/path/to/qos0.heapprofile node bench/packed-qos0.ts
 ```
 
+Set `MQTT_QOS0_WORKLOAD` to `bytes` to publish the payload as a Uint8Array, or to `properties` to add a Content Type, Correlation Data and a User Property. The default is `text`. The [PUBLISH encoding comparison](publish-encoding-measurements.md) records these workloads for the single-allocation encoder.
+
 The full lifecycle replay passed 43 positive models and found all 152 expected faults. The packed Chromium retirement probe observed no remaining timers or listeners after close. [Operation tests](../test/operation-timeout.test.ts) · [Deadline model](../verification/QosZeroDeadline.tla) · [#156](https://github.com/dvkam/mqtt/issues/156)
 
 ### Will codec comparison

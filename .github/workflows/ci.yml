@@ -71,7 +71,7 @@ jobs:
         run: |
           consumer="$RUNNER_TEMP/mqtt-consumer"
           mkdir "$consumer"
-          cp test/packed/{consumer.ts,tsconfig.json,browser.mjs,broker.mjs,custom-transport.mjs,first-connection-recovery.mjs,native-websocket.mjs,server-keep-alive.mjs,websocket-browser.mjs,tcp-only-check.mjs,will.mjs,will-scenario.mjs} "$consumer/"
+          cp test/packed/{consumer.ts,tsconfig.json,browser.mjs,broker.mjs,custom-transport.mjs,first-connection-recovery.mjs,native-websocket.mjs,publish-properties.mjs,server-keep-alive.mjs,websocket-browser.mjs,tcp-only-check.mjs,will.mjs,will-scenario.mjs} "$consumer/"
           printf '{"private":true,"type":"module"}\n' > "$consumer/package.json"
           npm install --prefix "$consumer" --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/mqtt-artifact/*.tgz "@types/node@$(node -p "require('./package.json').devDependencies['@types/node']")"
           (cd "$consumer" && node tcp-only-check.mjs) | tee -a "$GITHUB_STEP_SUMMARY"
@@ -94,6 +94,7 @@ jobs:
           MQTT_PORT=18883 timeout 30 node test/packed/quickstart-check.ts "$RUNNER_TEMP/mqtt-consumer" | tee -a "$GITHUB_STEP_SUMMARY"
           timeout 15 node "$RUNNER_TEMP/mqtt-consumer/first-connection-recovery.mjs" | tee -a "$GITHUB_STEP_SUMMARY"
           MQTT_TEST_PORT=18883 timeout 20 node "$RUNNER_TEMP/mqtt-consumer/will.mjs" | tee -a "$GITHUB_STEP_SUMMARY"
+          MQTT_TEST_PORT=18883 timeout 20 node "$RUNNER_TEMP/mqtt-consumer/publish-properties.mjs" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Bundle the portable browser import
         if: github.event_name != 'schedule'
         run: node test/packed/browser-build.mjs "$RUNNER_TEMP/mqtt-consumer" | tee -a "$GITHUB_STEP_SUMMARY"

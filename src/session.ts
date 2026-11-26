@@ -1,8 +1,18 @@
+import type { PublishProperties } from './publication.js';
 export type SessionEnd = Readonly<{ kind: 'disconnect' }> | Readonly<{ kind: 'error'; error: Readonly<Error> }>;
 
 export type SessionEndObserver = (event: SessionEnd) => void | Promise<void>;
 
-export type PublishOptions = { qos?: 0; signal?: never } | { qos: 1; signal?: AbortSignal };
+/**
+ * Publish options. A signal that is already aborted rejects the call before anything is sent. At QoS 1 a later abort
+ * withdraws a publication that is still queued. At QoS 0 a later abort has no effect.
+ */
+export interface PublishOptions extends PublishProperties {
+  /** 0 sends the message once without an acknowledgment. 1 waits for the broker's PUBACK. Defaults to 0. */
+  qos?: 0 | 1;
+  /** Cancels the publish while it is still queued. */
+  signal?: AbortSignal;
+}
 
 export type SubscribeOptions = { qos?: 0 | 1 };
 export interface DisconnectOptions {
@@ -24,8 +34,12 @@ export interface ClientSession {
   readonly connection: ConnectionInfo;
   subscribe(topic: string, options?: Readonly<SubscribeOptions>): Promise<SubscribeResult>;
   unsubscribe(topic: string): Promise<UnsubscribeResult>;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The cancellation signal retains its native identity.
-  publish(topic: string, payload: string, options?: Readonly<PublishOptions>): Promise<void>;
+  /**
+   * Send a PUBLISH. A string payload is sent as UTF-8. A Uint8Array payload and Correlation Data are written as given, so
+   * do not change their bytes before the returned promise settles.
+   */
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The payload and Correlation Data are the caller's Uint8Array views, and the signal keeps its native identity.
+  publish(topic: string, payload: string | Uint8Array, options?: Readonly<PublishOptions>): Promise<void>;
   ping(): Promise<void>;
   disconnect(options?: Readonly<DisconnectOptions>): Promise<void>;
 }

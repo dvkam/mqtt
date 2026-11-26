@@ -21,7 +21,7 @@ MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputErr
 
 | Code | Cause | `fatal` | `reasonCode` |
 | --- | --- | --- | --- |
-| `ERR_MQTT_INVALID_ARGUMENT` | Invalid topic or filter, unsupported QoS, QoS 1 without a broker or handler that supports it, a `$share/` filter the transport cannot send, a publish signal without QoS 1, an invalid Will, a password over 65,535 bytes or of another type, or an invalid `disconnect()` option | `false` | None |
+| `ERR_MQTT_INVALID_ARGUMENT` | Invalid topic or filter, unsupported QoS, QoS 1 without a broker or handler that supports it, a `$share/` filter the transport cannot send, an invalid publish payload, PUBLISH property or publish signal, `retain` when the broker does not allow it, an invalid Will, a password over 65,535 bytes or of another type, or an invalid `disconnect()` option | `false` | None |
 | `ERR_MQTT_CAPACITY` | The publication or subscription limit is full, all 65,535 packet identifiers are in use, or another ping awaits PINGRESP | `false` | None |
 | `ERR_MQTT_REFUSED` | The broker refused CONNACK | `true` | The CONNACK reason code |
 | `ERR_MQTT_REFUSED` | The broker refused SUBACK, UNSUBACK or PUBACK | `false` | The acknowledgment's reason code |
@@ -33,13 +33,12 @@ MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputErr
 | `ERR_MQTT_PROTOCOL` | The broker sent more inbound QoS 1 messages than the client's Receive Maximum allows | `true` | 0x93 |
 | `ERR_MQTT_CLOSING` | The call came after `disconnect()` | `true` | None |
 | `ERR_MQTT_TRANSPORT` | The socket or WebSocket closed, a WebSocket handshake or subprotocol check failed, a text WebSocket message arrived, or no native WebSocket exists. Also used when a custom transport's `open`, or a write of CONNECT, PINGREQ, DISCONNECT, SUBSCRIBE, UNSUBSCRIBE or a QoS 1 PUBLISH, rejects with a value that is not an Error. `cause` then holds that value. | `true` | None |
-| `ERR_MQTT_ABORTED` | The connection signal aborted with a reason that is not an Error. The error's `name` is `AbortError`, and `cause` holds the reason. A QoS 1 publish signal passes its reason through unchanged. | `true` | None |
+| `ERR_MQTT_ABORTED` | The connection signal aborted with a reason that is not an Error. The error's `name` is `AbortError`, and `cause` holds the reason. A publish signal passes its reason through unchanged at either QoS. | `true` | None |
 
 ## Gaps
 
 These rejections have no code yet, or lack a field that #155 asks for.
 
-- A QoS 1 publish whose signal cannot be observed rejects with a plain `Error`.
 - A non-Error value thrown by an `onMessage` or `onQosOneMessage` handler ends the session with a plain `Error`.
 - A refused SUBACK, UNSUBACK or PUBACK has a `reasonCode` but no `reasonString` or `userProperties` yet.
 - Errors from `ws` and the native socket, such as `Server sent no subprotocol`, pass through unchanged.

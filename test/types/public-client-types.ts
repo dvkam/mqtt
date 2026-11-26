@@ -4,6 +4,7 @@ import type {
   ClientFactory,
   ClientSession,
   MessageProperties,
+  PublishProperties,
   NodeMessage,
   NodeQosOneMessage,
   TcpClientOptions,
@@ -86,3 +87,28 @@ export const bytePasswordTcp = createTcpClient({
   clientId: 'byte-password',
   password: Buffer.from('secret'),
 });
+
+type Publish = ClientSession['publish'];
+export type PublishAcceptsTextAndBytes = RequireTrue<
+  string extends Parameters<Publish>[1] ? (Uint8Array extends Parameters<Publish>[1] ? true : false) : false
+>;
+export type PublishRejectsNumbers = RequireFalse<number extends Parameters<Publish>[1] ? true : false>;
+export type PublishOptionsCarryProperties = RequireTrue<
+  NonNullable<Parameters<Publish>[2]> extends Readonly<PublishProperties> ? true : false
+>;
+
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- AbortSignal is a native mutable object, and ClientSession.publish takes it by identity.
+export async function publishWithProperties(session: Readonly<ClientSession>, signal: AbortSignal): Promise<void> {
+  await session.publish('bytes', Buffer.from([1, 2]), { signal });
+  await session.publish('reply', 'text', {
+    qos: 1,
+    retain: true,
+    payloadFormatIndicator: 1,
+    messageExpiryInterval: 60,
+    contentType: 'text/plain',
+    responseTopic: 'reply/7',
+    correlationData: Uint8Array.of(7),
+    userProperties: [['k', 'v']],
+    signal,
+  });
+}

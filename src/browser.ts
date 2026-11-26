@@ -3,6 +3,7 @@ export type { BrowserClientOptions, BrowserMessage, BrowserQosOneMessage, Browse
 export type { MessageProperties } from './messageProperties.js';
 export type { UserProperty } from './codec.js';
 export type { WillOptions } from './will.js';
+export type { PublishProperties } from './publication.js';
 export type {
   ClientFactory,
   ClientSession,

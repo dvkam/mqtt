@@ -480,18 +480,111 @@ test('sizes and copies the same PUBLISH payload when options use a getter', () =
   expect(reads).toBe(1);
 });
 
-test('never emits a frame with a stale length if the payload grows during encoding', () => {
-  const storage: unknown = Reflect.construct(ArrayBuffer, [1, { maxByteLength: 2 }]);
+test('reads each PUBLISH field once', () => {
+  const reads = { topic: 0, qos: 0, dup: 0 };
+  const frame = encodePacket({
+    cmd: 'publish',
+    payload: Uint8Array.of(0x5a),
+    messageId: 7,
+    get topic() {
+      reads.topic++;
+      return reads.topic === 1 ? 'ab' : 'a';
+    },
+    get qos(): 1 {
+      reads.qos++;
+      return 1;
+    },
+    get dup() {
+      reads.dup++;
+      return reads.dup === 1;
+    },
+  });
+  expect(frame).toEqual(Uint8Array.of(0x3a, 8, 0, 2, 97, 98, 0, 7, 0, 0x5a));
+  expect(reads).toEqual({ topic: 1, qos: 1, dup: 1 });
+});
+
+test('reads each User Property once and writes the value it checked', () => {
+  const pair: [string, string] = ['k', 'ab'];
+  let reads = 0;
+  Object.defineProperty(pair, 1, { get: () => (++reads === 1 ? 'ab' : 'a\u0000') });
+  const frame = encodePacket({ cmd: 'publish', topic: 'a', payload: Uint8Array.of(1), userProperties: [pair] });
+  expect(frame).toEqual(Uint8Array.of(0x30, 13, 0, 1, 97, 8, 0x26, 0, 1, 107, 0, 2, 97, 98, 1));
+  expect(reads).toBe(1);
+});
+
+test('never emits a frame with a stale length if a Subscription Identifier getter resizes the Correlation Data', () => {
+  const { storage, resize } = resizableStorage(2);
+  const identifiers = [1];
+  Object.defineProperty(identifiers, 0, {
+    get: () => {
+      resize(1);
+      return 1;
+    },
+  });
+  expect(() =>
+    encodePacket({
+      cmd: 'publish',
+      topic: 'a',
+      payload: Uint8Array.of(1),
+      correlationData: new Uint8Array(storage),
+      subscriptionIdentifiers: identifiers,
+    }),
+  ).toThrow(new RangeError('MQTT bytes changed during encoding'));
+});
+
+test('encodes User Properties and Subscription Identifiers passed as a Set by a JavaScript caller', () => {
+  const packet: Record<string, unknown> = {
+    cmd: 'publish',
+    topic: 'a',
+    payload: Uint8Array.of(1),
+    userProperties: new Set([['k', 'v']]),
+    subscriptionIdentifiers: new Set([3]),
+  };
+  expect(Reflect.apply(encodePacket, undefined, [packet])).toEqual(
+    Uint8Array.of(0x30, 14, 0, 1, 97, 9, 0x26, 0, 1, 107, 0, 1, 118, 0x0b, 3, 1),
+  );
+});
+
+test('treats a null User Property list from a JavaScript caller as empty', () => {
+  const packet: Record<string, unknown> = { cmd: 'publish', topic: 'a', payload: Uint8Array.of(1), userProperties: null };
+  expect(Reflect.apply(encodePacket, undefined, [packet])).toEqual(Uint8Array.of(0x30, 5, 0, 1, 97, 0, 1));
+});
+
+test.each([
+  ['a string', (): unknown => 'abc'],
+  ['a DataView', (): unknown => new DataView(new ArrayBuffer(2))],
+  ['a Uint16Array', (): unknown => Uint16Array.of(1)],
+])('rejects %s as a PUBLISH payload', (_name, make) => {
+  // The test passes a value the types exclude, as a JavaScript caller could.
+  const packet: Record<string, unknown> = { cmd: 'publish', topic: 'a', payload: make() };
+  expect(() => {
+    Reflect.apply(encodePacket, undefined, [packet]);
+  }).toThrow(new RangeError('Invalid MQTT binary data'));
+});
+
+function resizableStorage(length: number) {
+  const storage: unknown = Reflect.construct(ArrayBuffer, [length, { maxByteLength: 2 }]);
   if (!(storage instanceof ArrayBuffer)) throw new Error('Expected resizable storage');
   const resize: unknown = Reflect.get(storage, 'resize');
   if (typeof resize !== 'function') throw new Error('Expected resize');
-  const resizeBuffer = resize;
+  return {
+    storage,
+    resize: (to: number): void => {
+      Reflect.apply(resize, storage, [to]);
+    },
+  };
+}
+
+test('sizes a PUBLISH payload by its own length, not a subclass getter', () => {
+  const { storage, resize } = resizableStorage(1);
   class GrowingPayload extends Uint8Array {
     override get byteLength(): number {
-      const length = super.byteLength;
-      if (length === 1) Reflect.apply(resizeBuffer, storage, [2]);
-      return length;
+      resize(2);
+      return 2;
     }
   }
-  expect(() => encodePacket({ cmd: 'publish', topic: 'a', payload: new GrowingPayload(storage) })).toThrow(RangeError);
+  expect(encodePacket({ cmd: 'publish', topic: 'a', payload: new GrowingPayload(storage) })).toEqual(
+    Uint8Array.of(0x30, 5, 0, 1, 97, 0, 0),
+  );
+  expect(storage.byteLength).toBe(1);
 });
