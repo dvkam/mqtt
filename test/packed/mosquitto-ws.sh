@@ -14,30 +14,42 @@ openssl req -new -newkey rsa:2048 -nodes -subj '/CN=MQTT test client' \
 printf 'extendedKeyUsage=clientAuth\n' > "$broker_dir/client.ext"
 openssl x509 -req -in "$broker_dir/client.csr" -CA "$broker_dir/ca.pem" -CAkey "$broker_dir/ca.key" \
   -CAcreateserial -days 1 -extfile "$broker_dir/client.ext" -out "$broker_dir/client.pem" 2>/dev/null
+# Mosquitto reads the $7$ format: PBKDF2-SHA512 with 101 iterations, a base64 salt and a base64 hash.
+node -e "const c=require('node:crypto');const salt=c.randomBytes(12);const hash=c.pbkdf2Sync('packed-secret',salt,101,64,'sha512');process.stdout.write('packed-user:\$7\$101\$'+salt.toString('base64')+'\$'+hash.toString('base64')+'\\n')" > "$broker_dir/passwords"
+chmod 0600 "$broker_dir/passwords"
 cat > "$broker_dir/broker.conf" <<CONF
-allow_anonymous true
+per_listener_settings true
 listener 18888 127.0.0.1
+allow_anonymous true
 protocol mqtt
 certfile $broker_dir/server.pem
 keyfile $broker_dir/server.key
 listener 18889 127.0.0.1
+allow_anonymous true
 protocol mqtt
 certfile $broker_dir/server.pem
 keyfile $broker_dir/server.key
 cafile $broker_dir/ca.pem
 require_certificate true
 listener 18884 127.0.0.1
+allow_anonymous true
 protocol websockets
 listener 18885 127.0.0.1
+allow_anonymous true
 protocol websockets
 certfile $broker_dir/server.pem
 keyfile $broker_dir/server.key
 listener 18886 127.0.0.1
+allow_anonymous true
 protocol websockets
 certfile $broker_dir/server.pem
 keyfile $broker_dir/server.key
 cafile $broker_dir/ca.pem
 require_certificate true
+listener 18890 127.0.0.1
+protocol websockets
+allow_anonymous false
+password_file $broker_dir/passwords
 CONF
 broker_conf="$broker_dir/broker.conf"
 if [[ -n ${MQTT_BROKER_CONF:-} ]]; then
@@ -92,7 +104,8 @@ if run_session wss://localhost:18886/mqtt "$broker_dir/ca.pem" > "$broker_dir/no
   exit 1
 fi
 grep -Ei 'certificate.required|handshake.failure|socket hang up|alert' "$broker_dir/no-client-cert.log"
-cp test/packed/{websocket-session,native-websocket}.mjs "$consumer/"
+cp test/packed/{websocket-session,native-websocket,browser-password}.mjs "$consumer/"
+timeout 20 node "$consumer/browser-password.mjs"
 session=test/packed/websocket-session-check.ts
 timeout 20 node "$session" "$consumer" ws://127.0.0.1:18884/mqtt
 node test/packed/websocket-tls-gateway.ts "$broker_dir/server.pem" "$broker_dir/server.key" &

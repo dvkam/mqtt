@@ -33,4 +33,22 @@ export async function checkBrowserTypes(signal: AbortSignal) {
   await client.disconnect();
 }
 
+type RequireFalse<Value extends false> = Value;
+type Password = NonNullable<BrowserClientOptions['password']>;
+export type PasswordAcceptsText = RequireTrue<string extends Password ? true : false>;
+export type PasswordAcceptsBytes = RequireTrue<Uint8Array extends Password ? true : false>;
+export type PasswordRejectsNumbers = RequireFalse<number extends Password ? true : false>;
+
+export const textPassword = createBrowserClient({
+  url: 'wss://localhost/mqtt',
+  clientId: 'text-password',
+  username: 'u',
+  password: 'secret',
+});
+export const bytePassword = createBrowserClient({
+  url: 'wss://localhost/mqtt',
+  clientId: 'byte-password',
+  password: Uint8Array.of(1, 2),
+});
+
 export * from '../../packed/browser/consumer.js';

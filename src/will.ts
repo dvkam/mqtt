@@ -1,5 +1,6 @@
 import type { MessageProperties } from './messageProperties.js';
 import type { UserProperty } from './wireProperties.js';
+import { isBytes } from './util/bytes.js';
 import { validateMqttString, validateTopicName } from './util/validateTopic.js';
 
 export interface WillMessage<Payload extends string | Uint8Array = Uint8Array> extends Omit<
@@ -19,12 +20,7 @@ const willEncoder = new TextEncoder();
 const willDecoder = new TextDecoder('utf-8', { fatal: true });
 const maxBinaryBytes = 65_535;
 const typedArrayPrototype = Reflect.getPrototypeOf(Uint8Array.prototype) ?? Uint8Array.prototype;
-const arrayTag = Reflect.getOwnPropertyDescriptor(typedArrayPrototype, Symbol.toStringTag)?.get;
 const arrayByteLength = Reflect.getOwnPropertyDescriptor(typedArrayPrototype, 'byteLength')?.get;
-
-function isBytes(value: unknown): value is Uint8Array {
-  return ArrayBuffer.isView(value) && arrayTag?.call(value) === 'Uint8Array';
-}
 
 function copyBytes(value: unknown, field: string): Uint8Array<ArrayBuffer> {
   if (!isBytes(value)) throw new TypeError('MQTT Will ' + field + ' must be a Uint8Array');

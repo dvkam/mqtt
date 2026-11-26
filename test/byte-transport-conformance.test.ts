@@ -514,6 +514,19 @@ describe('the core over a transport it closes', () => {
   });
 });
 
+test.each([
+  { name: 'over 65,535 bytes', password: (): unknown => new Uint8Array(65_536), message: 'MQTT password exceeds 65,535 bytes' },
+  { name: 'of an unsupported type', password: (): unknown => 42, message: 'MQTT password must be a string or a Uint8Array' },
+] as const)('rejects a password $name before opening the transport', async ({ password: make, message }) => {
+  const password = make();
+  const { peer } = memoryPeer();
+  // An untyped caller can pass any value. The core checks the value it receives.
+  const options: Record<string, unknown> = { clientId: 'invalid-password', password };
+  const factory = createTransportClient(peer.transport, { clientId: 'invalid-password', ...options });
+  await expect(factory.connect()).rejects.toMatchObject({ message, code: 'ERR_MQTT_INVALID_ARGUMENT', fatal: false });
+  expect(peer.opens()).toBe(0);
+});
+
 test('rejects an invalid Will topic before opening the transport', async () => {
   const { peer } = memoryPeer();
   const factory = createTransportClient(peer.transport, {

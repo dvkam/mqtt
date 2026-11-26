@@ -272,15 +272,60 @@ describe('behavior the browser client keeps on the core', () => {
     },
   );
 
-  test('never sends a password, which the browser options do not have', async () => {
+  test.each([
+    {
+      name: 'a string password as its UTF-8 bytes',
+      text: 'pässword',
+      bytes: [0x70, 0xc3, 0xa4, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64],
+    },
+    { name: 'a byte password unchanged', text: undefined, bytes: [0, 1, 254, 255] },
+  ] as const)('sends $name after the username in CONNECT', async ({ text, bytes }) => {
     vi.stubGlobal('WebSocket', ScriptedSocket);
-    // An object that carries a password still type-checks, because only fresh literals get excess property checks.
-    const carrier = { ...options, username: 'u', password: Uint8Array.of(1, 2) };
-    const client = await createBrowserClient(carrier).connect();
-    const flags = ScriptedSocket.instance.sent[0]?.[9] ?? 0;
-    // CONNECT flags: 0x80 is the username, 0x40 the password.
-    expect({ username: (flags & 0x80) !== 0, password: (flags & 0x40) !== 0 }).toEqual({ username: true, password: false });
+    const password = text ?? Uint8Array.from(bytes);
+    const client = await createBrowserClient({ ...options, username: 'u', password }).connect();
+    const connect = ScriptedSocket.instance.sent[0] ?? [];
+    // CONNECT flags: 0x80 is the username, 0x40 the password. The password is the last field, after its two-byte length.
+    expect({ username: ((connect[9] ?? 0) & 0x80) !== 0, password: ((connect[9] ?? 0) & 0x40) !== 0 }).toEqual({
+      username: true,
+      password: true,
+    });
+    expect(connect.slice(-bytes.length - 2)).toEqual([0, bytes.length, ...bytes]);
     await client.disconnect();
+  });
+
+  test('sends a password without a username, as MQTT 5 allows', async () => {
+    vi.stubGlobal('WebSocket', ScriptedSocket);
+    const client = await createBrowserClient({ ...options, password: 'p' }).connect();
+    const connect = ScriptedSocket.instance.sent[0] ?? [];
+    expect((connect[9] ?? 0) & 0xc0).toBe(0x40);
+    expect(connect.slice(-3)).toEqual([0, 1, 0x70]);
+    await client.disconnect();
+  });
+
+  test('keeps the password out of diagnostics', async () => {
+    vi.stubGlobal('WebSocket', ScriptedSocket);
+    const events: unknown[] = [];
+    const client = await createBrowserClient({
+      ...options,
+      username: 'u',
+      password: 'diagnostic-secret',
+      onDiagnostic: (event) => {
+        events.push(event);
+      },
+    }).connect();
+    await client.disconnect();
+    expect(events).toContainEqual({ kind: 'packet', direction: 'outbound', command: 'connect' });
+    expect(JSON.stringify(events)).not.toContain('diagnostic-secret');
+  });
+
+  test('rejects a password over 65,535 bytes before opening the socket', async () => {
+    const opened = vi.fn<() => void>();
+    vi.stubGlobal('WebSocket', opened);
+    await expect(createBrowserClient({ ...options, password: 'p'.repeat(65_536) }).connect()).rejects.toMatchObject({
+      code: 'ERR_MQTT_INVALID_ARGUMENT',
+      message: 'MQTT password exceeds 65,535 bytes',
+    });
+    expect(opened).not.toHaveBeenCalled();
   });
 
   test('a graceful close resolves when the close event comes, before the deadline', async () => {

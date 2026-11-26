@@ -14,13 +14,16 @@ import type { ClientFactory, ClientSession } from './session.js';
 import { resolveSubscriptionLimits } from './subscriptionExchanges.js';
 import { resolveTimeout } from './timeout.js';
 import { invalidOption, MqttError, transportFailure } from './mqttError.js';
+import { capturePassword } from './password.js';
 import { captureWill, type WillMessage, type WillOptions } from './will.js';
 
 export const flushNativeWrites = Symbol('flushNativeWrites');
 export type ByteWriterWithFlush = ByteWriter & { [flushNativeWrites]?(): void };
 
 export interface ByteClientOptions<Bytes extends Uint8Array = Uint8Array>
-  extends Omit<PortableOptions<Bytes>, 'will'>, NativeWriteLimits {
+  extends Omit<PortableOptions<Bytes>, 'will' | 'password'>, NativeWriteLimits {
+  /** The CONNECT password, at most 65,535 bytes. A string is sent as its UTF-8 bytes. */
+  password?: string | Uint8Array;
   signal?: AbortSignal;
   maxPacketBytes?: number;
   will?: WillOptions;
@@ -81,7 +84,9 @@ async function connectOverBytes<Bytes extends Uint8Array>(
   const writeLimits = resolveNativeWriteLimits(options);
   const input = new PacketInput(options.maxPacketBytes, platform);
   let will: WillMessage | undefined;
+  let password: Uint8Array | undefined;
   try {
+    password = supportsPassword ? capturePassword(options.password) : undefined;
     will = captureWill(options.will);
   } catch (error) {
     if (isAborted()) throw abortReason();
@@ -218,7 +223,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
       const client = await connectPortable(packets, {
         clientId: options.clientId,
         username: options.username,
-        password: supportsPassword ? options.password : undefined,
+        password,
         will,
         onMessage: options.onMessage,
         onDiagnostic,
