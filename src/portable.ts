@@ -198,7 +198,8 @@ class PortableClient<Bytes extends Uint8Array> {
   }
 
   async open(): Promise<void> {
-    let connectSentAt = 0;
+    // MQTT 5 counts Keep Alive from when the client sends a packet, so the idle deadline starts with the CONNECT write.
+    const connectStartedAt = performance.now();
     const reply = await this.exchange(
       {
         cmd: 'connect',
@@ -210,11 +211,6 @@ class PortableClient<Bytes extends Uint8Array> {
         ...(this.onQosOneMessage ? { receiveMaximum: 1 } : {}),
       },
       (ack) => ack.cmd === 'connack',
-      {
-        onSent: () => {
-          connectSentAt = performance.now();
-        },
-      },
     );
     if (this.failure) throw this.failure;
     if (reply.cmd !== 'connack') throw new Error('Expected CONNACK');
@@ -226,7 +222,7 @@ class PortableClient<Bytes extends Uint8Array> {
       this.outbound = new OutboundQosOne(receiveMaximum, this.identifiers, this.transmitQosOne.bind(this));
     }
     this.activation = 'active';
-    if (serverKeepAlive > 0) this.startKeepAlive(serverKeepAlive * 1000, connectSentAt);
+    if (serverKeepAlive > 0) this.startKeepAlive(serverKeepAlive * 1000, connectStartedAt);
     this.advanceInbound();
     const interrupted = this.reportConnection('active');
     if (interrupted) throw interrupted;
@@ -373,15 +369,17 @@ class PortableClient<Bytes extends Uint8Array> {
     await this.exchange({ cmd: 'pingreq' }, (ack) => ack.cmd === 'pingresp', { background });
   }
 
-  private startKeepAlive(intervalMs: number, lastSentAt: number): void {
-    const keepAlive: KeepAlive = { intervalMs, deadline: lastSentAt + intervalMs };
+  private startKeepAlive(intervalMs: number, lastStartedAt: number): void {
+    const keepAlive: KeepAlive = { intervalMs, deadline: lastStartedAt + intervalMs };
     this.keepAlive = keepAlive;
     const send = this.sendPacket;
-    // Only a session with a positive override observes completed writes.
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Forward the same mutable packet to the writer.
+    // Only a session with a positive override tracks writes. A completed write moves the deadline to one interval after
+    // the write started. A failed write does not move it.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The wrapper keeps the PacketTransport['send'] signature declared in this file, whose ClientPacket carries a Uint8Array PUBLISH payload.
     this.sendPacket = async (packet) => {
+      const startedAt = performance.now();
       await send(packet);
-      keepAlive.deadline = performance.now() + intervalMs;
+      keepAlive.deadline = Math.max(keepAlive.deadline, startedAt + intervalMs);
     };
     this.scheduleKeepAlive();
   }
@@ -478,10 +476,10 @@ class PortableClient<Bytes extends Uint8Array> {
   }
 
   private async exchange(
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- sendPacket takes the PacketTransport['send'] ClientPacket declared in this file, whose PUBLISH payload is a Uint8Array.
     packet: ClientPacket,
     matches: (ack: Acknowledgment) => boolean,
-    { onSent, background = false }: Readonly<{ onSent?: () => void; background?: boolean }> = {},
+    { background = false }: Readonly<{ background?: boolean }> = {},
   ): Promise<Acknowledgment> {
     const failureBeforeExchange = this.failure;
     if (failureBeforeExchange) throw failureBeforeExchange;
@@ -509,8 +507,7 @@ class PortableClient<Bytes extends Uint8Array> {
     });
     try {
       const reply = await this.run(async () => {
-        const sent = this.sendPacket(packet);
-        const [received] = await Promise.all([ack, onSent ? sent.then(onSent) : sent]);
+        const [received] = await Promise.all([ack, this.sendPacket(packet)]);
         return received;
       }, !background);
       if (reply.cmd === 'connack' && reply.reasonCode !== 0)
