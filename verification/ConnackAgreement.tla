@@ -27,7 +27,7 @@ Auth == /\ phase \in {"waiting", "accepted", "active"} /\ ~authSeen /\ authSeen'
         /\ UNCHANGED <<requested, options, wire, invalidAccepted, delivered>>
 Activate == /\ phase = "accepted" /\ phase' = "active"
             /\ UNCHANGED <<requested, options, wire, invalidAccepted, delivered, authSeen>>
-Deliver == /\ phase = "active" /\ ~delivered /\ delivered' = TRUE
+Deliver == /\ phase \in {"accepted", "active"} /\ ~delivered /\ delivered' = TRUE
            /\ UNCHANGED <<requested, options, wire, phase, invalidAccepted, authSeen>>
 Next == MutateOptions \/ Send \/ Refuse \/ Auth \/ Activate \/ Deliver
         \/ (\E method, data \in BOOLEAN, assigned \in {"missing", "empty", "named", "other"}: Receive(method, data, assigned))

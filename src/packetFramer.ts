@@ -1,6 +1,8 @@
 import { decodeFramedPacket, isClientOnlyCommand, type FramedPacket } from './wireCodec.ts';
 import { brokerPacketDirectionError, ProtocolInputError } from './protocolInputError.ts';
 
+export const DEFAULT_MAX_PACKET_BYTES = 1024 * 1024;
+
 const packetNames = [
   'reserved',
   'connect',
@@ -64,7 +66,7 @@ export class PacketFramer {
   private open = true;
   private readonly onPacket: FramerOptions['onPacket'];
   private readonly allocate: PacketAllocator;
-  private readonly maxPacketBytes: number;
+  readonly maxPacketBytes: number;
   private header: number | undefined;
   private lengthBytes: number[] = [];
   private remainder: Uint8Array<ArrayBuffer> | undefined;
@@ -74,7 +76,7 @@ export class PacketFramer {
   private pushing = false;
 
   constructor(options: FramerOptions) {
-    const { maxPacketBytes: capacity = 1024 * 1024 } = options;
+    const { maxPacketBytes: capacity = DEFAULT_MAX_PACKET_BYTES } = options;
     if (!Number.isInteger(capacity) || capacity < 2 || capacity > 268_435_460) {
       throw new RangeError('MQTT packet capacity must be an integer from 2 to 268435460');
     }

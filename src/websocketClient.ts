@@ -2,22 +2,17 @@ import type { Agent } from 'node:http';
 import type { SecureContextOptions } from 'node:tls';
 import WebSocket from 'ws';
 import type { ByteInbound, ByteWriter, OpenContext } from './byteTransport.js';
-import type { NativeWriteLimits } from './nativeWriteBudget.js';
-import type { PortableOptions } from './portable.js';
 import type { ClientFactory } from './session.js';
 import { nodePlatform } from './nodePlatform.js';
-import { createByteClient } from './transportCore.js';
+import { createByteClient, type ByteClientOptions } from './transportCore.js';
 import { resolveWebSocketMessageLimit } from './websocketLimits.js';
 import { MqttError } from './mqttError.js';
 
-export interface WebSocketClientOptions
-  extends PortableOptions<Buffer>, NativeWriteLimits, Pick<SecureContextOptions, 'ca' | 'cert' | 'key'> {
+export interface WebSocketClientOptions extends ByteClientOptions<Buffer>, Pick<SecureContextOptions, 'ca' | 'cert' | 'key'> {
   url: string | URL;
   agent?: Agent;
   headers?: Record<string, string>;
-  signal?: AbortSignal;
   maxWebSocketMessageBytes?: number;
-  maxPacketBytes?: number;
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
@@ -48,8 +43,10 @@ function frameOverhead(length: number): number {
 async function openSocket(options: Options, inbound: ByteInbound, context: OpenContext): Promise<ByteWriter> {
   const { agent, ca, cert, key, headers } = options;
   const { timeoutMs } = context;
-  const maxWebSocketMessageBytes = resolveWebSocketMessageLimit(options.maxWebSocketMessageBytes);
-  const socket = new WebSocket(options.url, 'mqtt', {
+  const maxWebSocketMessageBytes = resolveWebSocketMessageLimit(context.maxPacketBytes, options.maxWebSocketMessageBytes);
+  const { url } = options;
+  context.signal.throwIfAborted();
+  const socket = new WebSocket(url, 'mqtt', {
     agent,
     ca,
     cert,

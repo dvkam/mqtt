@@ -2,6 +2,7 @@ import { validateInboundTopic } from './inboundTopic.js';
 import { ProtocolInputError } from './protocolInputError.js';
 import { isSubscriptionReason } from './subscriptionReason.js';
 import { isPubackReason } from './pubackReason.js';
+import { captureWill, validateWillPayload, type WillMessage } from './will.js';
 import {
   decodeUtf8,
   readProperties,
@@ -38,6 +39,7 @@ export type WirePacket =
       receiveMaximum?: number;
       username?: string;
       password?: Uint8Array;
+      will?: WillMessage;
     })
   | (Properties & {
       cmd: 'connack';
@@ -131,7 +133,7 @@ const disconnectReasons = new Set([
   0x9c, 0x9d, 0x9e, 0x9f, 0xa0, 0xa1, 0xa2,
 ]);
 const packetFields: Partial<Record<string, readonly string[]>> = {
-  connect: ['cmd', 'clientId', 'cleanStart', 'keepAlive', 'receiveMaximum', 'username', 'password', 'userProperties'],
+  connect: ['cmd', 'clientId', 'cleanStart', 'keepAlive', 'receiveMaximum', 'username', 'password', 'userProperties', 'will'],
   connack: [
     'cmd',
     'sessionPresent',
@@ -247,6 +249,38 @@ function topic(value: string, filter: boolean, sharedSubscriptions = false): voi
     throw new Error('Invalid MQTT topic filter');
 }
 
+type PublicationProperties = Pick<
+  PublishFields,
+  'payloadFormatIndicator' | 'messageExpiryInterval' | 'contentType' | 'responseTopic' | 'correlationData'
+>;
+
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Append encoded properties to the caller's list and preserve its byte views.
+function appendPublicationProperties(parts: Uint8Array[], packet: Readonly<PublicationProperties>): void {
+  if (packet.payloadFormatIndicator !== undefined) parts.push(Uint8Array.of(0x01, integer(packet.payloadFormatIndicator, 1)));
+  if (packet.messageExpiryInterval !== undefined) parts.push(Uint8Array.of(0x02), uint32(packet.messageExpiryInterval));
+  if (packet.contentType !== undefined) parts.push(Uint8Array.of(0x03), utf8(packet.contentType));
+  if (packet.responseTopic !== undefined) parts.push(Uint8Array.of(0x08), utf8(responseTopic(packet.responseTopic)));
+  if (packet.correlationData !== undefined) parts.push(Uint8Array.of(0x09), binary(packet.correlationData));
+}
+
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The parts carry mutable encoded byte views.
+function propertySection(parts: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
+  // MQTT encodes an empty property section as one byte with value zero.
+  if (parts.length === 0) return new Uint8Array(1);
+  const body = join(parts);
+  return join([variable(body.length), body]);
+}
+
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Will payload and correlation data are byte views.
+function encodeWill(will: Readonly<WillMessage>): Uint8Array<ArrayBuffer> {
+  const payload = binary(will.payload);
+  const parts: Uint8Array[] = [];
+  for (const [key, value] of will.userProperties ?? []) parts.push(Uint8Array.of(0x26), utf8(key), utf8(value));
+  if (will.delayInterval !== undefined) parts.push(Uint8Array.of(0x18), uint32(will.delayInterval));
+  appendPublicationProperties(parts, will);
+  return join([propertySection(parts), utf8(will.topic), payload]);
+}
+
 function properties(
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
   packet: Readonly<Exclude<WirePacket, { cmd: 'pingreq' | 'pingresp' }>>,
@@ -274,11 +308,7 @@ function properties(
       parts.push(Uint8Array.of(0x2a, packet.sharedSubscriptionAvailable ? 1 : 0));
   }
   if (packet.cmd === 'publish') {
-    if (packet.payloadFormatIndicator !== undefined) parts.push(Uint8Array.of(0x01, integer(packet.payloadFormatIndicator, 1)));
-    if (packet.messageExpiryInterval !== undefined) parts.push(Uint8Array.of(0x02), uint32(packet.messageExpiryInterval));
-    if (packet.contentType !== undefined) parts.push(Uint8Array.of(0x03), utf8(packet.contentType));
-    if (packet.responseTopic !== undefined) parts.push(Uint8Array.of(0x08), utf8(responseTopic(packet.responseTopic)));
-    if (packet.correlationData !== undefined) parts.push(Uint8Array.of(0x09), binary(packet.correlationData));
+    appendPublicationProperties(parts, packet);
     for (const identifier of packet.subscriptionIdentifiers ?? [])
       parts.push(Uint8Array.of(0x0b), variable(integer(identifier, 268_435_455, 1)));
   }
@@ -293,10 +323,7 @@ function properties(
     packet.reasonString !== undefined
   )
     parts.push(Uint8Array.of(0x1f), utf8(packet.reasonString));
-  // MQTT encodes an empty property section as one byte with value zero.
-  if (parts.length === 0) return new Uint8Array(1);
-  const body = join(parts);
-  return join([variable(body.length), body]);
+  return propertySection(parts);
 }
 
 /** MQTT 5 preview profile. Unsupported packet forms and properties are rejected. */
@@ -313,10 +340,13 @@ export function encodePacket(
   let body: Uint8Array;
   switch (packet.cmd) {
     case 'connect': {
+      const will = captureWill(packet.will, false);
+      const willFlags = will === undefined ? 0 : 4 | ((will.qos ?? 0) << 3) | (will.retain === true ? 32 : 0);
       const flags =
         (packet.cleanStart === false ? 0 : 2) |
         (packet.username === undefined ? 0 : 128) |
-        (packet.password === undefined ? 0 : 64);
+        (packet.password === undefined ? 0 : 64) |
+        willFlags;
       const parts = [
         utf8('MQTT'),
         Uint8Array.of(5, flags),
@@ -324,6 +354,7 @@ export function encodePacket(
         properties(packet),
         utf8(packet.clientId),
       ];
+      if (will !== undefined) parts.push(encodeWill(will));
       if (packet.username !== undefined) parts.push(utf8(packet.username));
       if (packet.password !== undefined) parts.push(join([uint16(packet.password.length), packet.password]));
       header = 0x10;
@@ -527,7 +558,9 @@ function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic:
     case 0x10: {
       if (reader.string() !== 'MQTT' || reader.byte() !== 5) throw new Error('Unsupported MQTT version');
       const flags = reader.byte();
-      if ((flags & ~0xc2) !== 0) throw new Error('Unsupported CONNECT flags');
+      const hasWill = (flags & 4) !== 0;
+      const willQos = (flags >> 3) & 3;
+      if ((flags & 1) !== 0 || ((flags & 0x38) !== 0 && !hasWill) || willQos === 3) throw new Error('Unsupported CONNECT flags');
       const keepAlive = reader.uint16();
       const props = reader.properties('connect');
       packet = {
@@ -537,6 +570,20 @@ function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic:
         keepAlive,
         ...props,
       };
+      if (hasWill) {
+        const willProps = reader.properties('will');
+        const willTopic = reader.string();
+        topic(willTopic, false);
+        const payload = reader.take(reader.uint16());
+        validateWillPayload(payload, willProps.payloadFormatIndicator);
+        packet.will = {
+          topic: willTopic,
+          payload,
+          qos: willQos === 2 ? 2 : willQos === 1 ? 1 : 0,
+          retain: (flags & 32) !== 0,
+          ...willProps,
+        };
+      }
       if (flags & 128) packet.username = reader.string();
       if (flags & 64) packet.password = reader.take(reader.uint16());
       break;

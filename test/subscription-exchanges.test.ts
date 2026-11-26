@@ -23,7 +23,7 @@ test.each(['a', 'é', '😀', 'a'.repeat(121), 'a'.repeat(122), 'a'.repeat(16_37
     const first = registry.reserve(topic);
     expect(first.messageId).toBe(1);
     expect(() => registry.reserve(topic)).toThrow('MQTT subscription capacity exceeded');
-    registry.accept(first.messageId, [0]);
+    registry.accept({ cmd: 'suback', messageId: first.messageId, granted: [0] });
     first.release();
   },
 );
@@ -36,15 +36,15 @@ test('wraps the full identifier range, rejects exhaustion and protects a reused 
   expect(reservations[65_534]!.messageId).toBe(65_535);
   expect(() => registry.reserve('a')).toThrow('MQTT subscription capacity exceeded');
   const old = reservations[1]!;
-  registry.accept(2, [0]);
+  registry.accept({ cmd: 'suback', messageId: 2, granted: [0] });
   await old.acknowledged;
   old.release();
   const reused = registry.reserve('a');
   expect(reused.messageId).toBe(2);
   old.release();
   expect(() => registry.reserve('a')).toThrow('MQTT subscription capacity exceeded');
-  for (const entry of reservations) registry.accept(entry.messageId, [0]);
-  registry.accept(2, [0]);
+  for (const entry of reservations) registry.accept({ cmd: 'suback', messageId: entry.messageId, granted: [0] });
+  registry.accept({ cmd: 'suback', messageId: 2, granted: [0] });
   const acknowledgments = [reused.acknowledged];
   for (const entry of reservations) acknowledgments.push(entry.acknowledged);
   await Promise.all(acknowledgments);
@@ -56,12 +56,12 @@ test('snapshots the first matching result and ignores unknown and duplicate ackn
   const registry = new SubscriptionExchanges({});
   const reservation = registry.reserve('a');
   const granted = [128];
-  registry.accept(undefined, [0]);
-  registry.accept(99, [0]);
-  registry.accept(reservation.messageId, granted);
+  registry.accept({ cmd: 'suback', messageId: undefined, granted: [0] });
+  registry.accept({ cmd: 'suback', messageId: 99, granted: [0] });
+  registry.accept({ cmd: 'suback', messageId: reservation.messageId, granted: granted });
   granted[0] = 0;
-  registry.accept(reservation.messageId, [0]);
-  expect(await reservation.acknowledged).toBe(128);
+  registry.accept({ cmd: 'suback', messageId: reservation.messageId, granted: [0] });
+  expect(await reservation.acknowledged).toEqual({ reasonCode: 128 });
   reservation.release();
 });
 
@@ -73,7 +73,7 @@ test('retirement rejects pending ownership with its first cause and fences reser
   const failure = new Error('retired');
   registry.retire(failure);
   registry.retire(new Error('later'));
-  registry.accept(first.messageId, [0]);
+  registry.accept({ cmd: 'suback', messageId: first.messageId, granted: [0] });
   first.release();
   second.release();
   expect(await outcomes).toEqual([

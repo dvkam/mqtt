@@ -115,6 +115,59 @@ test('a completed publication stays successful and clears its timeout', async ()
   await next;
 });
 
+test('sequential QoS 0 writes share a timer and a later stalled write keeps its own deadline', async () => {
+  vi.useFakeTimers();
+  const peer = stalledPeer();
+  const client = await connectPortable(peer.transport, { clientId: 'publish-deadlines', timeoutMs: 100 });
+  const schedule = vi.spyOn(globalThis, 'setTimeout');
+  try {
+    for (let index = 0; index < 1000; index++) {
+      const published = client.publish('a', 'ready');
+      peer.writes[peer.writes.length - 1]!.resolve();
+      await published;
+    }
+    expect(schedule.mock.calls.length).toBeLessThanOrEqual(1);
+    vi.advanceTimersByTime(60);
+    const stalled = client.publish('a', 'stalled').catch((reason: unknown) => reason);
+    vi.advanceTimersByTime(99);
+    expect(peer.close).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    const reason = await stalled;
+    expect(reason).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
+    expect(peer.close).toHaveBeenCalledExactlyOnceWith(true);
+    expect(vi.getTimerCount()).toBe(0);
+    await expect(client.publish('a', 'later')).rejects.toBe(reason);
+  } finally {
+    schedule.mockRestore();
+  }
+});
+
+test('an expired QoS 0 write retires a later write that completes before the shared timer wakes', async () => {
+  vi.useFakeTimers();
+  const peer = stalledPeer();
+  const client = await connectPortable(peer.transport, { clientId: 'rounded-deadlines', timeoutMs: 100 });
+  const now = vi.spyOn(performance, 'now').mockReturnValue(0);
+  try {
+    const first = client.publish('a', 'ready');
+    peer.writes[0]!.resolve();
+    await first;
+    await vi.advanceTimersByTimeAsync(60);
+    now.mockReturnValue(60.25);
+    const stalled = client.publish('a', 'stalled').catch((reason: unknown) => reason);
+    now.mockReturnValue(100.1);
+    await vi.advanceTimersByTimeAsync(40);
+    const later = client.publish('a', 'completes').catch((reason: unknown) => reason);
+    now.mockReturnValue(160.5);
+    peer.writes[2]!.resolve();
+    const reason = await later;
+    expect(reason).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
+    await expect(stalled).resolves.toBe(reason);
+    expect(peer.close).toHaveBeenCalledExactlyOnceWith(true);
+  } finally {
+    now.mockRestore();
+  }
+});
+
 test('TCP publication timeout destroys a socket with a held write and fences immediate retry', async () => {
   const peer = await startCancellationPeer('tcp');
   const controller = new AbortController();

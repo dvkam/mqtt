@@ -72,6 +72,9 @@ function scriptedPeer(reply: Readonly<Uint8Array> = connack, connackDelayMs = 0,
     answerPing() {
       inbound?.bytes(pingresp);
     },
+    acknowledgePublish() {
+      inbound?.bytes(Uint8Array.of(0x40, 2, 0, 1));
+    },
     blockPingWrite() {
       holdPing = true;
     },
@@ -257,4 +260,26 @@ test('successful writes let a manual ping keep its configured response timeout',
   await expect(manual).resolves.toBeUndefined();
   await client.disconnect();
   expect(peer.commands).toEqual([1, 12, 3, 14]);
+});
+
+test('the live connection keeps its heartbeat while disconnect waits for PUBACK', async () => {
+  vi.useFakeTimers();
+  const peer = scriptedPeer(connack, 0, 3000);
+  const client = await peer.factory.connect();
+  const publication = client.publish('ci/draining', 'hello', { qos: 1 });
+  const closing = client.disconnect();
+  const settled = Promise.allSettled([publication, closing]);
+  try {
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(peer.commands).toEqual([1, 3, 12]);
+    peer.answerPing();
+    await vi.advanceTimersByTimeAsync(750);
+    peer.acknowledgePublish();
+    await Promise.all([publication, closing]);
+    expect(peer.commands).toEqual([1, 3, 12, 14]);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    peer.caller.abort(new Error('fixture ended'));
+    await settled;
+  }
 });

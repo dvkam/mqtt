@@ -94,6 +94,11 @@ try {
   assert.deepEqual(inbound, ['first', 'second']);
   const samples = [];
   const iterations = Number(process.env['MQTT_TEST_ITERATIONS'] ?? 1);
+  assert.ok(Number.isSafeInteger(iterations) && iterations > 0, 'MQTT_TEST_ITERATIONS must be a positive integer');
+  const qos = process.env['MQTT_TEST_QOS'] ?? '0';
+  assert.ok(qos === '0' || qos === '1', 'MQTT_TEST_QOS must be 0 or 1');
+  /** @type {{qos: 1} | undefined} */
+  const publishOptions = qos === '1' ? { qos: 1 } : undefined;
   const start = performance.now();
   for (let index = 0; index < iterations; index++) {
     const started = performance.now();
@@ -106,7 +111,7 @@ try {
       receive?.(undefined);
     }, 3000);
     try {
-      await client.publish('ci/echo', String(index));
+      await client.publish('ci/echo', String(index), publishOptions);
       const packet = await received;
       assert.ok(packet, 'MQTT echo timed out');
       assert.equal(packet.topic, 'ci/echo');
@@ -123,8 +128,12 @@ try {
   console.log(
     JSON.stringify({
       iterations,
+      publishQos: Number(qos),
       echoPerSecond: (iterations * 1000) / elapsed,
-      p99Ms: samples[Math.ceil(iterations * 0.99) - 1],
+      p50Ms: samples[Math.ceil(samples.length * 0.5) - 1],
+      p90Ms: samples[Math.ceil(samples.length * 0.9) - 1],
+      p95Ms: samples[Math.ceil(samples.length * 0.95) - 1],
+      p99Ms: samples[Math.ceil(samples.length * 0.99) - 1],
     }),
   );
   const cancellation = new Error('packed active cancellation');

@@ -1,6 +1,13 @@
 import { createBrowserClient } from 'mqtt/browser';
 import { openNativeWebSocket } from './native-websocket.mjs';
 import { encodePacket, PacketDecoder } from 'mqtt/codec';
+import { checkWills } from './will-scenario.mjs';
+
+/** @param {string} url */
+export async function mqttWillNotifications(url) {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Pass the caller's signal and byte options to the browser factory.
+  return checkWills((options) => createBrowserClient({ ...options, url }));
+}
 
 /** @param {string} url */
 export async function mqttClientSession(url) {

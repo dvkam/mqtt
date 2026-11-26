@@ -2,7 +2,7 @@ import { getEventListeners } from 'node:events';
 import { expect, test, vi } from 'vitest';
 import { connectPortable, type PacketTransport } from '../src/portable.js';
 import { ProtocolInputError } from '../src/protocolInputError.js';
-import { createTcpClient } from '../src/index.js';
+import { createTcpClient, createTransportClient, type ByteInbound, type ClientSession } from '../src/index.js';
 import { createWebSocketClient } from '../src/ws.js';
 import { createBrowserClient } from '../src/browser.js';
 import { PacketDecoder, encodePacket } from '../src/codec.js';
@@ -147,6 +147,98 @@ test('an empty requested ID preserves a refusal instead of requiring assignment'
   expect(await opening).toMatchObject({ message: 'MQTT acknowledgment refused', code: 'ERR_MQTT_REFUSED', reasonCode: 0x85 });
 });
 
+test('exposes the validated assigned identifier and a frozen broker capability snapshot', async () => {
+  const peer = decodedPeer();
+  const opening = connectPortable(peer.transport, { clientId: '' });
+  const userProperties: [string, string][] = [['origin', 'broker']];
+  const reply = {
+    cmd: 'connack' as const,
+    reasonCode: 0,
+    sessionPresent: false,
+    assignedClientIdentifier: 'assigned-id',
+    receiveMaximum: 7,
+    maximumQoS: 1,
+    retainAvailable: false,
+    maximumPacketSize: 4096,
+    userProperties,
+  };
+  peer.receive()?.(reply);
+  reply.assignedClientIdentifier = 'changed';
+  userProperties[0]![1] = 'changed';
+  const client = await opening;
+  expect(client.connection).toMatchObject({
+    clientId: 'assigned-id',
+    sessionPresent: false,
+    receiveMaximum: 7,
+    maximumQos: 1,
+    retainAvailable: false,
+    maximumPacketSize: 4096,
+    userProperties: [['origin', 'broker']],
+  });
+  expect(Object.isFrozen(client.connection)).toBe(true);
+  expect(Object.isFrozen(client.connection.userProperties?.[0])).toBe(true);
+  expect(Reflect.set(client, 'connection', {})).toBe(false);
+  await client.disconnect();
+});
+
+test('a refusal does not read unused success capabilities', async () => {
+  const peer = decodedPeer();
+  const opening = connectPortable(peer.transport, { clientId: 'before-capabilities' });
+  peer.receive()?.({
+    cmd: 'connack',
+    reasonCode: 0x87,
+    sessionPresent: false,
+    get assignedClientIdentifier() {
+      peer.closed()?.(new Error('close while reading assignment'));
+      return 'unused';
+    },
+    get receiveMaximum() {
+      peer.closed()?.(new Error('close while reading capabilities'));
+      return 1;
+    },
+  });
+  await expect(opening).rejects.toMatchObject({
+    message: 'MQTT acknowledgment refused',
+    code: 'ERR_MQTT_REFUSED',
+    reasonCode: 0x87,
+  });
+});
+
+test('forbidden CONNACK authentication is rejected before the reason field is read', async () => {
+  const peer = decodedPeer();
+  const opening = connectPortable(peer.transport, { clientId: 'auth-first' });
+  const reason = vi.fn<() => number>(() => {
+    peer.closed()?.(new Error('later close'));
+    return 0;
+  });
+  peer.receive()?.({
+    cmd: 'connack',
+    sessionPresent: false,
+    authenticationMethod: 'AUTH',
+    get reasonCode() {
+      return reason();
+    },
+  });
+  await expect(opening).rejects.toMatchObject({
+    message: 'Unexpected MQTT authentication properties',
+    code: 'ERR_MQTT_PROTOCOL',
+    reasonCode: 0x82,
+  });
+  expect(reason).not.toHaveBeenCalled();
+});
+
+test('invalid decoded capability does not deliver or replace a pending CONNECT failure', async () => {
+  const peer = decodedPeer();
+  const onMessage = vi.fn<() => void>();
+  const opening = connectPortable(peer.transport, { clientId: 'invalid-capability', onMessage });
+  const writeFailure = new Error('CONNECT transport failed');
+  peer.receive()?.({ cmd: 'connack', reasonCode: 0, sessionPresent: false, receiveMaximum: 0 });
+  peer.receive()?.({ cmd: 'publish', qos: 0, topic: 'a', payload: Buffer.from('early'), dup: false, retain: false });
+  peer.closed()?.(writeFailure);
+  await expect(opening).rejects.toBe(writeFailure);
+  expect(onMessage).not.toHaveBeenCalled();
+});
+
 function assignment(value: string): number[] {
   const bytes = [...new TextEncoder().encode(value)];
   return [0x12, bytes.length >> 8, bytes.length & 255, ...bytes];
@@ -219,6 +311,93 @@ test('portable codec preserves Assigned Client Identifier at every split and on 
 });
 
 const adapters = ['tcp', 'node-websocket', 'browser'] as const;
+const openingEchoes = [0x30, 5, 0, 1, 0x61, 0, 0x78, 0x30, 5, 0, 1, 0x62, 0, 0x79] as const;
+
+test('delivers the accepted prefix and fences input when the pending CONNECT write rejects', async () => {
+  let inbound: ByteInbound | undefined;
+  let rejectWrite: ((reason: Readonly<Error>) => void) | undefined;
+  let startedWriting = () => {};
+  const writing = new Promise<void>((resolve) => {
+    startedWriting = resolve;
+  });
+  const pendingWrite = new Promise<void>((_, reject) => {
+    rejectWrite = reject;
+  });
+  const topics: string[] = [];
+  const factory = createTransportClient(
+    {
+      name: 'opening write peer',
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Store the native endpoint so the fixture can send coalesced bytes.
+      async open(input) {
+        inbound = input;
+        return Promise.resolve({
+          bufferedBytes: 0,
+          // oxlint-disable-next-line typescript/promise-function-async -- Expose the actual native write rejection without an extra async wrapper.
+          write() {
+            startedWriting();
+            return pendingWrite;
+          },
+          async close() {
+            return Promise.resolve();
+          },
+        });
+      },
+    },
+    {
+      clientId: 'opening-write',
+      onMessage(message: Readonly<{ topic: string }>) {
+        topics.push(message.topic);
+      },
+    },
+  );
+  const opening = factory.connect().catch((cause: unknown) => cause);
+  await writing;
+  inbound?.bytes(Uint8Array.from([...connack([]), ...openingEchoes.slice(0, 7)]));
+  expect(topics).toEqual(['a']);
+  const error = new Error('CONNECT write failed');
+  rejectWrite?.(error);
+  await Promise.resolve();
+  inbound?.bytes(Uint8Array.from(openingEchoes.slice(7)));
+  expect(await opening).toBe(error);
+  expect(topics).toEqual(['a']);
+});
+
+test.each(adapters.flatMap((adapter) => [0, 0x87].map((reason) => ({ adapter, reason }))))(
+  '$adapter handles the QoS 0 publications in the same input as CONNACK reason $reason',
+  async ({ adapter, reason }: Readonly<{ adapter: (typeof adapters)[number]; reason: number }>) => {
+    const bytes = [...connack([], reason), ...openingEchoes];
+    const peer =
+      adapter === 'tcp' ? await startTcpPacketPeer('fixed-connect', bytes) : await startWebSocketPacketPeer('fixed-connect', bytes);
+    const replies: string[] = [];
+    const options = {
+      clientId: 'opening-echo',
+      timeoutMs: 1000,
+      onMessage(message: Readonly<{ topic: string; payload: Readonly<ArrayLike<number>> }>) {
+        replies.push(`${message.topic}:${message.payload[0]}`);
+      },
+    };
+    try {
+      const factory =
+        'host' in peer
+          ? createTcpClient({ ...peer, ...options })
+          : adapter === 'browser'
+            ? createBrowserClient({ ...peer, ...options })
+            : createWebSocketClient({ ...peer, ...options });
+      const outcome = await factory.connect().then(
+        (session: Readonly<ClientSession>) => ({ kind: 'connected' as const, session }),
+        (error: unknown) => ({ kind: 'refused' as const, error }),
+      );
+      expect(outcome).toMatchObject(
+        reason === 0 ? { kind: 'connected' } : { kind: 'refused', error: { code: 'ERR_MQTT_REFUSED', reasonCode: reason } },
+      );
+      expect(replies).toEqual(reason === 0 ? ['a:120', 'b:121'] : []);
+      if (outcome.kind === 'connected') await outcome.session.disconnect();
+    } finally {
+      await peer.close();
+    }
+  },
+);
+
 const vectors = [
   { label: 'missing assignment', clientId: '', bytes: connack([]) },
   { label: 'empty assignment', clientId: '', bytes: connack(assignment('')) },

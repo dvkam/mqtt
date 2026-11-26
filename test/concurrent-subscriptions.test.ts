@@ -69,6 +69,45 @@ test('correlates concurrent subscriptions by identifier and kind while ping stay
   }
 });
 
+test('returns the broker grant and metadata when it downgrades a QoS 1 subscription', async () => {
+  const broker = await peer({ onQosOneMessage() {} });
+  const acknowledged = broker.client.subscribe('sensor', { qos: 1 });
+  const userProperties: [string, string][] = [
+    ['origin', 'broker'],
+    ['origin', 'policy'],
+  ];
+  broker.receive({ cmd: 'suback', messageId: 1, granted: [0], reasonString: 'limited', userProperties });
+  userProperties[0]![1] = 'changed';
+  await expect(acknowledged).resolves.toEqual({
+    grantedQos: 0,
+    reasonCode: 0,
+    reasonString: 'limited',
+    userProperties: [
+      ['origin', 'broker'],
+      ['origin', 'policy'],
+    ],
+  });
+  const unsubscribed = broker.client.unsubscribe('sensor');
+  broker.receive({ cmd: 'unsuback', messageId: 2, granted: [17], reasonString: 'already gone' });
+  await expect(unsubscribed).resolves.toEqual({ reasonCode: 17, reasonString: 'already gone' });
+  await broker.client.disconnect();
+});
+
+test('the first matched acknowledgment owns the exchange before its grant getter can reenter', async () => {
+  const broker = await peer({ onQosOneMessage() {} });
+  const result = broker.client.subscribe('sensor', { qos: 1 });
+  const granted = [0];
+  Object.defineProperty(granted, 0, {
+    get() {
+      broker.receive({ cmd: 'suback', messageId: 1, granted: [1], reasonString: 'duplicate' });
+      return 0;
+    },
+  });
+  broker.receive({ cmd: 'suback', messageId: 1, granted, reasonString: 'first' });
+  await expect(result).resolves.toEqual({ grantedQos: 0, reasonCode: 0, reasonString: 'first' });
+  await broker.client.disconnect();
+});
+
 test('retains count and byte capacity after SUBACK until actual send settlement', async () => {
   const broker = await peer({ maxPendingSubscriptions: 1, maxPendingSubscriptionBytes: 9 });
   const sent = deferred();

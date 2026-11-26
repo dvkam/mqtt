@@ -13,6 +13,7 @@ const root = resolve(inputRoot);
 const url = process.argv[3];
 assert.ok(url !== undefined && url !== '', 'Expected broker URL');
 const mode = process.argv[4] ?? 'node';
+const checkWill = process.env['MQTT_TEST_WILL'] === '1';
 const codec = { protocolVersion: 5 };
 const topic = 'ci/native';
 const payload = 'native hello';
@@ -96,17 +97,26 @@ if (mode === 'node') {
     const page = await browser.newPage();
     await page.goto('http://127.0.0.1:' + address.port);
     const result = await page.evaluate(
-      async ({ url, requests }: Readonly<{ url: string; requests: readonly (readonly number[])[] }>) => {
-        const { mqttSession, mqttClientSession } = await import('/session.js');
+      async ({
+        url,
+        requests,
+        checkWill,
+      }: Readonly<{ url: string; requests: readonly (readonly number[])[]; checkWill: boolean }>) => {
+        const { mqttSession, mqttClientSession, mqttWillNotifications } = await import('/session.js');
         return {
           replies: await mqttSession(url, requests),
           clientMessage: await mqttClientSession(url),
+          will: checkWill ? await mqttWillNotifications(url) : undefined,
         };
       },
-      { url, requests },
+      { url, requests, checkWill },
     );
     replies = result.replies;
     clientMessage = result.clientMessage;
+    if (checkWill) {
+      assert.deepEqual(result.will, ['ci/will/abrupt', 'ci/will/with-will']);
+      console.log('Packed Chromium Will notifications passed');
+    }
   } finally {
     await browser?.close();
     server.close();

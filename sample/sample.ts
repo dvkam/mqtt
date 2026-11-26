@@ -1,4 +1,4 @@
-import { createTcpClient } from '../dist/index.js';
+import { createTcpClient } from 'mqtt';
 
 let receive: ((payload: string) => void) | undefined;
 const client = await createTcpClient({
@@ -9,7 +9,11 @@ const client = await createTcpClient({
   onMessage(packet) {
     receive?.(packet.payload.toString());
   },
-}).connect();
+})
+  .connect()
+  .catch(() => {
+    throw new Error('MQTT connection failed. Check the broker host, port, and access.');
+  });
 
 let timer: ReturnType<typeof setTimeout> | undefined;
 try {
@@ -23,10 +27,11 @@ try {
   // Observe a possible timeout even while publish is still pending.
   const exchange = Promise.all([incoming, client.publish('example/echo', 'hello')]);
   const [payload] = await exchange;
-  console.log(payload);
+  if (payload !== 'hello') throw new Error('Unexpected MQTT echo');
   await client.ping();
 } finally {
   clearTimeout(timer);
   receive = undefined;
   await client.disconnect();
 }
+console.log('Received an echo on example/echo');
