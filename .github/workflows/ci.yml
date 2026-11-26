@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  check:
+  verify:
     name: ${{ matrix.check }} (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -31,18 +31,18 @@ jobs:
         run: pnpm lint:declarations
       - run: pnpm ${{ matrix.check }}
 
-  # The main ruleset requires checks (ubuntu-26.04) and checks (windows-latest). Each fails unless every check above passed
-  # on both platforms.
+  # The main ruleset requires checks (ubuntu-26.04) and checks (windows-latest). Each fails unless every verify job passed
+  # on both platforms. It runs even after a cancel, because GitHub counts a skipped required job as passing.
   checks:
-    if: ${{ !cancelled() }}
-    needs: check
+    if: ${{ always() }}
+    needs: verify
     strategy:
       matrix:
         os: [ubuntu-26.04, windows-latest]
     runs-on: ubuntu-26.04
     steps:
       - name: Require every check on both platforms
-        run: test "${{ needs.check.result }}" = success
+        run: test "${{ needs.verify.result }}" = success
 
   packed-consumer:
     runs-on: ubuntu-26.04
