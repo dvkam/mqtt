@@ -29,13 +29,13 @@ Consequences: `ProtocolInputError` extends `MqttError`, so its reason code moves
 The implementation departs from the #155 proposal in the places below. They were not put to the owner as separate questions:
 
 - `fatal` defaults by code. Only `ERR_MQTT_CAPACITY`, `ERR_MQTT_INVALID_ARGUMENT` and a refused SUBACK, UNSUBACK or PUBACK are non-fatal.
-- `ERR_MQTT_WRITE_BUDGET` is not in the union yet, and the `WeakMap` in `src/nativeWriteBudget.ts` stays. The same refusal keeps a QoS 1 publish usable and ends the session for other packets, so one error object cannot carry one `fatal` value.
+- `ERR_MQTT_WRITE_BUDGET` is not in the union yet, and the `WeakMap` in `src/nativeWriteBudget.ts` stays. A refusal leaves the session usable for a publication and ends it for a control packet, so the code alone would not say whether the session ended.
 - Option validation still throws `RangeError`. The choice is between a Node-style `RangeError` that also has a `code` and an `MqttError` that drops `instanceof RangeError`.
 - When an `onMessage` or `onQosOneMessage` handler rethrows a non-fatal rejection, the session ends with a fatal copy that keeps the code and sets `cause` to the original.
 - A refused SUBACK, UNSUBACK or PUBACK carries `reasonCode` only. #155 also asks for `reasonString` and `userProperties`, which only DISCONNECT and CONNACK carry so far.
 - `ProtocolInputError` stays a subclass of `MqttError`, exported from `mqtt/portable`, instead of becoming an alias. A caller's `instanceof ProtocolInputError` check keeps working.
 
-What follows: the errors listed in [docs/errors.md](errors.md#errors-without-a-code). Two #155 acceptance items are also open. Some tests still assert only the message of a rejection that now has a code, and no check fails when `src/` adds an uncoded error.
+What follows: the errors listed in [docs/errors.md](errors.md#gaps). Two #155 acceptance items are also open. Some tests still assert only the message of a rejection that now has a code, and no check fails when `src/` adds an uncoded error.
 
 ## Browser client takes on the Node inbound rules
 

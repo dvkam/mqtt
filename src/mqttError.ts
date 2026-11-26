@@ -51,8 +51,11 @@ export class MqttError extends Error {
   }
 }
 
-/** Whether `error` is an `MqttError`, optionally with the given code. */
-export function isMqttError(error: unknown, code?: MqttErrorCode): error is MqttError {
+/** Whether `error` is an `MqttError`. With a code, it also narrows `error.code` to that code. */
+export function isMqttError<Code extends MqttErrorCode = MqttErrorCode>(
+  error: unknown,
+  code?: Code,
+): error is MqttError & { readonly code: Code } {
   return error instanceof MqttError && (code === undefined || error.code === code);
 }
 

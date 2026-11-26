@@ -31,20 +31,21 @@ MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputErr
 | `ERR_MQTT_PROTOCOL` | Malformed or out-of-profile broker input. The error is a `ProtocolInputError`, and an active session sends DISCONNECT with its reason code. | `true` | 0x81, 0x82 or 0x94 |
 | `ERR_MQTT_PROTOCOL` | The broker broke a session rule, such as an invalid PUBACK identifier, an invalid CONNACK limit, or more inbound QoS 1 messages than Receive Maximum allows | `true` | 0x93 for Receive Maximum. None otherwise. |
 | `ERR_MQTT_CLOSING` | The call came after `disconnect()` | `true` | None |
-| `ERR_MQTT_TRANSPORT` | The socket or WebSocket closed, a WebSocket handshake or subprotocol check failed, a text WebSocket message arrived, or no native WebSocket exists. Also used when a custom transport's `open`, `write` or `close` rejects with a value that is not an Error. `cause` then holds that value. | `true` | None |
+| `ERR_MQTT_TRANSPORT` | The socket or WebSocket closed, a WebSocket handshake or subprotocol check failed, a text WebSocket message arrived, or no native WebSocket exists. Also used when a custom transport's `open`, or a write of CONNECT, PINGREQ, DISCONNECT, SUBSCRIBE, UNSUBSCRIBE or a QoS 1 PUBLISH, rejects with a value that is not an Error. `cause` then holds that value. | `true` | None |
 | `ERR_MQTT_ABORTED` | The connection signal aborted with a reason that is not an Error. The error's `name` is `AbortError`, and `cause` holds the reason. A QoS 1 publish signal passes its reason through unchanged. | `true` | None |
 
-## Errors without a code
+## Gaps
 
-These rejections keep their existing type and have no `code` yet.
+These rejections have no code yet, or lack a field that #155 asks for.
 
 - A QoS 1 publish whose signal cannot be observed rejects with a plain `Error`.
 - A non-Error value thrown by an `onMessage` or `onQosOneMessage` handler ends the session with a plain `Error`.
 - A refused SUBACK, UNSUBACK or PUBACK has a `reasonCode` but no `reasonString` or `userProperties` yet.
 - Errors from `ws` and the native socket, such as `Server sent no subprotocol`, pass through unchanged.
-- Codec failures that MQTT 5 gives no reason code, such as many property defects and packets over `maxPacketBytes`, are plain `Error` or `RangeError` values.
+- Codec failures that are not a `ProtocolInputError` are plain `Error` or `RangeError` values. Examples are invalid fixed-header flags, a malformed Remaining Length, a truncated field, many property defects and a packet over `maxPacketBytes`. MQTT 5 treats most of them as Malformed Packet 0x81.
+- An inbound QoS 2 PUBLISH, when an `onQosOneMessage` handler is set, ends the session with a plain `Error`.
+- A QoS 0 publish write and the transport `close` during `disconnect()` reject with the transport's own value, even when it is not an Error.
 - Option validation before connecting, such as `timeoutMs` or publication limits, throws `RangeError`.
 - Custom transport errors pass through unchanged.
-- A write budget refusal is a plain `Error`. It keeps a QoS 1 publish usable but ends the session for other packets.
+- A write budget refusal is a plain `Error`. It leaves the session usable when it refuses a publication and ends the session when it refuses a control packet.
 - The browser receive message limit is a `RangeError`.
-- An abort whose reason is an Error rejects with that Error unchanged.

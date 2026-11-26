@@ -543,7 +543,8 @@ class PortableClient<Bytes extends Uint8Array> {
         const [received] = await Promise.all([ack, onSent ? sent.then(onSent) : sent]);
         return received;
       }, !background);
-      if (reply.cmd === 'connack' && reply.reasonCode !== 0) throw connackRefusal(reply);
+      // The refusal already retired the session, so reject with that same error.
+      if (reply.cmd === 'connack' && reply.reasonCode !== 0) throw this.failure ?? connackRefusal(reply);
       return reply;
     } catch (error) {
       const failure = transportFailure(error, ping ? 'MQTT ping failed' : 'MQTT connect failed');
