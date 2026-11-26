@@ -589,3 +589,74 @@ test('reports a stop before any attempt after createReconnectingClient returns',
   await vi.advanceTimersByTimeAsync(0);
   expect(events).toEqual(['stopped true']);
 });
+
+test('retryNow() while waiting clears the retry timer and starts one attempt at once', async () => {
+  const peer = broker();
+  const { client, events } = reconnecting(peer.transport, { initialDelayMs: 60_000, maxDelayMs: 60_000 });
+  await client.session();
+  peer.connections[0]?.end();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(events[1]).toMatchObject({ kind: 'retrying', attempt: 2, delayMs: 30_000 });
+  expect(vi.getTimerCount()).toBe(1);
+  expect(client.retryNow()).toBe(true);
+  expect(client.retryNow()).toBe(false);
+  expect(peer.connections).toHaveLength(2);
+  await client.session();
+  expect(events[2]).toMatchObject({ kind: 'connected', generation: 2, attempt: 2 });
+  expect(vi.getTimerCount()).toBe(0);
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  expect(peer.connections).toHaveLength(2);
+  expect(events).toHaveLength(3);
+  await client.disconnect();
+});
+
+test('retryNow() does nothing while an attempt opens, while connected and after a stop', async () => {
+  const peer = broker({ connack: (connection) => (connection === 1 ? undefined : 0) });
+  const { client, events } = reconnecting(peer.transport);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(peer.connections).toHaveLength(1);
+  expect(client.retryNow()).toBe(false);
+  expect(peer.connections).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(3000 + 500);
+  await client.session();
+  expect(peer.connections).toHaveLength(2);
+  expect(client.retryNow()).toBe(false);
+  expect(peer.connections).toHaveLength(2);
+  await client.disconnect();
+  expect(client.retryNow()).toBe(false);
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(peer.connections).toHaveLength(2);
+  expect(events.map((event) => event.kind)).toEqual(['retrying', 'connected', 'stopped']);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+test('retryNow() counts its attempt toward maxAttempts', async () => {
+  const peer = broker({ refuse: true });
+  const { client, events } = reconnecting(peer.transport, { maxAttempts: 3, initialDelayMs: 60_000, maxDelayMs: 60_000 });
+  await vi.advanceTimersByTimeAsync(0);
+  for (let calls = 0; calls < 5; calls++) {
+    client.retryNow();
+    await vi.advanceTimersByTimeAsync(0);
+  }
+  expect(peer.connections).toHaveLength(3);
+  expect(events.map((event) => event.kind)).toEqual(['retrying', 'retrying', 'stopped']);
+  expect(events.at(-1)).toMatchObject({ reason: 'exhausted' });
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+test('retryNow() from the retrying callback starts the attempt without a timer', async () => {
+  const peer = broker({ connack: (connection) => (connection === 2 ? 0x88 : 0) });
+  const { client, events } = reconnecting(peer.transport, {
+    onReconnect(event) {
+      if (event.kind === 'retrying') client.retryNow();
+    },
+  });
+  await client.session();
+  peer.connections[0]?.end();
+  await vi.advanceTimersByTimeAsync(0);
+  await client.session();
+  expect(peer.connections).toHaveLength(3);
+  expect(events.map((event) => event.kind)).toEqual(['connected', 'retrying', 'retrying', 'connected']);
+  expect(vi.getTimerCount()).toBe(0);
+  await client.disconnect();
+});
