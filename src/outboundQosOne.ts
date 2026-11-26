@@ -18,14 +18,6 @@ interface Exchange<Item> {
   acknowledgmentCode: number | undefined;
 }
 
-/** A publication that was written but not settled when the session ended. */
-export interface InFlight<Item> {
-  readonly outgoing: Item;
-  readonly messageId: number;
-  /** The PUBACK arrived before the write settled. */
-  readonly acknowledged: boolean;
-}
-
 const noneInFlight: readonly never[] = [];
 
 type Transmit<Item> = (outgoing: Item, messageId: number, acknowledgment: Readonly<Promise<number>>) => Promise<number>;
@@ -115,12 +107,18 @@ export class OutboundQosOne<Item> {
     this.queued.clear();
   }
 
-  /** Rejects every publication with `reason` and returns the ones that were in flight, which have an unknown outcome. */
-  retire(reason: Readonly<Error>): readonly InFlight<Item>[] {
+  /**
+   * Rejects every publication with `reason`. Returns what `report` makes of each publication that was written but not
+   * settled. `acknowledged` is true when a PUBACK below 0x80 arrived before the write settled.
+   */
+  retire<Report>(
+    reason: Readonly<Error>,
+    report: (outgoing: Item, messageId: number, acknowledged: boolean) => Report,
+  ): readonly Report[] {
     this.stop(reason);
-    let inFlight: InFlight<Item>[] | undefined;
+    let inFlight: Report[] | undefined;
     for (const [messageId, { publication, acknowledgmentCode }] of this.active)
-      (inFlight ??= []).push({ outgoing: publication.outgoing, messageId, acknowledged: acknowledgmentCode !== undefined });
+      (inFlight ??= []).push(report(publication.outgoing, messageId, acknowledgmentCode !== undefined && acknowledgmentCode < 128));
     this.finishActive(reason, false);
     return inFlight ?? noneInFlight;
   }

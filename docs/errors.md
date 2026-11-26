@@ -15,6 +15,8 @@ try {
 
 `error.fatal` says whether the session ended. When it is `true`, later calls reject with the same error, except that each call after `disconnect()` gets a new `ERR_MQTT_CLOSING` error. Create a new client factory to connect again. If an `onMessage` or `onQosOneMessage` handler rethrows a non-fatal rejection, the session ends with a fatal copy. The copy keeps the code and sets `cause` to the original. An abort passes the signal's reason through unchanged, so an `MqttError` reason keeps the `fatal` value its creator gave it.
 
+After a [reconnecting client](reconnect.md) stops, its `session()` rejects with `ERR_MQTT_CLOSING` after a disconnect. Otherwise it rejects with the error of the `stopped` event. That error is the session error that stopped the client, the abort reason, or one of the `ERR_MQTT_ABORTED` and `ERR_MQTT_TRANSPORT` errors in the table.
+
 A later release can add a code. Check for the codes you handle, as `isMqttError(error, 'ERR_MQTT_CAPACITY')` does, and treat any other code as unhandled. A `switch` on `error.code` needs a `default` branch.
 
 MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputError` extends `MqttError`. Before, its numeric `code` held the reason code. Read `reasonCode` instead. `PacketDecoder` from `mqtt/codec` reports `ProtocolInputError` too. `mqtt/codec` does not export the class, so import it from `mqtt/portable` to narrow the error. A broker DISCONNECT and a refused CONNACK also carry `reasonString` and `userProperties` when the broker sent them.
@@ -32,8 +34,8 @@ MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputErr
 | `ERR_MQTT_PROTOCOL` | Malformed or out-of-profile broker input, such as a PUBACK with packet identifier 0. The error is a `ProtocolInputError`, and an active session sends DISCONNECT with its reason code. | `true` | 0x81, 0x82 or 0x94 |
 | `ERR_MQTT_PROTOCOL` | The broker sent more inbound QoS 1 messages than the client's Receive Maximum allows | `true` | 0x93 |
 | `ERR_MQTT_CLOSING` | The call came after `disconnect()` | `true` | None |
-| `ERR_MQTT_TRANSPORT` | The socket or WebSocket closed, a WebSocket handshake or subprotocol check failed, a text WebSocket message arrived, or no native WebSocket exists. Also used when a custom transport's `open`, or a write of CONNECT, PINGREQ, DISCONNECT, SUBSCRIBE, UNSUBSCRIBE or a QoS 1 PUBLISH, rejects with a value that is not an Error. `cause` then holds that value. | `true` | None |
-| `ERR_MQTT_ABORTED` | The connection signal aborted with a reason that is not an Error. The error's `name` is `AbortError`, and `cause` holds the reason. A publish signal passes its reason through unchanged at either QoS. | `true` | None |
+| `ERR_MQTT_TRANSPORT` | The socket or WebSocket closed, a WebSocket handshake or subprotocol check failed, a text WebSocket message arrived, or no native WebSocket exists. Also used when a custom transport's `open`, or a write of CONNECT, PINGREQ, DISCONNECT, SUBSCRIBE, UNSUBSCRIBE or a QoS 1 PUBLISH, rejects with a value that is not an Error. A reconnecting client uses it when its `create` function throws a value that is not an Error. `cause` then holds that value. | `true` | None |
+| `ERR_MQTT_ABORTED` | The connection signal, or the signal of a reconnecting client, aborted with a reason that is not an Error. The error's `name` is `AbortError`, and `cause` holds the reason. A publish signal passes its reason through unchanged at either QoS. | `true` | None |
 
 ## Gaps
 
@@ -49,3 +51,4 @@ These rejections have no code yet, or lack a field that #155 asks for.
 - Custom transport errors pass through unchanged.
 - A write budget refusal is a plain `Error`. It leaves the session usable when it refuses a publication and ends the session when it refuses a control packet.
 - The browser receive message limit is a `RangeError`.
+- After a reconnecting client stops, `session()` rejects with the stopping error unchanged. That error can be a `RangeError` for an invalid factory option, an Error abort reason or another error that is not an `MqttError`.

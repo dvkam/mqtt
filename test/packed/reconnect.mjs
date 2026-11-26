@@ -10,7 +10,7 @@ const topic = `ci/reconnect/${process.pid}`;
 // A TCP proxy in front of the broker, so the check can drop the client's connection without stopping the broker.
 /** @type {Set<import('node:net').Socket>} */
 const sockets = new Set();
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The proxy pipes and destroys the native sockets.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The connection listener of createServer in node:net receives a native net.Socket, and the proxy calls its mutating pipe and destroy methods.
 const proxy = createServer((client) => {
   const upstream = connect(brokerPort, host);
   sockets.add(client);
@@ -75,11 +75,14 @@ try {
   await waitFor(() => received.length === 1);
 
   for (const socket of sockets) socket.destroy();
-  await waitFor(() => events.some((event) => event.kind === 'connected' && event.generation === 2));
+  const connectedEvents = () => events.filter((event) => event.kind === 'connected');
+  await waitFor(() => connectedEvents().length === 2);
   const second = await client.session();
   assert.notEqual(second, first);
-  const connected = events.find((event) => event.kind === 'connected' && event.generation === 2);
+  const connected = connectedEvents()[1];
   assert.ok(connected?.kind === 'connected');
+  assert.equal(connected.generation, 2);
+  assert.equal(connected.session, second);
   assert.equal(connected.previous?.kind, 'error');
   assert.deepEqual(
     connected.subscriptions.map((restore) => ('result' in restore ? restore.result.reasonCode : -1)),

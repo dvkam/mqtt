@@ -1,13 +1,18 @@
 import type { PublishProperties } from './publication.js';
 /**
- * A QoS 1 publication the session had written when it ended without its acknowledgment settling. The broker may or may not
- * have it. The publish promise rejected with the session's error, and the client does not send it again.
+ * A QoS 1 publication the session had written when it ended before its publish promise settled. The publish promise
+ * rejected with the session's error, and the client does not send the publication again. Unless `acknowledged` is true,
+ * the broker may or may not have it.
  */
 export interface UncertainPublication {
+  /** The topic it was published to. */
   readonly topic: string;
   /** The Packet Identifier it was sent with. */
   readonly messageId: number;
-  /** The broker's PUBACK arrived before the write settled, so the broker has the message. */
+  /**
+   * True when the broker accepted it with a PUBACK reason below 0x80 before the write settled. False when no PUBACK
+   * arrived, or when the PUBACK refused it.
+   */
   readonly acknowledged: boolean;
 }
 

@@ -710,9 +710,7 @@ class PortableClient<Bytes extends Uint8Array> {
     this.stopKeepAlive();
     this.nextInbound = undefined;
     this.subscriptions.retire(error);
-    let uncertain: UncertainPublication[] | undefined;
-    for (const { outgoing, messageId, acknowledged } of this.outbound?.retire(error) ?? [])
-      (uncertain ??= []).push({ topic: outgoing.topic, messageId, acknowledged });
+    const uncertain = this.outbound?.retire(error, uncertainPublication);
     this.qosZeroWrites.retire(error);
     for (const reject of this.pendingOperations) reject(error);
     try {
@@ -769,6 +767,14 @@ function publishPacket({ topic, payload, retain, properties: p }: OutgoingPublic
     correlationData: p.correlationData,
     userProperties: p.userProperties,
   };
+}
+
+function uncertainPublication(
+  { topic }: Readonly<Pick<OutgoingPublication, 'topic'>>,
+  messageId: number,
+  acknowledged: boolean,
+): UncertainPublication {
+  return { topic, messageId, acknowledged };
 }
 
 function sessionError(error: Readonly<Error>, uncertain: readonly UncertainPublication[] | undefined): SessionEnd {
