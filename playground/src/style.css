@@ -1,0 +1,46 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+}
+body {
+  margin: 0 auto;
+  max-width: 72rem;
+  padding: 1rem;
+}
+main {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+}
+section {
+  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-radius: 0.5rem;
+  padding: 0 1rem 1rem;
+}
+label {
+  display: block;
+  margin: 0.4rem 0;
+}
+input:not([type='checkbox']),
+select {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}
+ol {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  max-height: 16rem;
+  overflow: auto;
+  padding-left: 1.5rem;
+}
+li[data-kind='error'] {
+  color: #c62828;
+}
+li[data-kind='ok'] {
+  color: #2e7d32;
+}
+pre {
+  font-size: 0.8rem;
+  overflow: auto;
+}

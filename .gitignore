@@ -46,3 +46,6 @@ dist/**/*
 # dist
 dist
 /.type-fixtures/
+
+# Packed client installed into the playground
+playground/*.tgz

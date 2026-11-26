@@ -119,6 +119,38 @@ jobs:
           fi
           MOSQUITTO_BIN="$GITHUB_WORKSPACE/test/packed/mosquitto-container.sh" MQTT_BROKER_DIR="$RUNNER_TEMP/mqtt-broker" bash test/packed/mosquitto-ws.sh "$RUNNER_TEMP/mqtt-consumer"
 
+  playground:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+      - uses: pnpm/action-setup@v6
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Install the packed client into the playground
+        run: |
+          pnpm pack --pack-destination playground
+          npm install --prefix playground --no-save --ignore-scripts --no-audit --no-fund ./playground/mqtt-*.tgz
+          pnpm exec tsc -p playground/tsconfig.json
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Drive the playground in Chromium, scripted and against Mosquitto over WebSocket
+        run: |
+          timeout 180 bash test/packed/mosquitto-container.sh --pull
+          broker_dir="$RUNNER_TEMP/playground-broker"
+          mkdir -p "$broker_dir"
+          cp playground/mosquitto.conf "$broker_dir/mosquitto.conf"
+          MQTT_BROKER_DIR="$broker_dir" bash test/packed/mosquitto-container.sh -c "$broker_dir/mosquitto.conf" &
+          broker=$!
+          trap 'kill "$broker" 2>/dev/null || true' EXIT
+          timeout 10 bash -c 'until ( : > /dev/tcp/127.0.0.1/18900 ) 2>/dev/null; do sleep 0.2; done'
+          MQTT_PLAYGROUND_WS_URL=ws://127.0.0.1:18900 timeout 120 node playground/test/smoke.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+
   lts-consumers:
     runs-on: ubuntu-26.04
     strategy:

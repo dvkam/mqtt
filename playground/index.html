@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MQTT playground</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>MQTT playground</h1>
+      <p>
+        A preview of the browser client. Working: connect over WebSocket, text password, Will, subscribe at QoS 0 and 1, publish
+        text at QoS 0 and 1 with retain, drained disconnect and stable error codes. Not yet: QoS 2, durable sessions and page
+        lifecycle handling.
+      </p>
+    </header>
+    <main>
+      <section aria-labelledby="connection-heading">
+        <h2 id="connection-heading">Connection</h2>
+        <label
+          >Mode
+          <select id="mode">
+            <option value="scripted" selected>Scripted broker in the page</option>
+            <option value="broker">Local broker over WebSocket</option>
+          </select>
+        </label>
+        <label>WebSocket URL <input id="url" value="ws://127.0.0.1:18900" /></label>
+        <label>Client identifier <input id="client-id" value="playground" /></label>
+        <label>User name <input id="username" autocomplete="off" /></label>
+        <label>Password <input id="password" type="password" autocomplete="off" /></label>
+        <label>Will topic <input id="will-topic" placeholder="playground/status" /></label>
+        <button id="connect" type="button">Connect</button>
+        <pre id="snapshot" data-testid="snapshot">Not connected</pre>
+      </section>
+      <section aria-labelledby="subscribe-heading">
+        <h2 id="subscribe-heading">Subscribe</h2>
+        <label>Filter <input id="filter" value="playground/#" /></label>
+        <label
+          >QoS
+          <select id="subscribe-qos">
+            <option>0</option>
+            <option>1</option>
+          </select>
+        </label>
+        <button id="subscribe" type="button">Subscribe</button>
+      </section>
+      <section aria-labelledby="publish-heading">
+        <h2 id="publish-heading">Publish</h2>
+        <label>Topic <input id="topic" value="playground/hello" /></label>
+        <label>Payload <input id="payload" value="Hello" /></label>
+        <label
+          >QoS
+          <select id="publish-qos">
+            <option>0</option>
+            <option>1</option>
+          </select>
+        </label>
+        <label><input id="retain" type="checkbox" /> Retain</label>
+        <button id="publish" type="button">Publish</button>
+      </section>
+      <section aria-labelledby="disconnect-heading">
+        <h2 id="disconnect-heading">Disconnect</h2>
+        <label><input id="drain" type="checkbox" checked /> Wait for QoS 1 acknowledgments</label>
+        <label><input id="send-will" type="checkbox" /> Ask the broker to publish the Will</label>
+        <button id="disconnect" type="button">Disconnect</button>
+      </section>
+      <section aria-labelledby="results-heading">
+        <h2 id="results-heading">Results and errors</h2>
+        <ol id="results" data-testid="results"></ol>
+      </section>
+      <section aria-labelledby="messages-heading">
+        <h2 id="messages-heading">Messages</h2>
+        <ol id="messages" data-testid="messages"></ol>
+      </section>
+      <section aria-labelledby="diagnostics-heading">
+        <h2 id="diagnostics-heading">Diagnostics</h2>
+        <ol id="diagnostics" data-testid="diagnostics"></ol>
+      </section>
+    </main>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
