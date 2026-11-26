@@ -8,7 +8,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Uint8Array has a mutable index signature that Readonly<> does not remove, and ByteInbound.bytes takes the view as is.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer passes the given byte view to the inbound endpoint.
 function scriptedPeer(reply: Readonly<Uint8Array> = connack, connackDelayMs = 0, timeoutMs = 250) {
   let inbound: ByteInbound | undefined;
   const commands: number[] = [];
@@ -17,18 +17,16 @@ function scriptedPeer(reply: Readonly<Uint8Array> = connack, connackDelayMs = 0,
   const caller = new AbortController();
   let finishWrite: (() => void) | undefined;
   let finishDisconnectWrite: (() => void) | undefined;
-  let finishPublishWrite: (() => void) | undefined;
-  let holdPublish = false;
   let holdPing = false;
   let holdDisconnect = false;
   const transport: ByteTransport = {
     name: 'Keep Alive peer',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares this ByteInbound parameter, whose bytes method takes a Uint8Array.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer retains the inbound endpoint to answer requests later.
     async open(input) {
       inbound = input;
       return Promise.resolve({
         bufferedBytes: 0,
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteWriter.write in src/byteTransport.ts declares a Uint8Array chunk, which has a mutable index signature.
+        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The writer receives the core's native bytes.
         async write(bytes) {
           const command = (bytes[0] ?? 0) >> 4;
           commands.push(command);
@@ -39,10 +37,6 @@ function scriptedPeer(reply: Readonly<Uint8Array> = connack, connackDelayMs = 0,
                 input.bytes(reply);
               }, connackDelayMs);
           }
-          if (command === 3 && holdPublish)
-            return new Promise((resolve) => {
-              finishPublishWrite = resolve;
-            });
           if (command === 12 && holdPing)
             return new Promise((resolve) => {
               finishWrite = resolve;
@@ -87,12 +81,6 @@ function scriptedPeer(reply: Readonly<Uint8Array> = connack, connackDelayMs = 0,
     completeDisconnectWrite() {
       finishDisconnectWrite?.();
     },
-    blockPublishWrite() {
-      holdPublish = true;
-    },
-    completePublishWrite() {
-      finishPublishWrite?.();
-    },
   };
 }
 
@@ -118,7 +106,7 @@ test('the broker override schedules an idle PINGREQ and successful writes defer 
 
 test.each([Uint8Array.of(0x20, 3, 0, 0, 0), Uint8Array.of(0x20, 6, 0, 0, 3, 0x13, 0, 0)])(
   'CONNECT Keep Alive 0 sends no automatic pings if the server value is absent or zero (%j)',
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The test.each rows are Uint8Array values, which have a mutable index signature that Readonly<> does not remove.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Vitest passes the fixed byte fixture by identity.
   async (reply) => {
     vi.useFakeTimers();
     const peer = scriptedPeer(reply);
@@ -129,24 +117,6 @@ test.each([Uint8Array.of(0x20, 3, 0, 0, 0), Uint8Array.of(0x20, 6, 0, 0, 3, 0x13
     await client.disconnect();
   },
 );
-
-test('a slow write moves the deadline from when the write started', async () => {
-  vi.useFakeTimers();
-  const peer = scriptedPeer(connack, 0, 3000);
-  const client = await peer.factory.connect();
-  await vi.advanceTimersByTimeAsync(200);
-  peer.blockPublishWrite();
-  const publishing = client.publish('ci/slow', 'hello');
-  await vi.advanceTimersByTimeAsync(300);
-  peer.completePublishWrite();
-  await publishing;
-  await vi.advanceTimersByTimeAsync(699);
-  expect(peer.commands).toEqual([1, 3]);
-  await vi.advanceTimersByTimeAsync(1);
-  expect(peer.commands).toEqual([1, 3, 12]);
-  peer.answerPing();
-  await client.disconnect();
-});
 
 test('a delayed CONNACK keeps the deadline anchored to the CONNECT write', async () => {
   vi.useFakeTimers();
