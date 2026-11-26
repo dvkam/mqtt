@@ -28,7 +28,7 @@ export interface MqttErrorDetails {
   readonly cause?: unknown;
 }
 
-const usableAfter: ReadonlySet<MqttErrorCode> = new Set(['ERR_MQTT_CAPACITY', 'ERR_MQTT_INVALID_ARGUMENT']);
+const nonFatalByDefault: ReadonlySet<MqttErrorCode> = new Set(['ERR_MQTT_CAPACITY', 'ERR_MQTT_INVALID_ARGUMENT']);
 
 /** A client rejection with a stable `code`. */
 export class MqttError extends Error {
@@ -43,7 +43,7 @@ export class MqttError extends Error {
     super(message);
     this.name = 'MqttError';
     this.code = code;
-    this.fatal = details.fatal ?? !usableAfter.has(code);
+    this.fatal = details.fatal ?? !nonFatalByDefault.has(code);
     if (details.reasonCode !== undefined) this.reasonCode = details.reasonCode;
     if (details.reasonString !== undefined) this.reasonString = details.reasonString;
     if (details.userProperties !== undefined) this.userProperties = details.userProperties;
@@ -54,4 +54,21 @@ export class MqttError extends Error {
 /** Whether `error` is an `MqttError`, optionally with the given code. */
 export function isMqttError(error: unknown, code?: MqttErrorCode): error is MqttError {
   return error instanceof MqttError && (code === undefined || error.code === code);
+}
+
+// The package entries export MqttError and isMqttError only. The two helpers below are internal.
+
+/** `reason` when it is an Error. Otherwise an ERR_MQTT_TRANSPORT error that keeps the value as its cause. */
+export function transportFailure(reason: unknown, message: string): Error {
+  return reason instanceof Error ? reason : new MqttError('ERR_MQTT_TRANSPORT', message, { cause: reason });
+}
+
+/**
+ * The error a session ends with. A callback can rethrow a non-fatal rejection, such as ERR_MQTT_CAPACITY from its own
+ * publish. That error becomes a fatal copy with the original as its cause, because the session no longer accepts work.
+ */
+export function endingFailure(error: Readonly<Error>): Readonly<Error> {
+  if (!(error instanceof MqttError) || error.fatal) return error;
+  const { code, message, reasonCode, reasonString, userProperties } = error;
+  return new MqttError(code, message, { fatal: true, reasonCode, reasonString, userProperties, cause: error });
 }

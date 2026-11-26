@@ -157,7 +157,7 @@ test('timeout keeps the reservation until the actual send settles', async () => 
   const client = await connectPortable(broker.transport, { clientId: 'timeout-reservation', timeoutMs: 100 });
   const pending = client.publish('a', 'held').catch((reason: unknown) => reason);
   vi.advanceTimersByTime(100);
-  expect(await pending).toMatchObject({ message: 'MQTT operation timed out' });
+  expect(await pending).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
   expect(released).not.toHaveBeenCalled();
   broker.writes[0]!.resolve();
   await vi.advanceTimersByTimeAsync(0);

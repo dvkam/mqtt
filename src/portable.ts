@@ -1,5 +1,5 @@
 import { notifyObserver, packetReceiver, packetSender, type DiagnosticObserver } from './diagnostics.js';
-import { MqttError } from './mqttError.js';
+import { endingFailure, MqttError, transportFailure } from './mqttError.js';
 import { ProtocolInputError } from './protocolInputError.js';
 import type { PublishMessage } from './messageProperties.js';
 import type { BrokerPacket, ClientPacket } from './wireCodec.js';
@@ -63,7 +63,19 @@ export interface PortableOptions<Bytes extends Uint8Array = Uint8Array> extends 
 type InboundPhase = 'handling' | 'acknowledging';
 type Connack = Extract<BrokerPacket, { cmd: 'connack' }>;
 type Acknowledgment =
-  | Readonly<Pick<Connack, 'cmd' | 'reasonCode' | 'sessionPresent' | 'receiveMaximum' | 'maximumQoS' | 'serverKeepAlive'>>
+  | Readonly<
+      Pick<
+        Connack,
+        | 'cmd'
+        | 'reasonCode'
+        | 'sessionPresent'
+        | 'receiveMaximum'
+        | 'maximumQoS'
+        | 'serverKeepAlive'
+        | 'reasonString'
+        | 'userProperties'
+      >
+    >
   | Readonly<{ cmd: 'pingresp' }>;
 
 interface KeepAlive {
@@ -299,7 +311,10 @@ class PortableClient<Bytes extends Uint8Array> {
         await this.sendPacket({ cmd: 'puback', messageId, reasonCode: 0 });
       }, false);
     } catch (reason) {
-      if (!this.failure && !this.closing) void this.abort(handlerFailure(reason)).catch(() => {});
+      if (!this.failure && !this.closing)
+        void this.abort(reason instanceof Error ? endingFailure(reason) : new Error('MQTT inbound delivery failed')).catch(
+          () => {},
+        );
     } finally {
       this.inboundPhase = undefined;
       this.advanceInbound();
@@ -369,11 +384,9 @@ class PortableClient<Bytes extends Uint8Array> {
     } catch (reason) {
       const refusedBeforeWrite =
         packet.cmd === 'publish' && packet.qos === 1 && takeNativeBudgetFailure(packet, reason) !== undefined;
-      if (!refusedBeforeWrite)
-        void this.abort(reason instanceof Error ? reason : new MqttError('ERR_MQTT_TRANSPORT', fallback, { cause: reason })).catch(
-          () => {},
-        );
-      throw reason;
+      const failure = transportFailure(reason, fallback);
+      if (!refusedBeforeWrite) void this.abort(failure).catch(() => {});
+      throw failure;
     }
   }
 
@@ -484,10 +497,9 @@ class PortableClient<Bytes extends Uint8Array> {
     try {
       await this.run(async () => this.sendPacket({ cmd: 'disconnect' }));
     } catch (error) {
-      await this.abort(
-        error instanceof Error ? error : new MqttError('ERR_MQTT_TRANSPORT', 'MQTT disconnect failed', { cause: error }),
-      ).catch(() => {});
-      throw error;
+      const failure = transportFailure(error, 'MQTT disconnect failed');
+      await this.abort(failure).catch(() => {});
+      throw failure;
     }
     this.fail(new MqttError('ERR_MQTT_CLOSING', 'Client disconnected'), 'disconnect');
     await this.transport.close();
@@ -507,7 +519,7 @@ class PortableClient<Bytes extends Uint8Array> {
       this.pendingAck = (reply) => {
         if (matches(reply)) {
           if (reply.cmd === 'connack' && reply.reasonCode !== 0) {
-            this.fail(new MqttError('ERR_MQTT_REFUSED', 'MQTT acknowledgment refused', { reasonCode: reply.reasonCode }));
+            this.fail(connackRefusal(reply));
           }
           if (reply.cmd === 'connack') {
             if (reply.reasonCode === 0) this.activation = 'accepted';
@@ -518,6 +530,8 @@ class PortableClient<Bytes extends Uint8Array> {
               receiveMaximum: reply.receiveMaximum,
               maximumQoS: reply.maximumQoS,
               serverKeepAlive: reply.serverKeepAlive,
+              reasonString: reply.reasonString,
+              userProperties: reply.userProperties,
             });
           } else resolve(reply);
         }
@@ -529,17 +543,13 @@ class PortableClient<Bytes extends Uint8Array> {
         const [received] = await Promise.all([ack, onSent ? sent.then(onSent) : sent]);
         return received;
       }, !background);
-      if (reply.cmd === 'connack' && reply.reasonCode !== 0)
-        throw new MqttError('ERR_MQTT_REFUSED', 'MQTT acknowledgment refused', { reasonCode: reply.reasonCode });
+      if (reply.cmd === 'connack' && reply.reasonCode !== 0) throw connackRefusal(reply);
       return reply;
     } catch (error) {
+      const failure = transportFailure(error, ping ? 'MQTT ping failed' : 'MQTT connect failed');
       // Retire before freeing the acknowledgment slot. PINGRESP has no request ID.
-      if (ping && !this.failure && (!background || !this.closing)) {
-        await this.abort(
-          error instanceof Error ? error : new MqttError('ERR_MQTT_TRANSPORT', 'MQTT ping failed', { cause: error }),
-        ).catch(() => {});
-      }
-      throw error;
+      if (ping && !this.failure && (!background || !this.closing)) await this.abort(failure).catch(() => {});
+      throw failure;
     } finally {
       this.pendingAck = undefined;
     }
@@ -593,17 +603,12 @@ class PortableClient<Bytes extends Uint8Array> {
   }
 }
 
-function closingError(): MqttError {
-  return new MqttError('ERR_MQTT_CLOSING', 'Client is closing');
+function connackRefusal({ reasonCode, reasonString, userProperties }: Readonly<Acknowledgment & { cmd: 'connack' }>): MqttError {
+  return new MqttError('ERR_MQTT_REFUSED', 'MQTT acknowledgment refused', { reasonCode, reasonString, userProperties });
 }
 
-// A handler can rethrow a non-fatal rejection, such as ERR_MQTT_CAPACITY from its own publish. The session still ends, so
-// its failure is a fatal copy with the original as its cause.
-function handlerFailure(reason: unknown): Readonly<Error> {
-  if (!(reason instanceof Error)) return new Error('MQTT inbound delivery failed');
-  if (!(reason instanceof MqttError) || reason.fatal) return reason;
-  const { code, message, reasonCode, reasonString, userProperties } = reason;
-  return new MqttError(code, message, { fatal: true, reasonCode, reasonString, userProperties, cause: reason });
+function closingError(): MqttError {
+  return new MqttError('ERR_MQTT_CLOSING', 'Client is closing');
 }
 
 export async function connectPortable<Bytes extends Uint8Array = Uint8Array>(
@@ -616,10 +621,9 @@ export async function connectPortable<Bytes extends Uint8Array = Uint8Array>(
   try {
     await client.open();
   } catch (error) {
-    await client
-      .abort(error instanceof Error ? error : new MqttError('ERR_MQTT_TRANSPORT', 'MQTT connect failed', { cause: error }))
-      .catch(() => {});
-    throw error;
+    const failure = transportFailure(error, 'MQTT connect failed');
+    await client.abort(failure).catch(() => {});
+    throw failure;
   }
   return {
     // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.

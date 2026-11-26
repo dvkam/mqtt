@@ -192,7 +192,7 @@ test('subscription timeout retires all ownership before a late send or ACK can a
     sent.resolve();
     broker.receive({ cmd: 'suback', messageId: 1, granted: [0] });
     const failure = await first;
-    expect(failure).toMatchObject({ message: 'MQTT operation timed out' });
+    expect(failure).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
     expect(await second).toBe(failure);
     expect(await late).toBe(failure);
   } finally {

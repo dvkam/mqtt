@@ -1,4 +1,7 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import { createBrowserClient as browserEntry, MqttError as BrowserMqttError } from '../src/browser.js';
+import { createTransportClient, MqttError as RootMqttError, type ByteTransport } from '../src/index.js';
+import { MqttError as PortableMqttError } from '../src/portableClient.js';
 import { createTcpClient } from '../src/tcpClient.js';
 import { startTcpPacketPeer } from './experiments/tcp-packet-peer.js';
 import type { UserProperty } from '../src/codec.js';
@@ -9,7 +12,13 @@ import type { SessionEnd } from '../src/session.js';
 // What a test needs to answer a sent packet. Missing identifiers and QoS read as zero.
 type Sent = Readonly<{ cmd: string; messageId: number; qos: number }>;
 type Reply =
-  | Readonly<{ cmd: 'connack'; sessionPresent: false; reasonCode: number }>
+  | Readonly<{
+      cmd: 'connack';
+      sessionPresent: false;
+      reasonCode: number;
+      reasonString?: string;
+      userProperties?: readonly UserProperty[];
+    }>
   | Readonly<{ cmd: 'suback'; messageId: number; granted: readonly number[] }>
   | Readonly<{ cmd: 'puback'; messageId: number; reasonCode: number }>
   | Readonly<{ cmd: 'pingresp' }>
@@ -24,7 +33,7 @@ function peer(reply: Responder = answer): Readonly<{ transport: PacketTransport;
     deliver?.(packet);
   };
   const transport: PacketTransport = {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PacketTransport.send receives the session's ClientPacket, whose PUBLISH payload is a native Uint8Array.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PacketTransport.send in src/portable.ts receives the session's ClientPacket, whose PUBLISH payload is a native Uint8Array.
     async send(packet) {
       const messageId = 'messageId' in packet && typeof packet.messageId === 'number' ? packet.messageId : 0;
       const qos = 'qos' in packet && typeof packet.qos === 'number' ? packet.qos : 0;
@@ -211,4 +220,79 @@ test('fatal defaults by code', () => {
   expect(new MqttError('ERR_MQTT_REFUSED', 'refused').fatal).toBe(true);
   expect(new MqttError('ERR_MQTT_REFUSED', 'refused', { fatal: false }).fatal).toBe(false);
   expect(new MqttError('ERR_MQTT_TRANSPORT', 'closed').fatal).toBe(true);
+});
+
+test('every entry exports the same MqttError class', () => {
+  expect(typeof browserEntry).toBe('function');
+  expect(RootMqttError).toBe(MqttError);
+  expect(BrowserMqttError).toBe(MqttError);
+  expect(PortableMqttError).toBe(MqttError);
+});
+
+test('a refused CONNACK carries the Reason String and User Properties', async () => {
+  const broker = peer((packet, receive) => {
+    if (packet.cmd === 'connect')
+      receive({
+        cmd: 'connack',
+        sessionPresent: false,
+        reasonCode: 0x87,
+        reasonString: 'not authorized',
+        userProperties: [['realm', 'sensors']],
+      });
+  });
+  await expect(connectPortable(broker.transport, { clientId: 'refused-reason' })).rejects.toEqual(
+    coded('ERR_MQTT_REFUSED', true, {
+      reasonCode: 0x87,
+      reasonString: 'not authorized',
+      userProperties: [['realm', 'sensors']],
+    }),
+  );
+});
+
+test('an onMessage handler that rethrows a non-fatal rejection ends the session with a fatal copy', async () => {
+  const peerSocket = await startTcpPacketPeer('default');
+  const rethrown = new MqttError('ERR_MQTT_CAPACITY', 'full', { fatal: false });
+  try {
+    const client = await createTcpClient({
+      host: peerSocket.host,
+      port: peerSocket.port,
+      clientId: 'rethrow',
+      onMessage() {
+        throw rethrown;
+      },
+    }).connect();
+    await client.subscribe('a');
+    await client.publish('a', 'echo');
+    await expect
+      .poll(async () => client.ping().catch((error: unknown) => error))
+      .toEqual(coded('ERR_MQTT_CAPACITY', true, { cause: rethrown }));
+    expect(rethrown.fatal).toBe(false);
+  } finally {
+    await peerSocket.close();
+  }
+});
+
+test('a transport that rejects a write with a value that is not an Error gets one coded failure', async () => {
+  const broker = peer();
+  const client = await connectPortable(broker.transport, { clientId: 'non-error' });
+  vi.spyOn(broker.transport, 'send').mockRejectedValueOnce('socket gone');
+  const failure: unknown = await client.ping().catch((error: unknown) => error);
+  expect(failure).toEqual(coded('ERR_MQTT_TRANSPORT', true, { cause: 'socket gone' }));
+  await expect(client.publish('a', 'late')).rejects.toBe(failure);
+});
+
+test('an opener that rejects with a value that is not an Error gets a coded failure', async () => {
+  const transport: ByteTransport = { name: 'Failing', open: vi.fn<ByteTransport['open']>().mockRejectedValue('refused') };
+  await expect(createTransportClient(transport, { clientId: 'open' }).connect()).rejects.toEqual(
+    coded('ERR_MQTT_TRANSPORT', true, { cause: 'refused' }),
+  );
+});
+
+test('a connection signal aborted with a value that is not an Error keeps it as the cause', async () => {
+  const transport: ByteTransport = { name: 'Unused', open: vi.fn<ByteTransport['open']>() };
+  const controller = new AbortController();
+  controller.abort('stop');
+  await expect(createTransportClient(transport, { clientId: 'abort', signal: controller.signal }).connect()).rejects.toEqual(
+    expect.objectContaining({ name: 'AbortError', code: 'ERR_MQTT_ABORTED', fatal: true, cause: 'stop' }),
+  );
 });

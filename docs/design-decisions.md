@@ -1,6 +1,6 @@
 # Design decisions
 
-This file records decisions about the public API and the package layout. The repository owner, dvkam, made each choice. The questions were put to the owner in a working session outside GitHub, so this file is the first written record of the options and the trade-offs listed with them. In each table, "recommended" marks the option the question recommended. Three of the four choices followed that recommendation. The three entries of 16 November were answered together, so their order among themselves means nothing.
+This file records decisions about the public API and the package layout. The repository owner, dvkam, made each choice. The questions were put to the owner in a working session outside GitHub, so this file is the first written record of the options and the trade-offs listed with them. In each table, "recommended" marks the option the question recommended. Four of the five choices followed that recommendation. The three entries of 16 November were answered together, so their order among themselves means nothing.
 
 Each entry gives the question, the options, the choice, the stated reason, any consequences the author of this file adds, and what follows. Several entries describe steps of the [#171 plan](https://github.com/dvkam/mqtt/issues/171#issuecomment-6912613511) that had not been merged when the entry was written. The status line says which.
 
@@ -13,27 +13,29 @@ Two terms used below:
 
 ## Errors carry stable codes
 
-Proposed on 12 November 2026 by the owner in [#155](https://github.com/dvkam/mqtt/issues/155), which opens with the fix. Status: the first part is in the pull request for `feat/stable-error-codes`, not merged when this entry was written.
+Decided on 26 November 2026 (UTC), for [#155](https://github.com/dvkam/mqtt/issues/155). The owner proposed the design in the "Proposed fix" section of #155 on 12 November. On 26 November, in a working session, the owner asked for the reviewed work to be merged once review and CI passed. Status: the first part is in the pull request for `feat/stable-error-codes`, not merged when this entry was written.
 
 Question: how does a caller tell a retryable rejection from one that ended the session without matching message text?
 
 | Option | Trade-off |
 | --- | --- |
-| One `MqttError` class with a closed string `code` and a `fatal` flag (chosen, proposed in #155) | One `instanceof` check. Codes that used to be numeric move to `reasonCode`, which breaks readers of `ProtocolInputError.code`. |
+| One `MqttError` class with a closed string `code` and a `fatal` flag (chosen, recommended in #155) | One `instanceof` check. Codes that used to be numeric move to `reasonCode`, which breaks readers of `ProtocolInputError.code`. |
 | Keep plain errors and document the messages | No break, but every caller keeps parsing English text. |
 
 Reason given in #155: callers can only compare `error.message`, and a capacity rejection and a timeout look the same.
 
 Consequences: `ProtocolInputError` extends `MqttError`, so its reason code moves from `code` to `reasonCode`. Capacity rejections are no longer `RangeError`. [docs/errors.md](errors.md) lists each code.
 
-The implementation departs from the #155 proposal in four places. The owner has not confirmed them yet:
+The implementation departs from the #155 proposal in the places below. They were not put to the owner as separate questions:
 
 - `fatal` defaults by code. Only `ERR_MQTT_CAPACITY`, `ERR_MQTT_INVALID_ARGUMENT` and a refused SUBACK, UNSUBACK or PUBACK are non-fatal.
 - `ERR_MQTT_WRITE_BUDGET` is not in the union yet, and the `WeakMap` in `src/nativeWriteBudget.ts` stays. The same refusal keeps a QoS 1 publish usable and ends the session for other packets, so one error object cannot carry one `fatal` value.
 - Option validation still throws `RangeError`. The choice is between a Node-style `RangeError` that also has a `code` and an `MqttError` that drops `instanceof RangeError`.
-- When an `onQosOneMessage` handler rethrows a non-fatal rejection, the session ends with a fatal copy that keeps the code and sets `cause` to the original.
+- When an `onMessage` or `onQosOneMessage` handler rethrows a non-fatal rejection, the session ends with a fatal copy that keeps the code and sets `cause` to the original.
+- A refused SUBACK, UNSUBACK or PUBACK carries `reasonCode` only. #155 also asks for `reasonString` and `userProperties`, which only DISCONNECT and CONNACK carry so far.
+- `ProtocolInputError` stays a subclass of `MqttError`, exported from `mqtt/portable`, instead of becoming an alias. A caller's `instanceof ProtocolInputError` check keeps working.
 
-What follows: the remaining items in [docs/errors.md](errors.md#not-yet-coded).
+What follows: the errors listed in [docs/errors.md](errors.md#errors-without-a-code). Two #155 acceptance items are also open. Some tests still assert only the message of a rejection that now has a code, and no check fails when `src/` adds an uncoded error.
 
 ## Browser client takes on the Node inbound rules
 

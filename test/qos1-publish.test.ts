@@ -262,7 +262,7 @@ test('an early PUBACK does not stop the deadline while the actual write is held'
     await setImmediate();
     vi.advanceTimersByTime(100);
     await setImmediate();
-    expect(failure).toMatchObject({ message: 'MQTT operation timed out' });
+    expect(failure).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
   } finally {
     write.release();
     broker.retire(new Error('fixture ended'));

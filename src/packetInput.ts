@@ -3,6 +3,7 @@ import { inboundPacketListener } from './inboundPackets.js';
 import { validateInboundTopic } from './inboundTopic.js';
 import type { PacketFramer } from './packetFramer.js';
 import type { PacketTransport } from './portable.js';
+import { endingFailure } from './mqttError.js';
 import { ProtocolInputError } from './protocolInputError.js';
 
 type Listen<Bytes extends Uint8Array> = PacketTransport<Bytes>['listen'];
@@ -78,7 +79,7 @@ export class PacketInput<Bytes extends Uint8Array> {
         protocolError(reason);
         return undefined;
       }
-      return this.retire('error', reason instanceof Error ? reason : new Error('MQTT input failed'));
+      return this.retire('error', reason instanceof Error ? endingFailure(reason) : new Error('MQTT input failed'));
     }
   }
 

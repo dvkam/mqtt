@@ -157,7 +157,7 @@ test('WS timeout keeps its cause with partial input and releases cancellation', 
       timeoutMs: 100,
     }).connect();
     const reason = await client.ping().catch((failure: unknown) => failure);
-    expect(reason).toMatchObject({ message: 'MQTT operation timed out' });
+    expect(reason).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
     await expect(client.publish('a', 'late')).rejects.toBe(reason);
     await vi.waitFor(() => {
       expect(getEventListeners(controller.signal, 'abort')).toEqual([]);

@@ -13,7 +13,7 @@ import { resolvePublicationLimits } from './publicationAdmission.js';
 import type { ClientFactory, ClientSession } from './session.js';
 import { resolveSubscriptionLimits } from './subscriptionExchanges.js';
 import { resolveTimeout } from './timeout.js';
-import { MqttError } from './mqttError.js';
+import { MqttError, transportFailure } from './mqttError.js';
 
 export interface ByteClientOptions<Bytes extends Uint8Array = Uint8Array> extends PortableOptions<Bytes>, NativeWriteLimits {
   signal?: AbortSignal;
@@ -65,7 +65,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
     const reason: unknown = signal?.reason;
     return reason instanceof Error
       ? reason
-      : Object.assign(new MqttError('ERR_MQTT_ABORTED', name + ' connection aborted'), { name: 'AbortError' });
+      : Object.assign(new MqttError('ERR_MQTT_ABORTED', name + ' connection aborted', { cause: reason }), { name: 'AbortError' });
   };
   if (isAborted()) throw abortReason();
 
@@ -139,7 +139,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
     try {
       writer = await transport.open(inbound, { signal: opening.signal, timeoutMs });
     } catch (error) {
-      throw input.reason ?? error;
+      throw input.reason ?? transportFailure(error, name + ' open failed');
     }
     const opened = writer;
     const packets: PacketTransport<Bytes> = {

@@ -183,7 +183,7 @@ test('partial input does not replace a ping timeout or add a native close wait',
   });
   await vi.advanceTimersByTimeAsync(50);
   expect(settled).toBe(true);
-  await expect(result).resolves.toMatchObject({ message: 'MQTT operation timed out' });
+  await expect(result).resolves.toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
   expect(finish).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(50);
   expect(vi.getTimerCount()).toBe(0);

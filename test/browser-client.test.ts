@@ -285,7 +285,7 @@ test('ping timeout retires locally without waiting for a second native-close dea
   });
   await vi.advanceTimersByTimeAsync(50);
   expect(settled).toBe(true);
-  await expect(result).resolves.toMatchObject({ message: 'MQTT operation timed out' });
+  await expect(result).resolves.toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
   await vi.advanceTimersByTimeAsync(50);
 });
 

@@ -3,6 +3,11 @@ import { once } from 'node:events';
 import { promisify } from 'node:util';
 import { createConnection } from 'node:net';
 import { createTransportClient, isMqttError, MqttError } from 'mqtt';
+import { MqttError as BrowserMqttError } from 'mqtt/browser';
+import { MqttError as PortableMqttError } from 'mqtt/portable';
+
+assert.equal(BrowserMqttError, MqttError, 'mqtt/browser must export the same MqttError class');
+assert.equal(PortableMqttError, MqttError, 'mqtt/portable must export the same MqttError class');
 
 /** @param {import('node:stream').Duplex} stream @returns {import('mqtt').ByteTransport} */
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- A Node Duplex has mutable stream state, and the adapter calls write, end and destroy on it.

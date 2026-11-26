@@ -146,14 +146,8 @@ export const secureTcpConsumer = createTcpClient({
   tls: { servername: 'broker.example' } satisfies import('mqtt').TcpTlsOptions,
 });
 
-import { isMqttError, MqttError, type MqttErrorCode } from 'mqtt';
-import { MqttError as BrowserMqttError } from 'mqtt/browser';
-import { MqttError as PortableMqttError } from 'mqtt/portable';
-
+import { isMqttError, type MqttErrorCode } from 'mqtt';
 export type MqttErrorCodeIsClosed = RequireFalse<string extends MqttErrorCode ? true : false>;
-export type MqttErrorEntriesShareOneClass = RequireTrue<
-  typeof BrowserMqttError extends typeof MqttError ? (typeof PortableMqttError extends typeof MqttError ? true : false) : false
->;
 
 export function retryAfterCapacity(error: unknown): boolean {
   return isMqttError(error, 'ERR_MQTT_CAPACITY') && !error.fatal;

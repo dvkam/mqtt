@@ -382,6 +382,8 @@ describe('the core over a transport it closes', () => {
     };
     await expect(nodeClient(peer.transport, { clientId: 'refused' }).connect()).rejects.toMatchObject({
       message: 'MQTT acknowledgment refused',
+      code: 'ERR_MQTT_REFUSED',
+      reasonCode: 0x87,
     });
   });
 

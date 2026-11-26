@@ -78,7 +78,10 @@ test('settles a pending operation and refuses later sends when the WebSocket clo
   try {
     const client = await createWebSocketClient({ url: broker.url, clientId: 'peer-close' }).connect();
     await expect(client.subscribe('close')).rejects.toMatchObject({ message: 'MQTT WebSocket closed', code: 'ERR_MQTT_TRANSPORT' });
-    await expect(client.publish('close', 'late')).rejects.toThrow('MQTT WebSocket closed');
+    await expect(client.publish('close', 'late')).rejects.toMatchObject({
+      message: 'MQTT WebSocket closed',
+      code: 'ERR_MQTT_TRANSPORT',
+    });
     expect(broker.packets.map(({ cmd }: Readonly<{ cmd: string }>) => cmd)).toEqual(['connect', 'subscribe']);
   } finally {
     await broker.close();
