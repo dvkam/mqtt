@@ -1,9 +1,5 @@
 import { resolveTimeout } from './timeout.js';
-
-export interface WebSocketOptions {
-  signal?: AbortSignal;
-  timeoutMs?: number;
-}
+import type { WebSocketOptions } from './websocketOptions.js';
 
 /** Open a binary MQTT WebSocket. The returned socket retains native send and close semantics. */
 export async function openMqttWebSocket(

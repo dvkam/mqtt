@@ -48,8 +48,8 @@
       "import": "./dist/index.js"
     },
     "./portable": {
-      "types": "./dist/portable.d.ts",
-      "import": "./dist/portable.js"
+      "types": "./dist/portableClient.d.ts",
+      "import": "./dist/portableClient.js"
     },
     "./codec": {
       "types": "./dist/codec.d.ts",
@@ -60,8 +60,8 @@
       "import": "./dist/browser.js"
     },
     "./websocket": {
-      "types": "./dist/websocket.d.ts",
-      "import": "./dist/websocket.js"
+      "types": "./dist/websocketOptions.d.ts",
+      "import": "./dist/websocketOptions.js"
     },
     "./ws": {
       "types": "./dist/ws.d.ts",

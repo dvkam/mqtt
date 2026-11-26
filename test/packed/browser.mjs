@@ -1,43 +1,45 @@
-import { connectPortable } from 'mqtt/portable';
+import { encodePacket, PacketDecoder } from 'mqtt/codec';
+import { createTransportClient } from 'mqtt/portable';
 
 export async function trace() {
-  /** @type {Parameters<import('mqtt/portable').PacketTransport['listen']>[0]} */
-  let receive;
-  /** @type {(error: Readonly<Error>) => void} */
-  let closed = () => {
-    throw new Error('Missing close observer');
-  };
+  /** @type {import('mqtt/portable').ByteInbound | undefined} */
+  let inbound;
   let block = false;
   /** @type {string[]} */
   const packets = [];
   /** @type {string[]} */
   const messages = [];
-  /** @type {import('mqtt/portable').PacketTransport} */
+  /** @type {import('mqtt/portable').ByteTransport} */
   const transport = {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    async send(packet) {
-      packets.push(packet.cmd);
-      if (block) await new Promise(() => {});
-      if (packet.cmd === 'connect') receive({ cmd: 'connack', sessionPresent: false, reasonCode: 0 });
-      if (packet.cmd === 'subscribe') receive({ cmd: 'suback', messageId: packet.messageId, granted: [0] });
-      if (packet.cmd === 'publish')
-        receive({
-          cmd: 'publish',
-          topic: packet.topic,
-          payload: packet.payload,
-          qos: 0,
-          dup: false,
-          retain: packet.retain ?? false,
-        });
+    name: 'Scripted browser peer',
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares this ByteInbound parameter, whose bytes method takes a Uint8Array.
+    async open(input) {
+      inbound = input;
+      const decoder = new PacketDecoder();
+      let release = () => {};
+      return Promise.resolve({
+        bufferedBytes: 0,
+        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteWriter.write in src/byteTransport.ts declares a Uint8Array chunk, which has a mutable index signature.
+        async write(bytes) {
+          const [packet] = decoder.push(bytes);
+          if (packet === undefined) throw new Error('Missing request packet');
+          packets.push(packet.cmd);
+          if (block)
+            return new Promise((resolve) => {
+              release = resolve;
+            });
+          if (packet.cmd === 'connect') input.bytes(Uint8Array.of(0x20, 3, 0, 0, 0));
+          if (packet.cmd === 'subscribe') input.bytes(encodePacket({ cmd: 'suback', messageId: packet.messageId, granted: [0] }));
+          if (packet.cmd === 'publish') input.bytes(bytes);
+        },
+        async close() {
+          release();
+          return Promise.resolve();
+        },
+      });
     },
-    listen(onPacket, onClose) {
-      receive = onPacket;
-      closed = onClose;
-      return () => {};
-    },
-    async close() {},
   };
-  /** @type {Parameters<typeof connectPortable>[1]} */
+  /** @type {Parameters<typeof createTransportClient>[1]} */
   const options = {
     clientId: 'browser-ci',
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
@@ -45,7 +47,7 @@ export async function trace() {
       messages.push(new TextDecoder().decode(packet.payload));
     },
   };
-  const client = await connectPortable(transport, options);
+  const client = await createTransportClient(transport, options).connect();
   await client.subscribe('ci/\u0000invalid').then(
     () => {
       throw new Error('Expected invalid filter rejection');
@@ -58,10 +60,11 @@ export async function trace() {
   await client.publish('ci/echo', 'hello');
   await client.disconnect();
 
-  const interrupted = await connectPortable(transport, options);
+  const interrupted = await createTransportClient(transport, options).connect();
   block = true;
   const pending = interrupted.publish('ci/echo', 'blocked');
-  closed(new Error('closed before drain'));
+  if (!inbound) throw new Error('Missing inbound endpoint');
+  inbound.fail(new Error('closed before drain'));
   const outcome = await pending.then(
     () => 'resolved',
     (/** @type {unknown} */ error) => {

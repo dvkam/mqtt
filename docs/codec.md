@@ -10,7 +10,7 @@ const connectBytes = encodePacket({ cmd: 'connect', clientId: 'example' });
 const packets = decoder.push(Uint8Array.of(0x20, 3, 0, 0, 0));
 ```
 
-Send encoded bytes over a native WebSocket, for example one from `openMqttWebSocket` in `mqtt/websocket`, and feed received messages to the decoder. The packed integration test follows this path against Mosquitto in Node and Chromium. The public `createBrowserClient` frames with the shared transport core instead of this decoder. A session owns acknowledgment ordering, legal packet phases, negotiated limits and reconnect behavior.
+Open a native WebSocket with the `mqtt` subprotocol and set `binaryType` to `arraybuffer`. Send encoded bytes and feed received messages to the decoder. The packed integration test follows this path against Mosquitto in Node and Chromium. The public `createBrowserClient` frames with the shared transport core instead of this decoder. A session owns acknowledgment ordering, legal packet phases, negotiated limits and reconnect behavior.
 
 ## Supported profile
 

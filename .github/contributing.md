@@ -31,6 +31,8 @@ Keep commits focused. Describe the problem, resulting behavior, tests and remain
 
 Changes to package exports or dependencies also need a packed consumer check. Browser changes need evidence that Node-only dependencies stay out of the browser graph. Record repeatable performance measurements before claiming an improvement.
 
+For changes to framing, encoding, delivery, scheduling or native writes, compare installed baseline and candidate packages with the same workload. Start with the [packed echo probe](../docs/measurements.md#packed-echo-and-v8-profiles) for TCP. Add a browser or burst workload when it exercises the change more directly. Run CPU, allocation and deoptimization diagnostics separately from timings. Track profiling and measured bottlenecks under [#178](https://github.com/dvkam/mqtt/issues/178).
+
 ## Releases and governance
 
 The publishing name, ownership and opt-in canary process remain in [#24](https://github.com/dvkam/mqtt/issues/24). A tarball artifact is a testable preview, not an npm release. Do not publish under the inherited package identity without resolving that work.

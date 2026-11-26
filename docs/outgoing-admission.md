@@ -1,6 +1,6 @@
 # Outgoing publication admission
 
-The supported TCP, Node WebSocket, browser and custom packet clients limit outstanding QoS 0 sends and queued or active QoS 1 publications in one pool. They reject excess work before calling the packet transport, encoding the payload or creating an operation timer. A QoS 1 request that fits the pool can wait for broker quota.
+The supported TCP, Node WebSocket, browser and custom byte transport clients limit outstanding QoS 0 sends and queued or active QoS 1 publications in one pool. They reject excess work before calling the packet transport, encoding the payload or creating an operation timer. A QoS 1 request that fits the pool can wait for broker quota.
 
 | Option | Default | Meaning |
 | --- | ---: | --- |

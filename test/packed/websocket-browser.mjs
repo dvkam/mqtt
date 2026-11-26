@@ -1,4 +1,4 @@
-import { openMqttWebSocket } from 'mqtt/websocket';
+import { openNativeWebSocket } from './native-websocket.mjs';
 import { encodePacket, PacketDecoder } from 'mqtt/codec';
 export { createBrowserClient } from 'mqtt/browser';
 
@@ -10,7 +10,7 @@ export function codecRoundTrip(packet) {
 
 /** @param {string} url */
 export async function exchange(url) {
-  const socket = await openMqttWebSocket(url);
+  const socket = await openNativeWebSocket(url);
   const listeners = new AbortController();
   let timer;
   try {
@@ -47,7 +47,7 @@ export async function exchange(url) {
  * @param {string} url
  * @param {(url: string) => Promise<Pick<WebSocket, 'bufferedAmount' | 'send' | 'close' | 'addEventListener'>>} open
  */
-export async function measureQueue(url, open = openMqttWebSocket) {
+export async function measureQueue(url, open = openNativeWebSocket) {
   const socket = await open(url);
   const budget = 128 * 1024;
   const bytes = new Uint8Array(64 * 1024);

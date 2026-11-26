@@ -1,6 +1,6 @@
 # WebSocket comparison
 
-The packed tests run CONNECT, SUBSCRIBE, a QoS 0 echo, PING and DISCONNECT against Mosquitto. The public Node createWebSocketClient uses ws and the library packet parser. The native Node and Chromium probes use the installed mqtt/websocket opening helper with a test-only MQTT exchange. The browser bundle check covers that helper and its test consumer.
+The packed tests run CONNECT, SUBSCRIBE, a QoS 0 echo, PING and DISCONNECT against Mosquitto. The public Node createWebSocketClient uses ws and the library packet parser. The native Node and Chromium probes use a test-only native WebSocket opener and the installed codec. The browser bundle check covers the probe and the supported browser client.
 
 | Check | Node ws client | Native Node 26 | Chromium |
 |---|---|---|---|
