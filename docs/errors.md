@@ -32,6 +32,7 @@ MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputErr
 | `ERR_MQTT_TIMEOUT` | The disconnect drain passed `drainTimeoutMs` without a PUBACK. The publication outcome is unknown and DISCONNECT proceeds. | `true` | None |
 | `ERR_MQTT_BROKER_DISCONNECT` | The broker sent DISCONNECT | `true` | The DISCONNECT reason code, 0 when omitted |
 | `ERR_MQTT_PROTOCOL` | Malformed or out-of-profile broker input, such as a PUBACK with packet identifier 0. The error is a `ProtocolInputError`, and an active session sends DISCONNECT with its reason code. | `true` | 0x81, 0x82 or 0x94 |
+| `ERR_MQTT_PROTOCOL` | The broker's CONNACK set Maximum Packet Size from 1 to 3, which leaves no room for the client's 4-byte PUBACK | `true` | None |
 | `ERR_MQTT_PROTOCOL` | The broker sent more inbound QoS 1 messages than the client's Receive Maximum allows | `true` | 0x93 |
 | `ERR_MQTT_CLOSING` | The call came after `disconnect()` | `true` | None |
 | `ERR_MQTT_TRANSPORT` | The socket or WebSocket closed, a WebSocket handshake or subprotocol check failed, a text WebSocket message arrived, or no native WebSocket exists. Also used when a custom transport's `open`, or a write of CONNECT, PINGREQ, DISCONNECT, SUBSCRIBE, UNSUBSCRIBE or a QoS 1 PUBLISH, rejects with a value that is not an Error. A reconnecting client uses it when its `create` function throws a value that is not an Error. `cause` then holds that value. | `true` | None |

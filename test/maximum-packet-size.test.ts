@@ -3,23 +3,34 @@ import type { ByteInbound, ByteTransport } from '../src/byteTransport.js';
 import { encodePacket, PacketDecoder, type ClientPacket } from '../src/codec.js';
 import { createTransportClient } from '../src/portableClient.js';
 
-// A broker that sends `maximumPacketSize` in CONNACK and answers SUBSCRIBE, UNSUBSCRIBE, PINGREQ and QoS 1 PUBLISH. It
-// records the size of every write and the packet it decoded from it.
-function broker(maximumPacketSize: number | undefined) {
-  const writes: { bytes: number; packet: ClientPacket }[] = [];
+// A broker that sends `maximumPacketSize` in CONNACK and answers PINGREQ, and SUBSCRIBE, UNSUBSCRIBE and QoS 1 PUBLISH
+// unless `withhold` is set. It records the size and command of every write and the packet it decoded from it. The codec
+// decodes no shared filter, so the broker reads the Packet Identifier of a SUBSCRIBE or UNSUBSCRIBE from its bytes.
+function broker(maximumPacketSize: number | undefined, withhold = false) {
+  const writes: { bytes: number; cmd: string; messageId?: number; packet?: ClientPacket }[] = [];
   const transport: ByteTransport = {
     name: 'Limited broker',
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- ByteTransport.open in src/byteTransport.ts takes the mutable ByteInbound and returns a promise, and promise-function-async requires an async function for that. This opener settles without waiting for anything.
     async open(inbound: ByteInbound) {
-      const decoder = new PacketDecoder();
+      const decoder = new PacketDecoder({ maxPacketBytes: 268_435_460 });
       return {
         bufferedBytes: 0,
         // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- ByteWriter.write in src/byteTransport.ts takes the encoded Uint8Array by identity and returns a promise. This writer replies synchronously.
         async write(bytes: Uint8Array) {
+          const header = bytes[0];
+          if (header === 0x82 || header === 0xa2) {
+            let offset = 1;
+            while (((bytes[offset] ?? 0) & 0x80) !== 0) offset++;
+            const messageId = ((bytes[offset + 1] ?? 0) << 8) | (bytes[offset + 2] ?? 0);
+            const cmd = header === 0x82 ? 'subscribe' : 'unsubscribe';
+            writes.push({ bytes: bytes.byteLength, cmd, messageId });
+            if (!withhold) inbound.bytes(encodePacket({ cmd: header === 0x82 ? 'suback' : 'unsuback', messageId, granted: [0] }));
+            return;
+          }
           for (const packet of decoder.push(bytes)) {
             if (packet.cmd === 'connack' || packet.cmd === 'suback' || packet.cmd === 'unsuback' || packet.cmd === 'pingresp')
               continue;
-            writes.push({ bytes: bytes.byteLength, packet });
+            writes.push({ bytes: bytes.byteLength, cmd: packet.cmd, packet });
             let reply: Parameters<typeof encodePacket>[0] | undefined;
             if (packet.cmd === 'connect')
               reply = {
@@ -28,10 +39,9 @@ function broker(maximumPacketSize: number | undefined) {
                 reasonCode: 0,
                 ...(maximumPacketSize === undefined ? {} : { maximumPacketSize }),
               };
-            if (packet.cmd === 'subscribe') reply = { cmd: 'suback', messageId: packet.messageId, granted: [0] };
-            if (packet.cmd === 'unsubscribe') reply = { cmd: 'unsuback', messageId: packet.messageId, granted: [0] };
             if (packet.cmd === 'pingreq') reply = { cmd: 'pingresp' };
-            if (packet.cmd === 'publish' && packet.qos === 1) reply = { cmd: 'puback', messageId: packet.messageId, reasonCode: 0 };
+            if (!withhold && packet.cmd === 'publish' && packet.qos === 1)
+              reply = { cmd: 'puback', messageId: packet.messageId, reasonCode: 0 };
             if (reply !== undefined) inbound.bytes(encodePacket(reply));
           }
         },
@@ -39,11 +49,17 @@ function broker(maximumPacketSize: number | undefined) {
       };
     },
   };
-  const connect = async (limits: Readonly<{ maxPendingPublishes?: number; maxPendingPublishBytes?: number }> = {}) =>
-    createTransportClient(transport, { clientId: 'limited', onQosOneMessage() {}, ...limits }).connect();
+  const connect = async (
+    limits: Readonly<{
+      maxPendingPublishes?: number;
+      maxPendingPublishBytes?: number;
+      maxPendingSubscriptions?: number;
+      maxBufferedBytes?: number;
+    }> = {},
+  ) => createTransportClient(transport, { clientId: 'limited', onQosOneMessage() {}, ...limits }).connect();
   const commands = (): string[] => {
     const list: string[] = [];
-    for (const { packet } of writes) list.push(packet.cmd);
+    for (const { cmd } of writes) list.push(cmd);
     return list;
   };
   return { connect, writes, commands };
@@ -103,7 +119,7 @@ test.each(['subscribe', 'unsubscribe'] as const)('rejects a %s over the limit be
   await change('f');
   await session.ping();
   expect(peer.commands()).toEqual(['connect', command, 'pingreq']);
-  expect(peer.writes[1]?.packet).toMatchObject({ messageId: 1 });
+  expect(peer.writes[1]?.messageId).toBe(1);
   await session.disconnect();
 });
 
@@ -118,5 +134,111 @@ test('without a Maximum Packet Size the publication byte limit applies', async (
     message: 'MQTT publication capacity exceeded',
   });
   expect(peer.writes.at(-1)?.bytes).toBe(publishSize(200_000, 0));
+  await session.disconnect();
+});
+
+const capacity = { code: 'ERR_MQTT_CAPACITY', fatal: false, message: 'MQTT publication capacity exceeded' };
+
+test('a PUBLISH over the limit reports the limit even when every publication slot is taken', async () => {
+  const peer = broker(64, true);
+  const session = await peer.connect({ maxPendingPublishes: 1 });
+  const held = session.publish('t', 'held', { qos: 1 }).catch((reason: unknown) => reason);
+  await expect(session.publish('t', new Uint8Array(100))).rejects.toMatchObject(oversized);
+  await expect(session.publish('t', 'fits')).rejects.toMatchObject(capacity);
+  await session.disconnect({ drain: false });
+  await held;
+});
+
+test.each(['a string', 'bytes'])('%s over both the limit and the publication byte limit reports the limit', async (kind) => {
+  const peer = broker(64);
+  const session = await peer.connect({ maxPendingPublishBytes: 100 });
+  const payload = kind === 'bytes' ? new Uint8Array(200) : 'x'.repeat(200);
+  await expect(session.publish('t', payload)).rejects.toMatchObject(oversized);
+  expect(peer.commands()).toEqual(['connect']);
+  await session.disconnect();
+});
+
+test('a string under the limit and over the publication byte limit reports capacity', async () => {
+  const peer = broker(256);
+  const session = await peer.connect({ maxPendingPublishBytes: 100 });
+  await expect(session.publish('t', 'x'.repeat(120))).rejects.toMatchObject(capacity);
+  await session.disconnect();
+});
+
+test('a SUBSCRIBE over the limit reports the limit even when every subscription slot is taken', async () => {
+  const peer = broker(24, true);
+  const session = await peer.connect({ maxPendingSubscriptions: 1 });
+  const held = session.subscribe('a').catch((reason: unknown) => reason);
+  await expect(session.subscribe('f'.repeat(24))).rejects.toMatchObject(oversized);
+  await expect(session.subscribe('b')).rejects.toMatchObject({
+    code: 'ERR_MQTT_CAPACITY',
+    message: 'MQTT subscription capacity exceeded',
+  });
+  await session.disconnect({ drain: false });
+  await held;
+});
+
+// The filters cover a shared filter, non-ASCII text and a Remaining Length of one, two and three bytes. A topic filter
+// holds at most 65,535 bytes, so no SUBSCRIBE or UNSUBSCRIBE needs a four-byte Remaining Length.
+const filters = [
+  ['a shared filter', '$share/group/sensor/+'],
+  ['non-ASCII text', 'é/😀/ü'],
+  ['a two-byte Remaining Length', 'f'.repeat(200)],
+  ['a three-byte Remaining Length', 'f'.repeat(20_000)],
+] as const;
+
+test.each(
+  filters.flatMap(
+    ([name, filter]) =>
+      [
+        ['subscribe', name, filter],
+        ['unsubscribe', name, filter],
+      ] as const,
+  ),
+)('sends a %s with %s at exactly the limit and rejects it one byte under', async (command, _name, filter) => {
+  const packet: ClientPacket =
+    command === 'subscribe'
+      ? { cmd: 'subscribe', messageId: 1, topics: [filter], qos: 0 }
+      : { cmd: 'unsubscribe', messageId: 1, topics: [filter] };
+  const size = encodePacket(packet, { sharedSubscriptions: true }).byteLength;
+  const tight = broker(size - 1);
+  const rejected = await tight.connect();
+  await expect(command === 'subscribe' ? rejected.subscribe(filter) : rejected.unsubscribe(filter)).rejects.toMatchObject(
+    oversized,
+  );
+  expect(tight.commands()).toEqual(['connect']);
+  await rejected.disconnect();
+  const exact = broker(size);
+  const accepted = await exact.connect();
+  await (command === 'subscribe' ? accepted.subscribe(filter) : accepted.unsubscribe(filter));
+  expect(exact.writes.at(-1)).toEqual({ bytes: size, cmd: command, messageId: 1 });
+  await accepted.disconnect();
+});
+
+test('sends a PUBLISH with a four-byte Remaining Length at exactly the limit and rejects one byte more', async () => {
+  const payloadBytes = 2_097_152;
+  const limit = publishSize(payloadBytes, 0);
+  expect(limit).toBe(1 + 4 + 2 + 1 + 1 + payloadBytes);
+  const peer = broker(limit);
+  const session = await peer.connect({ maxPendingPublishBytes: 4 * 1024 * 1024, maxBufferedBytes: 4 * 1024 * 1024 });
+  await expect(session.publish('t', new Uint8Array(payloadBytes + 1))).rejects.toMatchObject(oversized);
+  await session.publish('t', new Uint8Array(payloadBytes));
+  expect(peer.writes.at(-1)?.bytes).toBe(limit);
+  await session.disconnect();
+});
+
+test.each([1, 3])('ends the connection when CONNACK sets Maximum Packet Size %i, below the 4-byte PUBACK', async (limit) => {
+  await expect(broker(limit).connect()).rejects.toMatchObject({
+    code: 'ERR_MQTT_PROTOCOL',
+    fatal: true,
+    message: 'Unsupported broker Maximum Packet Size',
+  });
+});
+
+test('accepts a Maximum Packet Size of 4', async () => {
+  const peer = broker(4);
+  const session = await peer.connect();
+  await session.ping();
+  await expect(session.publish('t', '')).rejects.toMatchObject(oversized);
   await session.disconnect();
 });

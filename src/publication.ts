@@ -1,4 +1,5 @@
 import { MqttError } from './mqttError.js';
+import { oversizedPacket } from './publicationAdmission.js';
 import type { UserProperty } from './wireProperties.js';
 import { isBytes, maxBinaryBytes, ownByteLength, variableByteIntegerSize } from './util/bytes.js';
 import { loneSurrogate, utf8Length } from './util/utf8.js';
@@ -53,10 +54,11 @@ function invalid(message: string): MqttError {
   return new MqttError('ERR_MQTT_INVALID_ARGUMENT', message);
 }
 
-function encodePayload(payload: unknown, maxBytes: number): Uint8Array {
+function encodePayload(payload: unknown, maxBytes: number, packetLimit: number): Uint8Array {
   if (typeof payload === 'string') {
     if (loneSurrogate.test(payload)) throw invalid('MQTT publish payload is not well-formed UTF-16');
     // Each code unit encodes to at least one byte, so a longer string cannot pass admission.
+    if (payload.length > packetLimit) throw oversizedPacket();
     if (payload.length > maxBytes) throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT publication capacity exceeded');
     return payloadEncoder.encode(payload);
   }
@@ -141,7 +143,8 @@ function capturedProperties(options: RuntimeOptions): { properties: PublicationP
 
 /**
  * Validate a publish call before admission, so that a bad argument rejects with ERR_MQTT_INVALID_ARGUMENT instead of
- * failing in the encoder, which would end the session. `maxBytes` is the publication byte limit.
+ * failing in the encoder, which would end the session. `maxBytes` is the publication byte limit, and `packetLimit` the
+ * largest packet the client may send.
  */
 export function capturePublication(
   topic: string,
@@ -149,8 +152,9 @@ export function capturePublication(
   options: RuntimeOptions | undefined,
   retainAvailable: boolean,
   maxBytes: number,
+  packetLimit: number,
 ): OutgoingPublication {
-  const bytes = encodePayload(payload, maxBytes);
+  const bytes = encodePayload(payload, maxBytes, packetLimit);
   const payloadBytes = ownByteLength(bytes);
   if (options === undefined) return { topic, payload: bytes, payloadBytes, retain: false, properties: undefined, propertyBytes: 1 };
   const { retain } = options;
