@@ -32,6 +32,8 @@ const nonFatalByDefault: ReadonlySet<MqttErrorCode> = new Set(['ERR_MQTT_CAPACIT
 
 /** A client rejection with a stable `code`. */
 export class MqttError extends Error {
+  // Declared first, so the own keys keep the order name, code, fatal, as with the earlier constructor assignment.
+  override name = 'MqttError';
   readonly code: MqttErrorCode;
   readonly fatal: boolean;
   // The optional fields are declared without a runtime field, so an error that lacks one has no such key.
@@ -42,7 +44,6 @@ export class MqttError extends Error {
 
   constructor(code: MqttErrorCode, message: string, details: Readonly<MqttErrorDetails> = {}) {
     super(message);
-    this.name = 'MqttError';
     this.code = code;
     this.fatal = details.fatal ?? !nonFatalByDefault.has(code);
     if (details.reasonCode !== undefined) this.reasonCode = details.reasonCode;
