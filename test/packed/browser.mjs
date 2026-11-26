@@ -12,14 +12,14 @@ export async function trace() {
   /** @type {import('mqtt/portable').ByteTransport} */
   const transport = {
     name: 'Scripted browser peer',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer keeps the inbound endpoint for a simulated failure.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares this ByteInbound parameter, whose bytes method takes a Uint8Array.
     async open(input) {
       inbound = input;
       const decoder = new PacketDecoder();
       let release = () => {};
       return Promise.resolve({
         bufferedBytes: 0,
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The writer receives the core's mutable bytes.
+        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteWriter.write in src/byteTransport.ts declares a Uint8Array chunk, which has a mutable index signature.
         async write(bytes) {
           const [packet] = decoder.push(bytes);
           if (packet === undefined) throw new Error('Missing request packet');

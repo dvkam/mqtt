@@ -392,7 +392,7 @@ class PortableClient<Bytes extends Uint8Array> {
     this.keepAlive = keepAlive;
     const send = this.sendPacket;
     // Only a session with a positive override observes completed writes.
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Forward the same mutable packet to the writer.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The wrapper keeps the PacketTransport['send'] signature declared in this file, whose ClientPacket carries a Uint8Array PUBLISH payload.
     this.sendPacket = async (packet) => {
       await send(packet);
       keepAlive.deadline = performance.now() + intervalMs;
@@ -494,7 +494,7 @@ class PortableClient<Bytes extends Uint8Array> {
   }
 
   private async exchange(
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- sendPacket takes the PacketTransport['send'] ClientPacket declared in this file, whose PUBLISH payload is a Uint8Array.
     packet: ClientPacket,
     matches: (ack: Acknowledgment) => boolean,
     { onSent, background = false }: Readonly<{ onSent?: () => void; background?: boolean }> = {},

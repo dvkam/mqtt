@@ -9,14 +9,14 @@ let connection;
 /** @type {number[]} */
 const commands = [];
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer writes replies and closes the native socket.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- net.createServer passes a mutable net.Socket, which the peer writes to and destroys.
 const server = createServer((socket) => {
   connection = socket;
   let buffered = Buffer.alloc(0);
   socket.on('error', (/** @type {Readonly<Error>} */ error) => {
     peer.emit('error', error);
   });
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Read the socket's native Buffer.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- net.Socket emits Buffer chunks, and Buffer has a mutable index signature.
   socket.on('data', (chunk) => {
     assert.ok(Buffer.isBuffer(chunk));
     buffered = Buffer.concat([buffered, chunk]);

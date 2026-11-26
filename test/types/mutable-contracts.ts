@@ -1,3 +1,4 @@
+import type { ByteWriter } from '../../dist/index.js';
 import type { PacketTransport } from '../../dist/portable.js';
 import { createBrowserClient } from '../../dist/browser.js';
 
@@ -13,6 +14,9 @@ export type PacketTopicIsWritable = RequireTrue<Same<Pick<Publish, 'topic'>, { t
 export type PacketErrorMessageIsWritable = RequireTrue<
   Same<Pick<Parameters<PacketCloseListener>[0], 'message'>, { message: string }>
 >;
+
+// The core hands the writer its encoded bytes by identity, so an adapter can pass them to a native API that keeps them.
+export type WriterBytesAreWritable = RequireTrue<Same<Parameters<ByteWriter['write']>[0], Uint8Array<ArrayBuffer>>>;
 
 export const packetTransport: PacketTransport = {
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The assignment below checks that packed transport adapters can replace the payload.

@@ -638,7 +638,7 @@ describe('the core while it opens a transport', () => {
     const factory = createTransportClient(
       {
         name: 'Reentrant transport',
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Pass the same native inbound endpoint and signal to the scripted peer.
+        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares these parameters, and OpenContext holds a native AbortSignal.
         async open(inbound, context) {
           if (reentered) return secondPeer.transport.open(inbound, context);
           reentered = true;

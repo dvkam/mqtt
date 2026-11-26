@@ -5,24 +5,44 @@ import { createConnection } from 'node:net';
 import { createTransportClient, isMqttError, MqttError } from 'mqtt';
 
 /** @param {import('node:stream').Duplex} stream @returns {import('mqtt').ByteTransport} */
-// prettier-ignore
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The adapter writes to and closes the caller's Duplex.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- A Node Duplex has mutable stream state, and the adapter calls write, end and destroy on it.
 function useDuplex(stream) {
-  return { name: 'Duplex',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The stream retains the inbound callbacks through close.
+  return {
+    name: 'Duplex',
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares this ByteInbound and OpenContext, and OpenContext holds a native AbortSignal.
     async open(inbound, { timeoutMs }) {
       stream.on('data', inbound.bytes).on('end', inbound.end).on('error', inbound.fail);
-      const closed = new Promise((resolve) => { stream.once('close', () => { inbound.end(); resolve(undefined); }); });
-      return Promise.resolve({ get bufferedBytes() { return stream.writableLength; },
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The native write completion receives the stream's Error.
-        write: promisify((/** @type {Readonly<Uint8Array>} */ bytes, /** @type {(error?: Readonly<Error> | null) => void} */ done) => { stream.write(bytes, done); }),
+      const closed = new Promise((resolve) => {
+        stream.once('close', () => {
+          inbound.end();
+          resolve(undefined);
+        });
+      });
+      return Promise.resolve({
+        get bufferedBytes() {
+          return stream.writableLength;
+        },
+        write: promisify(
+          // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Writable.write in @types/node passes its callback a mutable Error.
+          (/** @type {Readonly<Uint8Array>} */ bytes, /** @type {(error?: Readonly<Error> | null) => void} */ done) => {
+            stream.write(bytes, done);
+          },
+        ),
         async close(force) {
-          const timer = setTimeout(() => { stream.destroy(); }, timeoutMs);
-          try { if (force) stream.destroy(); else stream.end(); await closed; }
-          finally { clearTimeout(timer); }
+          const timer = setTimeout(() => {
+            stream.destroy();
+          }, timeoutMs);
+          try {
+            if (force) stream.destroy();
+            else stream.end();
+            await closed;
+          } finally {
+            clearTimeout(timer);
+          }
         },
       });
-    } };
+    },
+  };
 }
 
 const port = Number(process.env['MQTT_TEST_PORT']);
