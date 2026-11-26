@@ -35,7 +35,7 @@ The implementation departs from the #155 proposal in the places below. They were
 - A refused SUBACK, UNSUBACK or PUBACK carries `reasonCode` only. #155 also asks for `reasonString` and `userProperties`, which only DISCONNECT and CONNACK carry so far.
 - `ProtocolInputError` stays a subclass of `MqttError`, exported from `mqtt/portable`, instead of becoming an alias. A caller's `instanceof ProtocolInputError` check keeps working.
 
-What follows: the errors listed in [docs/errors.md](errors.md#gaps). Two #155 acceptance items are also open. Some tests still assert only the message of a rejection that now has a code, and no check fails when `src/` adds an uncoded error.
+What follows: the errors listed in [docs/errors.md](errors.md#gaps). One #155 acceptance item is also open. Some tests still assert only the message of a rejection that now has a code, and no check fails when `src/` adds an uncoded error.
 
 ## Browser client takes on the Node inbound rules
 
