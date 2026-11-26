@@ -87,7 +87,7 @@ Call `createTransportClient(transport, options).connect()`. Import it from `mqtt
 - Pass received bytes to `inbound.bytes(chunk)` at any chunk boundary. Pass a peer end to `inbound.end()` and a transport error to `inbound.fail(error)`. The core copies the bytes it keeps and owns framing, decoding, and MQTT validation.
 - Return a `ByteWriter` whose `bufferedBytes` reports accepted bytes that have yet to flush. Use `frameOverhead(length)` when the transport adds bytes per write. Hand each chunk to the transport in call order and settle `write` when the transport takes it.
 - `close(false)` closes gracefully. `close(true)` releases the transport promptly, settles pending writes, and makes later writes reject. Close must accept repeated calls. Each transport owns its close deadline and any limits on its own messages, including WebSocket messages.
-- Set `supportsSharedSubscriptions` or `supportsPassword` to `false` if the transport cannot support that option. Both default to `true`. The built-in browser client disables both.
+- Set `supportsSharedSubscriptions` or `supportsPassword` to `false` if the transport cannot support that option. Both default to `true`. The built-in browser client disables shared subscriptions.
 
 See [Using a custom transport](recipes/using-custom-transports.md) for a Node `Duplex` example and [Byte transport and transport core](byte-transport.md) for lifecycle details.
 

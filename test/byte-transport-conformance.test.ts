@@ -514,6 +514,33 @@ describe('the core over a transport it closes', () => {
   });
 });
 
+test.each([
+  { name: 'over 65,535 bytes', password: (): unknown => new Uint8Array(65_536), message: 'MQTT password exceeds 65,535 bytes' },
+  { name: 'of an unsupported type', password: (): unknown => 42, message: 'MQTT password must be a string or a Uint8Array' },
+] as const)('rejects a password $name before opening the transport', async ({ password: make, message }) => {
+  const password = make();
+  const { peer } = memoryPeer();
+  const options: Record<string, unknown> = { password };
+  const factory = createTransportClient(peer.transport, { clientId: 'invalid-password', ...options });
+  await expect(factory.connect()).rejects.toMatchObject({ message, code: 'ERR_MQTT_INVALID_ARGUMENT', fatal: false });
+  expect(peer.opens()).toBe(0);
+});
+
+test('checks the copied password length, not a byteLength getter that a subclass overrides', async () => {
+  class ShortLookingBytes extends Uint8Array {
+    override get byteLength(): number {
+      return 1;
+    }
+  }
+  const { peer } = memoryPeer();
+  const factory = createTransportClient(peer.transport, { clientId: 'subclass-password', password: new ShortLookingBytes(70_000) });
+  await expect(factory.connect()).rejects.toMatchObject({
+    code: 'ERR_MQTT_INVALID_ARGUMENT',
+    message: 'MQTT password exceeds 65,535 bytes',
+  });
+  expect(peer.opens()).toBe(0);
+});
+
 test('rejects an invalid Will topic before opening the transport', async () => {
   const { peer } = memoryPeer();
   const factory = createTransportClient(peer.transport, {

@@ -28,6 +28,16 @@ try {
 
 Construction performs no I/O. Repeated `connect` calls on one factory return the same promise. Use a new factory for another connection attempt.
 
+## Credentials
+
+Pass `username` and `password` to authenticate. `password` is a string, which the client sends as its UTF-8 bytes, or a `Uint8Array`, which it copies when `connect()` starts. MQTT 5 allows a password without a username. A password over 65,535 bytes rejects `connect()` with `ERR_MQTT_INVALID_ARGUMENT` before the socket opens. A broker that refuses the credentials rejects it with `ERR_MQTT_REFUSED`. `reasonCode` holds the broker's reason, such as 0x86, Bad User Name or Password, or 0x87, Not authorized.
+
+```ts
+const client = await createBrowserClient({ url: 'wss://broker.example/mqtt', clientId: 'example', username: 'sensor-7', password: token }).connect();
+```
+
+Browsers send these credentials inside the MQTT CONNECT packet over the WebSocket. Use `wss://` so they are encrypted in transit, and do not ship long-lived secrets in a public bundle. Diagnostics never include credentials.
+
 The preview opens an MQTT 5 clean session with Keep Alive `0` in CONNECT and honors a positive [Server Keep Alive](deadlines.md#server-keep-alive) override. It supports ordinary QoS 0 and 1 subscriptions, text publishing, binary received payloads, ping and graceful disconnect. A received message carries every PUBLISH property the broker sent as a flat field. User Properties keep their order and duplicates. [Public client types](public-types.md#received-message-fields) lists the fields. The codec profile in docs/codec.md defines the accepted broker packets and properties.
 
 The shared session rejects empty subscription filters, misplaced wildcards, NUL, lone UTF-16 surrogates and filters exceeding 65,535 UTF-8 bytes before reserving an identifier or sending. Invalid input leaves an active session usable. An existing terminal failure retains precedence. Valid Unicode pairs, byte-order marks and exact byte-limit filters preserve their original text. Publishing applies the same string limits and rejects both wildcard characters before sending. Invalid publication input leaves the session usable. Topic aliases and shared-subscription negotiation remain outside this API.
@@ -65,4 +75,4 @@ Browser TLS trust, client certificates and proxy settings belong to the browser.
 
 The packed Vite SSR check covers import and factory construction with WebSocket, window, document and navigator absent. It exercises Vite's default externalized dependency and ssr.noExternal with mqtt bundled. Import and construction start no connection. Create a factory per application session and call connect from the application's client startup hook. Server rendering, hydration, framework lifecycle and server-side connection policy need their own application handling. This check does not claim those behaviors.
 
-Password authentication in the public client, binary publishing, additional MQTT properties, QoS 1/2, reconnect, a public Web Streams facade and wider browser verification remain in #8 and #37. The bounded consumption experiment and its remaining lifecycle work are documented in docs/message-stream-comparison.md and #54.
+Binary publishing, additional MQTT properties, QoS 1/2, reconnect, a public Web Streams facade and wider browser verification remain in #8 and #37. The bounded consumption experiment and its remaining lifecycle work are documented in docs/message-stream-comparison.md and #54.

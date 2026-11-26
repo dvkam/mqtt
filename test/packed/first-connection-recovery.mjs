@@ -101,19 +101,19 @@ try {
       for (const packet of decoder.push(bytes)) {
         if (packet.cmd === 'connect') {
           assert.equal(packet.username, 'sample');
-          assert.equal(packet.password, undefined);
+          assert.deepEqual(packet.password, Uint8Array.of(1));
           socket.send(encodePacket({ cmd: 'connack', sessionPresent: false, reasonCode: 0 }));
         }
       }
     });
   });
-  const untypedBrowserOptions = {
+  const browserOptions = {
     url: 'ws://127.0.0.1:' + address.port,
     clientId: 'browser-profile',
     username: 'sample',
     password: Uint8Array.of(1),
   };
-  await (await createBrowserClient(untypedBrowserOptions).connect()).disconnect();
+  await (await createBrowserClient(browserOptions).connect()).disconnect();
 } finally {
   for (const socket of broker.clients) socket.terminate();
   broker.close();

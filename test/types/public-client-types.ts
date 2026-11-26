@@ -61,3 +61,28 @@ const websocketOptions: WebSocketClientOptions = {
 
 export const tcpFactory: ClientFactory = createTcpClient(tcpOptions);
 export const websocketFactory: ClientFactory = createWebSocketClient(websocketOptions);
+
+type NodePassword = NonNullable<TcpClientOptions['password']>;
+export type NodePasswordAcceptsText = RequireTrue<string extends NodePassword ? true : false>;
+export type NodePasswordAcceptsBytes = RequireTrue<
+  Buffer extends NodePassword ? (Uint8Array extends NodePassword ? true : false) : false
+>;
+export type NodePasswordRejectsNumbers = RequireFalse<number extends NodePassword ? true : false>;
+export type WebSocketPasswordMatchesTcp = RequireTrue<
+  NonNullable<WebSocketClientOptions['password']> extends NodePassword
+    ? NodePassword extends NonNullable<WebSocketClientOptions['password']>
+      ? true
+      : false
+    : false
+>;
+export const textPasswordTcp = createTcpClient({
+  host: 'broker.example',
+  clientId: 'text-password',
+  username: 'u',
+  password: 'secret',
+});
+export const bytePasswordTcp = createTcpClient({
+  host: 'broker.example',
+  clientId: 'byte-password',
+  password: Buffer.from('secret'),
+});

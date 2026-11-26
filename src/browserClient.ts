@@ -22,6 +22,8 @@ export interface BrowserClientOptions extends PublicationLimits, SubscriptionLim
   url: string | URL;
   clientId: string;
   username?: string;
+  /** The CONNECT password, at most 65,535 bytes. A string is sent as its UTF-8 bytes. MQTT 5 allows it without a username. */
+  password?: string | Uint8Array;
   signal?: AbortSignal;
   timeoutMs?: number;
   maxPacketBytes?: number;
@@ -41,8 +43,6 @@ export function createBrowserClient(options: BrowserClientOptions): ClientFactor
     {
       name: 'WebSocket',
       supportsSharedSubscriptions: false,
-      // BrowserClientOptions has no password (#146), so never send one that an untyped object carries.
-      supportsPassword: false,
       // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The opener keeps the inbound object and the native abort signal by identity.
       async open(inbound, context) {
         return openBrowserSocket(options, inbound, context);
