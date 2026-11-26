@@ -1,6 +1,6 @@
 # Error codes
 
-Session rejections from `createTcpClient`, `createWebSocketClient`, `createBrowserClient` and `createTransportClient` are `MqttError` instances. Compare `error.code` instead of the message text, which can change. `mqtt`, `mqtt/browser` and `mqtt/portable` export the same class, `isMqttError` and the `MqttErrorCode` type. Tracked in [#155](https://github.com/dvkam/mqtt/issues/155).
+Session rejections from `createTcpClient`, `createWebSocketClient`, `createBrowserClient` and `createTransportClient` are `MqttError` instances. Compare `error.code` instead of the message text, which can change. `mqtt`, `mqtt/browser` and `mqtt/portable` export the same class, `isMqttError` and the `MqttErrorCode` type. [#155](https://github.com/dvkam/mqtt/issues/155) tracks the remaining work.
 
 ```ts
 import { isMqttError } from 'mqtt';
@@ -24,11 +24,11 @@ MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputErr
 | `ERR_MQTT_REFUSED` | The broker refused CONNACK | `true` | The CONNACK reason code |
 | `ERR_MQTT_REFUSED` | The broker refused SUBACK, UNSUBACK or PUBACK | `false` | The acknowledgment's reason code |
 | `ERR_MQTT_TIMEOUT` | An operation passed `timeoutMs`, or a Server Keep Alive deadline passed while an acknowledgment was pending | `true` | None |
+| `ERR_MQTT_TIMEOUT` | The TCP or TLS connection, or the native WebSocket handshake, did not open within `timeoutMs` | `true` | None |
 | `ERR_MQTT_BROKER_DISCONNECT` | The broker sent DISCONNECT | `true` | The DISCONNECT reason code, 0 when omitted |
 | `ERR_MQTT_PROTOCOL` | Malformed or out-of-profile broker input. The error is a `ProtocolInputError`, and an active session sends DISCONNECT with its reason code. | `true` | 0x81, 0x82 or 0x94 |
 | `ERR_MQTT_PROTOCOL` | The broker broke a session rule, such as an invalid PUBACK identifier, an invalid CONNACK limit, or more inbound QoS 1 messages than Receive Maximum allows | `true` | 0x93 for Receive Maximum. None otherwise. |
 | `ERR_MQTT_CLOSING` | The call came after `disconnect()` | `true` | None |
-| `ERR_MQTT_TIMEOUT` | The TCP or TLS connection, or the native WebSocket handshake, did not open within `timeoutMs` | `true` | None |
 | `ERR_MQTT_TRANSPORT` | The socket or WebSocket closed, a WebSocket handshake or subprotocol check failed, a text WebSocket message arrived, no native WebSocket exists, or a custom transport rejected with a value that is not an Error | `true` | None |
 | `ERR_MQTT_ABORTED` | The signal aborted with a reason that is not an Error. The error's `name` is `AbortError`. | `true` | None |
 
@@ -36,7 +36,7 @@ MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputErr
 
 These still reject with their existing errors. Code them before treating the list above as complete.
 
-`test/error-code-ratchet.test.ts` counts the plain `Error`, `RangeError` and `TypeError` constructions left in `src/` and fails if one is added.
+`test/error-code-baseline.test.ts` counts the plain `Error`, `RangeError` and `TypeError` constructions in each `src/` file. It fails when a count grows.
 
 - A QoS 1 publish whose signal cannot be observed rejects with a plain `Error`.
 - A non-Error value thrown by an `onQosOneMessage` handler ends the session with a plain `Error`.

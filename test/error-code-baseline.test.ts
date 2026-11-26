@@ -1,8 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { expect, test } from 'vitest';
 
-// Plain Error, RangeError and TypeError constructions left in src/ per file. Lower an entry when an error gains an
-// MqttError code; the test fails if a count grows or a new file adds one. docs/errors.md lists what each group is.
+// Plain Error, RangeError and TypeError constructions in each src/ file. Lower an entry when one of them becomes an
+// MqttError. docs/errors.md lists what the remaining ones are.
 const uncoded: Readonly<Record<string, number>> = {
   'browserClient.ts': 1,
   'inboundPackets.ts': 1,

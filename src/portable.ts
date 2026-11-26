@@ -590,14 +590,14 @@ function invalidArgument(message: string): MqttError {
   return new MqttError('ERR_MQTT_INVALID_ARGUMENT', message, { fatal: false });
 }
 
-// A non-fatal rejection, such as one an onQosOneMessage handler rethrows, keeps its code but reports the session end.
+// An onQosOneMessage handler can rethrow a non-fatal rejection. The session still ends, so its failure must say fatal.
 function endingError(error: Readonly<Error>): Readonly<Error> {
   if (!(error instanceof MqttError) || error.fatal) return error;
   const { code, message, reasonCode, reasonString, userProperties } = error;
   return new MqttError(code, message, { fatal: true, reasonCode, reasonString, userProperties, cause: error });
 }
 
-// A transport rejected with a value that is not an Error.
+// Wraps a value that is not an Error when a transport rejects with it.
 function transportFailure(message: string): MqttError {
   return new MqttError('ERR_MQTT_TRANSPORT', message, { fatal: true });
 }
