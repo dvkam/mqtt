@@ -76,7 +76,7 @@ jobs:
           npm install --prefix "$consumer" --engine-strict --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/mqtt-artifact/*.tgz "@types/node@$(node -p "require('./package.json').devDependencies['@types/node']")"
           (cd "$consumer" && node tcp-only-check.mjs) | tee -a "$GITHUB_STEP_SUMMARY"
           (cd "$consumer" && node server-keep-alive.mjs) | tee -a "$GITHUB_STEP_SUMMARY"
-          npm install --prefix "$consumer" --ignore-scripts --no-audit --no-fund "ws@$(node -p "require('./package.json').devDependencies.ws")"
+          npm install --prefix "$consumer" --engine-strict --ignore-scripts --no-audit --no-fund "ws@$(node -p "require('./package.json').devDependencies.ws")"
           pnpm exec tsc -p "$consumer/tsconfig.json"
           (cd "$consumer" && node --input-type=module -e 'import * as root from "mqtt"; import { createWebSocketClient } from "mqtt/ws"; if (typeof createWebSocketClient !== "function" || "connect" in root) process.exit(1);')
       - name: Run the MQTT 5 echo against Mosquitto
