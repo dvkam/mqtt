@@ -93,15 +93,16 @@ try {
   assert.equal(connected.generation, 2);
   assert.equal(connected.resumed, true);
   assert.deepEqual(connected.subscriptions, []);
-  await waitFor(() => received.length === 2);
-  assert.deepEqual(
-    received.map(({ payload }) => payload),
-    ['before', 'while away'],
-  );
+  /** @param {string} payload */
+  const arrived = (payload) => received.some((message) => message.payload === payload);
+  await waitFor(() => arrived('while away'));
+  // The drop can lose the PUBACK for 'before', and the broker then sends it again with DUP set, as QoS 1 allows.
+  const [original, ...later] = received;
+  assert.deepEqual(original, { payload: 'before', dup: false });
+  for (const message of later) assert.ok(message.payload === 'while away' || (message.payload === 'before' && message.dup));
 
   await second.publish(`${topic}/3`, 'resumed', { qos: 1 });
-  await waitFor(() => received.length === 3);
-  assert.equal(received[2]?.payload, 'resumed');
+  await waitFor(() => arrived('resumed'));
 } finally {
   await client.disconnect().catch(() => {});
   await publisher.disconnect();
