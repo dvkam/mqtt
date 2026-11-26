@@ -59,22 +59,28 @@ export class PublicationAdmission {
     return this.limits.maxPendingPublishBytes;
   }
 
+  /** The largest packet the client may send: the broker's Maximum Packet Size, or the largest packet MQTT can frame. */
+  get packetLimit(): number {
+    return this.maximumPacketSize;
+  }
+
   limitPacketSize(maximumPacketSize: number): void {
     this.maximumPacketSize = Math.min(maximumPacketSize, maxMqttPacketBytes);
   }
 
-  /** `propertyBytes` is the encoded property section with its length. An empty section is one byte. */
+  /**
+   * `propertyBytes` is the encoded property section with its length. An empty section is one byte. A publication larger
+   * than the packet limit rejects before the slot and byte checks, because no later retry can send it.
+   */
   reserve(topic: string, payloadBytes: number, propertyBytes: number, qos: 0 | 1 = 0): () => void {
-    const available = this.limits.maxPendingPublishBytes - this.bytes;
-    if (this.items >= this.limits.maxPendingPublishes)
-      throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT publication capacity exceeded');
     const identifierBytes = qos === 1 ? 2 : 0;
-    const remaining = 2 + utf8Length(topic, available) + identifierBytes + propertyBytes + payloadBytes;
+    const remaining = 2 + utf8Length(topic, this.maximumPacketSize) + identifierBytes + propertyBytes + payloadBytes;
     let lengthBytes = 1;
     for (let value = remaining; value >= 128; value = Math.floor(value / 128)) lengthBytes++;
     const size = 1 + lengthBytes + remaining;
     if (size > this.maximumPacketSize) throw oversizedPacket();
-    if (size > available) throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT publication capacity exceeded');
+    if (this.items >= this.limits.maxPendingPublishes || size > this.limits.maxPendingPublishBytes - this.bytes)
+      throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT publication capacity exceeded');
     this.items++;
     this.bytes += size;
     let released = false;

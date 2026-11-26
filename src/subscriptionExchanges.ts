@@ -3,6 +3,7 @@ import { PacketIdentifiers, type IdentifierLease } from './packetIdentifiers.js'
 import { MqttError } from './mqttError.js';
 import { maxMqttPacketBytes, oversizedPacket } from './publicationAdmission.js';
 import { copyUserProperties } from './userProperties.js';
+import { utf8Length } from './util/utf8.js';
 import type { UserProperty } from './wireProperties.js';
 
 export interface SubscriptionLimits {
@@ -59,21 +60,15 @@ export class SubscriptionExchanges {
 
   reserve(topic: string, kind: SubscriptionAckKind = 'suback', requestedQos: 0 | 1 = 0) {
     if (this.failure) throw this.failure;
-    const available = this.limits.maxPendingSubscriptionBytes - this.bytes;
-    if (this.entries.size >= this.limits.maxPendingSubscriptions)
-      throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT subscription capacity exceeded');
-    // Validation has already established valid Unicode and the MQTT string limit.
-    let remaining = kind === 'suback' ? 6 : 5;
-    for (const character of topic) {
-      const code = character.codePointAt(0)!;
-      remaining += code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4;
-      if (remaining > available) throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT subscription capacity exceeded');
-    }
+    // Validation has already established valid Unicode and the MQTT string limit of 65,535 bytes.
+    const remaining = (kind === 'suback' ? 6 : 5) + utf8Length(topic);
     let lengthBytes = 1;
     for (let value = remaining; value >= 128; value = Math.floor(value / 128)) lengthBytes++;
     const bytes = 1 + lengthBytes + remaining;
+    // A packet over the limit can never be sent, so it rejects before the checks that a later retry can pass.
     if (bytes > this.maximumPacketSize) throw oversizedPacket();
-    if (bytes > available) throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT subscription capacity exceeded');
+    if (this.entries.size >= this.limits.maxPendingSubscriptions || bytes > this.limits.maxPendingSubscriptionBytes - this.bytes)
+      throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT subscription capacity exceeded');
     const identifier = this.identifiers.reserve();
     const { messageId } = identifier;
     let resolve!: Entry['resolve'];

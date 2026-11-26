@@ -73,7 +73,7 @@ Consequences: a string with an unpaired surrogate, an invalid property and `reta
 
 What follows: the client does not yet check a PUBLISH against the broker's Maximum Packet Size from CONNACK.
 
-Update, 26 November 2026: the pull request for `fix/maximum-packet-size` checks each PUBLISH, SUBSCRIBE and UNSUBSCRIBE against the broker's Maximum Packet Size. A larger packet rejects with `ERR_MQTT_CAPACITY` and `fatal: false` before admission. [Outgoing admission](outgoing-admission.md#maximum-packet-size)
+Update, 26 November 2026: the pull request for `fix/maximum-packet-size` checks each PUBLISH, SUBSCRIBE and UNSUBSCRIBE against the broker's Maximum Packet Size. A larger packet rejects with `ERR_MQTT_CAPACITY` and `fatal: false` before the publication or subscription takes a slot, and before anything is written. [Outgoing admission](outgoing-admission.md#maximum-packet-size)
 
 ## Every client accepts a text or byte password
 
