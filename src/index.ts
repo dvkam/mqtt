@@ -25,8 +25,18 @@ export type {
   SessionEndObserver,
   SubscribeOptions,
   SubscribeResult,
+  UncertainPublication,
   UnsubscribeResult,
 } from './session.js';
+export { createReconnectingClient } from './reconnect.js';
+export type {
+  Reconnectable,
+  ReconnectEvent,
+  ReconnectingClient,
+  ReconnectOptions,
+  SubscriptionIntent,
+  SubscriptionRestore,
+} from './reconnect.js';
 export type { NodeMessage, NodeQosOneMessage } from './nodeMessage.js';
 export type { MessageProperties } from './messageProperties.js';
 export type { UserProperty } from './codec.js';

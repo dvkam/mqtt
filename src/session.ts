@@ -1,5 +1,25 @@
 import type { PublishProperties } from './publication.js';
-export type SessionEnd = Readonly<{ kind: 'disconnect' }> | Readonly<{ kind: 'error'; error: Readonly<Error> }>;
+/**
+ * A QoS 1 publication the session had written when it ended before its publish promise settled. The publish promise
+ * rejected with the session's error, and the client does not send the publication again. Unless `acknowledged` is true,
+ * the broker may or may not have it.
+ */
+export interface UncertainPublication {
+  /** The topic it was published to. */
+  readonly topic: string;
+  /** The Packet Identifier it was sent with. */
+  readonly messageId: number;
+  /**
+   * True when the broker accepted it with a PUBACK reason below 0x80 before the write settled. False when no PUBACK
+   * arrived, or when the PUBACK refused it.
+   */
+  readonly acknowledged: boolean;
+}
+
+/** Why a session ended. `uncertain` lists the QoS 1 publications in flight, and is absent when there were none. */
+export type SessionEnd =
+  | Readonly<{ kind: 'disconnect' }>
+  | Readonly<{ kind: 'error'; error: Readonly<Error>; uncertain?: readonly UncertainPublication[] }>;
 
 export type SessionEndObserver = (event: SessionEnd) => void | Promise<void>;
 

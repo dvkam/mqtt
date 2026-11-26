@@ -1,4 +1,5 @@
 import { decodeFramedPacket, isClientOnlyCommand, type FramedPacket } from './wireCodec.ts';
+import { ReceiveLimitError } from './mqttError.ts';
 import { brokerPacketDirectionError, ProtocolInputError } from './protocolInputError.ts';
 
 export const DEFAULT_MAX_PACKET_BYTES = 1024 * 1024;
@@ -123,7 +124,7 @@ export class PacketFramer {
           multiplier *= 128;
         }
         const size = 1 + this.lengthBytes.length + remainingLength;
-        if (size > this.maxPacketBytes) throw new RangeError('MQTT packet allocation limit exceeded');
+        if (size > this.maxPacketBytes) throw new ReceiveLimitError('MQTT packet allocation limit exceeded');
         const region = this.allocate(size - 1);
         // The allocator is caller code and can stop the framer.
         this.assertOpen();

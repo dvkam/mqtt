@@ -9,7 +9,7 @@ import type { SubscriptionLimits } from './subscriptionExchanges.js';
 import { createByteClient } from './transportCore.js';
 import { openMqttWebSocket } from './websocket.js';
 import { resolveWebSocketMessageLimit } from './websocketLimits.js';
-import { MqttError } from './mqttError.js';
+import { MqttError, ReceiveLimitError } from './mqttError.js';
 import type { WillOptions } from './will.js';
 
 export type BrowserMessage = PublishMessage;
@@ -70,7 +70,7 @@ async function openBrowserSocket(options: BrowserClientOptions, inbound: ByteInb
       return;
     }
     if (event.data.byteLength > maxWebSocketMessageBytes) {
-      inbound.fail(new RangeError('WebSocket receive message limit exceeded'));
+      inbound.fail(new ReceiveLimitError('WebSocket receive message limit exceeded'));
       return;
     }
     inbound.bytes(new Uint8Array(event.data));

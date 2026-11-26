@@ -75,4 +75,4 @@ Browser TLS trust, client certificates and proxy settings belong to the browser.
 
 The packed Vite SSR check covers import and factory construction with WebSocket, window, document and navigator absent. It exercises Vite's default externalized dependency and ssr.noExternal with mqtt bundled. Import and construction start no connection. Create a factory per application session and call connect from the application's client startup hook. Server rendering, hydration, framework lifecycle and server-side connection policy need their own application handling. This check does not claim those behaviors.
 
-QoS 2, reconnect, a public Web Streams facade and wider browser verification remain in #8 and #37. The bounded consumption experiment and its remaining lifecycle work are documented in docs/message-stream-comparison.md and #54.
+Page lifecycle handling for [reconnecting](reconnect.md) is tracked in #32. QoS 2, a public Web Streams facade and wider browser verification remain in #8 and #37. The bounded consumption experiment and its remaining lifecycle work are documented in docs/message-stream-comparison.md and #54.

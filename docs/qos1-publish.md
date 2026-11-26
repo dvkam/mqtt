@@ -34,7 +34,7 @@ Cancellation removes a queued request and returns its budget. After dispatch it 
 
 If a built-in transport refuses a QoS 1 publication at its native write budget before submitting it, the call rejects with the budget error, returns its quota, ID and publication capacity, and leaves the session usable. Other send errors retire the session because the amount that reached the peer is unknown. A connection failure or timeout rejects pending callers. The actual send can continue to hold its byte reservation until it settles. Disconnect stops queued dispatch before starting its DISCONNECT write and retires unfinished exchanges on closure.
 
-The current profile opens clean sessions. The QoS 1 promise covers the broker acknowledgment for the current connection. [Inbound QoS 1](qos1-receive.md) has a separate receive window. Reconnect ownership is tracked in #12.
+The current profile opens clean sessions. The QoS 1 promise covers the broker acknowledgment for the current connection. [Inbound QoS 1](qos1-receive.md) has a separate receive window. After a session ends, a [reconnecting client](reconnect.md) lists the QoS 1 publications that were in flight in its next `connected` event, even after failed attempts, and does not send them again. A publication counts as acknowledged there only when its PUBACK reason was below 0x80.
 
 ## Verification
 

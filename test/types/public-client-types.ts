@@ -1,4 +1,4 @@
-import { createTcpClient } from '../../dist/index.js';
+import { createReconnectingClient, createTcpClient, type ReconnectEvent } from '../../dist/index.js';
 import { createWebSocketClient, type WebSocketClientOptions } from '../../dist/ws.js';
 import type {
   ClientFactory,
@@ -7,6 +7,7 @@ import type {
   PublishProperties,
   NodeMessage,
   NodeQosOneMessage,
+  SessionEnd,
   TcpClientOptions,
   UserProperty,
 } from '../../dist/index.js';
@@ -112,3 +113,19 @@ export async function publishWithProperties(session: Readonly<ClientSession>, si
     signal,
   });
 }
+
+export const reconnectingTcp = createReconnectingClient(
+  createTcpClient,
+  { host: 'localhost', clientId: 'reconnecting' },
+  { subscriptions: [{ topic: 'sensor/+', qos: 0 }], maxAttempts: 5 },
+);
+export const reconnectingWebSocket = createReconnectingClient(createWebSocketClient, {
+  url: 'ws://localhost:8080',
+  clientId: 'reconnecting',
+});
+export type ReconnectSessionIsClientSession = RequireTrue<
+  Awaited<ReturnType<typeof reconnectingTcp.session>> extends ClientSession ? true : false
+>;
+export type ConnectedEventNamesThePreviousEnd = RequireTrue<
+  Extract<ReconnectEvent, { kind: 'connected' }>['previous'] extends SessionEnd | undefined ? true : false
+>;

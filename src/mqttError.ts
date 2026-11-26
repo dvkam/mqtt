@@ -61,7 +61,13 @@ export function isMqttError<Code extends MqttErrorCode = MqttErrorCode>(
   return error instanceof MqttError && (code === undefined || error.code === code);
 }
 
-// The package entries export MqttError and isMqttError only. The two helpers below are internal.
+// The package entries export MqttError and isMqttError only. The class and helpers below are internal.
+
+/**
+ * Broker input over a receive limit, such as a packet over `maxPacketBytes`. It stays a RangeError for callers, and the
+ * reconnecting client retries on it while it stops on the RangeError of an invalid option.
+ */
+export class ReceiveLimitError extends RangeError {}
 
 /** `reason` when it is an Error. Otherwise an ERR_MQTT_TRANSPORT error that keeps the value as its cause. */
 export function transportFailure(reason: unknown, message: string): Error {
