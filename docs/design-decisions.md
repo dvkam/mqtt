@@ -19,13 +19,13 @@ Question: how does a reconnecting client in a browser notice a stale connection,
 
 | Option | Trade-off |
 | --- | --- |
-| `watchPageLifecycle(client, options)` in `mqtt/browser`, which pings on return and calls a new `retryNow()` (chosen) | The clients listen for no page event, and a bundle without the import does not grow. `ReconnectingClient` gains one method. A stale session ends only at its ping deadline. |
+| `watchPageLifecycle(client, options)` in `mqtt/browser`, which pings on return and calls a new `retryNow()` (chosen) | The clients listen for no page event, and a bundle without the import does not grow. `ReconnectingClient` gains one method. A stale session ends only at its ping deadline, and a session that answers slower than `timeoutMs` ends too. |
 | The reconnecting client listens for page events itself | No extra import, but every browser bundle and every Node process carries browser event code. |
-| The application aborts the client's `signal` on hide and builds a new client on return | No API change, but each return opens a new client, and the subscriptions and uncertain publications of the old one are reported elsewhere. |
+| The application aborts the client's `signal` on hide and builds a new client on return | No API change, but each return builds a new client, so the old client's uncertain publications never reach a connected event. |
 
 Reason given by the pull request author: #32 asks to keep page and navigation events in the playground or an optional browser adapter. A ping is the only check that works without knowing how long the device slept, because `performance.now()` can leave sleep out.
 
-Consequences: `retryNow()` counts its attempt toward `maxAttempts` and does nothing unless the client waits for its timer. The adapter reports each return to `onReturn` with the elapsed monotonic time. [Page lifecycle](page-lifecycle.md) lists what was checked in Chromium and the gaps.
+Consequences: `retryNow()` counts its attempt toward `maxAttempts` and does nothing unless the client waits for its timer. The adapter reports each return to `onReturn` with the elapsed monotonic time. `checkAfterMs`, 0 by default, lets an application skip the check after a short absence. The ping cannot have its own deadline, because only the session can end itself and its deadline is `timeoutMs`. [Page lifecycle](page-lifecycle.md) lists what was checked in Chromium and the gaps.
 
 What follows: Firefox and WebKit lifecycle tests, and the playground panel in #191.
 
