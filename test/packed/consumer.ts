@@ -63,7 +63,6 @@ export async function checkDeclarations(transport: Readonly<ByteTransport>) {
   const connection: ConnectionInfo = portable.connection;
   const subscribed: SubscribeResult = await portable.subscribe('consumer/test');
   const unsubscribed: UnsubscribeResult = await portable.unsubscribe('consumer/test');
-  void [connection, subscribed.grantedQos, unsubscribed.reasonCode];
   await portable.publish('consumer/test', 'hello');
   // @ts-expect-error The client accepts string payloads.
   await portable.publish('consumer/test', 42);
@@ -71,6 +70,7 @@ export async function checkDeclarations(transport: Readonly<ByteTransport>) {
   await portable.disconnect(options);
   // @ts-expect-error The client only sends normal disconnection or disconnection with Will.
   await portable.disconnect({ reasonCode: 1 });
+  return { connection, grantedQos: subscribed.grantedQos, reasonCode: unsubscribed.reasonCode };
 }
 
 export function checkWillOptionTypes() {
