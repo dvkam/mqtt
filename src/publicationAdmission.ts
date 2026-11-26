@@ -28,7 +28,8 @@ export function oversizedPacket(): MqttError {
 
 /**
  * The size of a PUBLISH: the first header byte, the Remaining Length, the topic with its length, the Packet Identifier
- * at QoS 1, the property section and the payload. Counting stops once the topic passes `limit`.
+ * at QoS 1, the property section and the payload. `PublicationAdmission.reserve` counts the same bytes inline, so the
+ * publish path makes no extra call. Counting stops once the topic passes `limit`.
  */
 export function publishSize(
   topic: string,
@@ -67,7 +68,11 @@ export class PublicationAdmission {
     const available = this.limits.maxPendingPublishBytes - this.bytes;
     if (this.items >= this.limits.maxPendingPublishes)
       throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT publication capacity exceeded');
-    const size = publishSize(topic, payloadBytes, propertyBytes, qos, available);
+    const identifierBytes = qos === 1 ? 2 : 0;
+    const remaining = 2 + utf8Length(topic, available) + identifierBytes + propertyBytes + payloadBytes;
+    let lengthBytes = 1;
+    for (let value = remaining; value >= 128; value = Math.floor(value / 128)) lengthBytes++;
+    const size = 1 + lengthBytes + remaining;
     if (size > this.maximumPacketSize) throw oversizedPacket();
     if (size > available) throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT publication capacity exceeded');
     this.items++;
