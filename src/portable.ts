@@ -515,14 +515,12 @@ class PortableClient<Bytes extends Uint8Array> {
       await this.outbound.enqueue(publication, release, signal);
       return;
     }
-    if (this.resendPhase !== undefined) {
-      await this.afterResends(
+    if (this.resendPhase !== undefined)
+      return this.afterResends(
         // oxlint-disable-next-line typescript/promise-function-async -- Forward the native send promise directly to the write deadline owner.
         () => this.sendPacket(publishPacket(publication)),
         release,
       );
-      return;
-    }
     await this.qosZeroWrites.run(
       // oxlint-disable-next-line typescript/promise-function-async -- Forward the native send promise directly to the write deadline owner.
       () => this.sendPacket(publishPacket(publication)),
