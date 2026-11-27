@@ -1,8 +1,8 @@
 import type { PublishProperties } from './publication.js';
 /**
  * A QoS 1 publication the session had written when it ended before its publish promise settled. The publish promise
- * rejected with the session's error, and the client does not send the publication again. Unless `acknowledged` is true,
- * the broker may or may not have it.
+ * rejected with the session's error. Unless `acknowledged` is true, the broker may or may not have it. The client sends it
+ * again only when a later connection with the same session state resumes the session.
  */
 export interface UncertainPublication {
   /** The topic it was published to. */
@@ -69,24 +69,49 @@ export interface ClientFactory {
 }
 import type { UserProperty } from './wireProperties.js';
 
+/** The frozen snapshot of a successful CONNACK, with MQTT defaults for the properties the broker left out. */
 export interface ConnectionInfo {
+  /** The client identifier of the connection: the Assigned Client Identifier when CONNECT sent an empty one. */
   readonly clientId: string;
+  /**
+   * The CONNACK Session Present flag. True only after CONNECT sent Clean Start false and the broker resumed the session it
+   * kept for the client identifier.
+   */
   readonly sessionPresent: boolean;
+  /**
+   * The Session Expiry Interval in effect, in seconds: the value the broker sent in CONNACK, or else the value CONNECT
+   * sent, or else 0. With 0 the broker ends the session when the connection closes.
+   */
+  readonly sessionExpiryInterval: number;
+  /** How many QoS 1 publications may wait for PUBACK at once. 65,535 when the broker sent none. */
   readonly receiveMaximum: number;
+  /** The highest QoS the broker accepts. 2 when the broker sent none. With 0, a QoS 1 publish rejects. */
   readonly maximumQos: 0 | 1 | 2;
   /**
    * The Maximum Packet Size the broker sent, in bytes. Absent when the broker set none. The client rejects a PUBLISH,
    * SUBSCRIBE or UNSUBSCRIBE larger than it with `ERR_MQTT_CAPACITY` before writing it.
    */
   readonly maximumPacketSize?: number;
+  /** Whether the broker accepts retained messages. True when the broker sent no Retain Available. */
   readonly retainAvailable: boolean;
+  /**
+   * The Server Keep Alive in seconds, 0 when absent. When above 0, the client sends PINGREQ after that long without a
+   * write.
+   */
   readonly serverKeepAlive: number;
+  /** The highest Topic Alias the broker accepts from the client, 0 when absent. The client sends no Topic Alias. */
   readonly topicAliasMaximum: number;
+  /** Whether the broker accepts wildcard filters. True when absent. */
   readonly wildcardSubscriptionAvailable: boolean;
+  /** Whether the broker accepts Subscription Identifiers. True when absent. */
   readonly subscriptionIdentifiersAvailable: boolean;
+  /** Whether the broker accepts `$share/` filters. True when absent. */
   readonly sharedSubscriptionAvailable: boolean;
+  /** The Response Information the broker sent. */
   readonly responseInformation?: string;
+  /** The Server Reference the broker sent. The client does not follow it. */
   readonly serverReference?: string;
+  /** The User Properties the broker sent, frozen, in wire order. */
   readonly userProperties?: readonly UserProperty[];
 }
 

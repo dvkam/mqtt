@@ -19,6 +19,9 @@ export type {
   UnsubscribeResult,
 } from './session.js';
 export { createReconnectingClient } from './reconnect.js';
+export { createSessionState } from './sessionState.js';
+export type { SessionState } from './sessionState.js';
+export type { SessionOptions } from './transportCore.js';
 export type {
   Reconnectable,
   ReconnectEvent,

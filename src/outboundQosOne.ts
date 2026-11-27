@@ -13,6 +13,8 @@ interface Publication<Item> {
 interface Exchange<Item> {
   readonly publication: Publication<Item>;
   readonly identifier: IdentifierLease;
+  /** Whether a resumed session sends the publication again with DUP set. */
+  readonly resent: boolean;
   readonly acknowledge: (code: number) => void;
   readonly rejectAck: (reason: Readonly<Error>) => void;
   acknowledgmentCode: number | undefined;
@@ -21,6 +23,18 @@ interface Exchange<Item> {
 const noneInFlight: readonly never[] = [];
 
 type Transmit<Item> = (outgoing: Item, messageId: number, acknowledgment: Readonly<Promise<number>>) => Promise<number>;
+
+function ignore(): void {}
+
+/** A publication of an earlier connection that a resumed session sends again. No caller waits for it. */
+function resentPublication<Item>(outgoing: Item): Publication<Item> {
+  return { outgoing, releaseBudget: ignore, detach: ignore, cancelIfAborted: () => false, resolve: ignore, reject: ignore };
+}
+
+interface Resend<Item> {
+  readonly publication: Publication<Item>;
+  readonly identifier: IdentifierLease;
+}
 
 function reportAcknowledgment<Item>(publication: Readonly<Publication<Item>>, code: number): void {
   if (code >= 128)
@@ -31,18 +45,34 @@ function reportAcknowledgment<Item>(publication: Readonly<Publication<Item>>, co
 /** Ordered QoS 1 exchanges. `Item` is the publication the session hands to `transmit`; the queue never reads it. */
 export class OutboundQosOne<Item> {
   private readonly queued = new Set<Publication<Item>>();
+  private readonly resends: Resend<Item>[] = [];
+  // Whether queued publications wait for `release`, because resends are not all written yet.
+  private holding = false;
   private readonly active = new Map<number, Exchange<Item>>();
   private readonly quota: number;
   private readonly identifiers: Readonly<Pick<PacketIdentifiers, 'reserve'>>;
   private readonly transmit: Transmit<Item>;
+  private readonly dispatched: ((outgoing: Item, messageId: number) => void) | undefined;
+  private retransmit: Transmit<Item>;
   private stopped?: Readonly<Error>;
   private activeSettled?: () => void;
   private draining = false;
 
-  constructor(quota: number, identifiers: Readonly<Pick<PacketIdentifiers, 'reserve'>>, transmit: Transmit<Item>) {
+  /**
+   * `dispatched` learns the Packet Identifier of each new exchange before `transmit` writes it. When it throws, the
+   * publication rejects with that error and its identifier returns.
+   */
+  constructor(
+    quota: number,
+    identifiers: Readonly<Pick<PacketIdentifiers, 'reserve'>>,
+    transmit: Transmit<Item>,
+    dispatched?: (outgoing: Item, messageId: number) => void,
+  ) {
     this.quota = quota;
     this.identifiers = identifiers;
     this.transmit = transmit;
+    this.retransmit = transmit;
+    this.dispatched = dispatched;
   }
 
   async enqueue(outgoing: Item, releaseBudget: () => void, signal?: Readonly<AbortSignal>): Promise<void> {
@@ -86,18 +116,38 @@ export class OutboundQosOne<Item> {
     });
   }
 
-  accept(messageId: number, code: number): void {
+  /**
+   * Send the publications of an earlier connection again with `retransmit`, in the order given. Each keeps the Packet
+   * Identifier lease the caller claimed for it. Queued publications stay queued, and so cancelable, until `release`.
+   */
+  resume(entries: readonly (readonly [Item, IdentifierLease])[], retransmit: Transmit<Item>): void {
+    this.retransmit = retransmit;
+    this.holding = true;
+    for (const [outgoing, identifier] of entries) this.resends.push({ publication: resentPublication(outgoing), identifier });
+    this.drain();
+  }
+
+  /** Dispatch the queued publications that `resume` held back. */
+  release(): void {
+    this.holding = false;
+    this.drain();
+  }
+
+  /** Returns `resent` or `sent` when the PUBACK matches an active exchange, and undefined otherwise. */
+  accept(messageId: number, code: number): 'resent' | 'sent' | undefined {
     const exchange = this.active.get(messageId);
-    if (exchange === undefined || exchange.acknowledgmentCode !== undefined) return;
+    if (exchange === undefined || exchange.acknowledgmentCode !== undefined) return undefined;
     exchange.acknowledgmentCode = code;
     exchange.acknowledge(code);
+    return exchange.resent ? 'resent' : 'sent';
   }
 
   get hasActive(): boolean {
     return this.active.size > 0;
   }
 
-  stop(reason: Readonly<Error>): void {
+  /** Rejects the queued publications and drops the resends that have not started. Returns how many resends it dropped. */
+  stop(reason: Readonly<Error>): number {
     this.stopped ??= reason;
     for (const publication of this.queued) {
       publication.detach();
@@ -105,6 +155,10 @@ export class OutboundQosOne<Item> {
       publication.reject(this.stopped);
     }
     this.queued.clear();
+    const dropped = this.resends.length;
+    for (const { identifier } of this.resends) identifier.release();
+    this.resends.length = 0;
+    return dropped;
   }
 
   /**
@@ -165,38 +219,54 @@ export class OutboundQosOne<Item> {
     this.draining = true;
     try {
       while (!this.stopped && this.active.size < this.quota) {
+        const resend = this.resends.length === 0 ? undefined : this.resends.shift();
+        if (resend !== undefined) {
+          this.start(resend.publication, resend.identifier, true);
+          continue;
+        }
+        if (this.holding) break;
         const publication = this.queued.values().next().value;
         if (publication === undefined) break;
         if (publication.cancelIfAborted()) continue;
         this.queued.delete(publication);
-        let identifier: IdentifierLease;
+        let identifier: IdentifierLease | undefined;
         try {
           identifier = this.identifiers.reserve();
+          this.dispatched?.(publication.outgoing, identifier.messageId);
         } catch (reason) {
+          identifier?.release();
           publication.detach();
           publication.releaseBudget();
           publication.reject(reason);
           continue;
         }
-        let acknowledge!: Exchange<Item>['acknowledge'];
-        let rejectAck!: Exchange<Item>['rejectAck'];
-        const acknowledgment = new Promise<number>((resolve, reject) => {
-          acknowledge = resolve;
-          rejectAck = reject;
-        });
-        const exchange: Exchange<Item> = { publication, identifier, acknowledge, rejectAck, acknowledgmentCode: undefined };
-        this.active.set(identifier.messageId, exchange);
-        void this.complete(exchange, acknowledgment);
+        this.start(publication, identifier, false);
       }
     } finally {
       this.draining = false;
     }
   }
 
+  private start(publication: Publication<Item>, identifier: IdentifierLease, resent: boolean): void {
+    let acknowledge!: Exchange<Item>['acknowledge'];
+    let rejectAck!: Exchange<Item>['rejectAck'];
+    const acknowledgment = new Promise<number>((resolve, reject) => {
+      acknowledge = resolve;
+      rejectAck = reject;
+    });
+    const exchange: Exchange<Item> = { publication, identifier, resent, acknowledge, rejectAck, acknowledgmentCode: undefined };
+    this.active.set(identifier.messageId, exchange);
+    void this.complete(exchange, acknowledgment);
+  }
+
   private async complete(exchange: Readonly<Exchange<Item>>, acknowledgment: Readonly<Promise<number>>): Promise<void> {
     const { publication, identifier } = exchange;
     try {
-      const code = await this.transmit(publication.outgoing, identifier.messageId, acknowledgment);
+      const code = await (exchange.resent ? this.retransmit : this.transmit)(
+        publication.outgoing,
+        identifier.messageId,
+        acknowledgment,
+      );
       reportAcknowledgment(publication, code);
     } catch (reason) {
       publication.reject(reason);

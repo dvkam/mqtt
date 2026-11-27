@@ -1,4 +1,4 @@
-import { createReconnectingClient, createTcpClient, type ReconnectEvent } from '../../dist/index.js';
+import { createReconnectingClient, createSessionState, createTcpClient, type ReconnectEvent } from '../../dist/index.js';
 import { createWebSocketClient, type WebSocketClientOptions } from '../../dist/ws.js';
 import type {
   ClientFactory,
@@ -8,6 +8,7 @@ import type {
   NodeMessage,
   NodeQosOneMessage,
   SessionEnd,
+  SessionState,
   TcpClientOptions,
   UserProperty,
 } from '../../dist/index.js';
@@ -128,4 +129,29 @@ export type ReconnectSessionIsClientSession = RequireTrue<
 >;
 export type ConnectedEventNamesThePreviousEnd = RequireTrue<
   Extract<ReconnectEvent, { kind: 'connected' }>['previous'] extends SessionEnd | undefined ? true : false
+>;
+
+export const resumingTcp = createReconnectingClient(
+  createTcpClient,
+  { host: 'localhost', clientId: 'resuming', sessionExpiryInterval: 3600 },
+  { subscriptions: [{ topic: 'sensor/+', qos: 0 }], resume: true },
+);
+export const resumedTcp = createTcpClient({
+  host: 'localhost',
+  clientId: 'resumed',
+  cleanStart: false,
+  sessionExpiryInterval: 3600,
+  sessionState: createSessionState(),
+});
+export type SessionStateIsBranded = RequireFalse<
+  { readonly inFlight: readonly { topic: string; messageId: number; acknowledged: boolean }[] } extends SessionState ? true : false
+>;
+export type SessionStateListsUncertainPublications = RequireTrue<
+  SessionState['inFlight'] extends readonly { readonly topic: string; readonly messageId: number }[] ? true : false
+>;
+export type ConnectedEventReportsResumption = RequireTrue<
+  Extract<ReconnectEvent, { kind: 'connected' }>['resumed'] extends boolean ? true : false
+>;
+export type PubackEventCarriesTheReasonCode = RequireTrue<
+  Extract<ReconnectEvent, { kind: 'puback' }>['reasonCode'] extends number ? true : false
 >;

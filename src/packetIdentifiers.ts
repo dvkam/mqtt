@@ -15,8 +15,16 @@ export class PacketIdentifiers {
     do {
       messageId = messageId === 65_535 ? 1 : messageId + 1;
     } while (this.occupied.has(messageId));
-    this.occupied.add(messageId);
     this.cursor = messageId;
+    return this.claim(messageId);
+  }
+
+  /**
+   * Lease `messageId`, which must be free. `reserve` leases the identifier it picks this way, and a resumed session
+   * leases the identifier of each stored publication.
+   */
+  claim(messageId: number): IdentifierLease {
+    this.occupied.add(messageId);
     let released = false;
     return {
       messageId,

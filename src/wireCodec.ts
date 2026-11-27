@@ -39,6 +39,7 @@ export type WirePacket =
       cleanStart?: boolean;
       keepAlive?: number;
       receiveMaximum?: number;
+      sessionExpiryInterval?: number;
       username?: string;
       password?: Uint8Array;
       will?: WillMessage;
@@ -135,7 +136,18 @@ const disconnectReasons = new Set([
   0x9c, 0x9d, 0x9e, 0x9f, 0xa0, 0xa1, 0xa2,
 ]);
 const packetFields: Partial<Record<string, readonly string[]>> = {
-  connect: ['cmd', 'clientId', 'cleanStart', 'keepAlive', 'receiveMaximum', 'username', 'password', 'userProperties', 'will'],
+  connect: [
+    'cmd',
+    'clientId',
+    'cleanStart',
+    'keepAlive',
+    'receiveMaximum',
+    'sessionExpiryInterval',
+    'username',
+    'password',
+    'userProperties',
+    'will',
+  ],
   connack: [
     'cmd',
     'sessionPresent',
@@ -368,6 +380,8 @@ function properties(
   for (const [key, value] of packet.userProperties ?? []) parts.push(Uint8Array.of(0x26), utf8(key), utf8(value));
   if ((packet.cmd === 'connect' || packet.cmd === 'connack') && packet.receiveMaximum !== undefined)
     parts.push(Uint8Array.of(0x21), uint16(integer(packet.receiveMaximum, 65_535, 1)));
+  if (packet.cmd === 'connect' && packet.sessionExpiryInterval !== undefined)
+    parts.push(Uint8Array.of(0x11), uint32(packet.sessionExpiryInterval));
   if (packet.cmd === 'connack') {
     if (packet.assignedClientIdentifier !== undefined) parts.push(Uint8Array.of(0x12), utf8(packet.assignedClientIdentifier));
     if (packet.maximumQoS !== undefined) parts.push(Uint8Array.of(0x24, integer(packet.maximumQoS, 1)));

@@ -22,13 +22,14 @@ import { isAbortSignal } from './util/signal.js';
 import { capturePublication, type OutgoingPublication } from './publication.js';
 import { PublicationAdmission, type PublicationLimits } from './publicationAdmission.js';
 import { SubscriptionExchanges, type SubscriptionLimits } from './subscriptionExchanges.js';
-import { PacketIdentifiers } from './packetIdentifiers.js';
+import { PacketIdentifiers, type IdentifierLease } from './packetIdentifiers.js';
 import { OutboundQosOne } from './outboundQosOne.js';
 import { QosZeroWrites } from './qosZeroWrites.js';
 import { isPubackReason } from './pubackReason.js';
 import { takeNativeBudgetFailure } from './nativeWriteBudget.js';
 import type { WillMessage } from './will.js';
 import { copyUserProperties } from './userProperties.js';
+import type { SessionBinding } from './sessionState.js';
 
 export type { ClientDiagnostic, DiagnosticObserver } from './diagnostics.js';
 export type { SessionEnd, SessionEndObserver } from './session.js';
@@ -67,6 +68,14 @@ export interface PortableOptions<Bytes extends Uint8Array = Uint8Array> extends 
   username?: string;
   password?: Uint8Array;
   will?: WillMessage;
+  /** Defaults to true. */
+  cleanStart?: boolean;
+  /** Seconds, sent as the CONNECT Session Expiry Interval when set. */
+  sessionExpiryInterval?: number;
+  /** The state that keeps in-flight QoS 1 publications across connections, claimed for this connection. */
+  session?: SessionBinding;
+  /** Releases the claim on `session`. The client calls it when the connection ends. */
+  releaseSession?: () => void;
   timeoutMs?: number;
   onDiagnostic?: DiagnosticObserver;
   onSessionEnd?: SessionEndObserver;
@@ -105,6 +114,12 @@ interface KeepAlive {
   timer?: ReturnType<typeof setTimeout>;
 }
 
+/** A QoS 0 publication that waits for the resends. */
+interface WaitingWrite {
+  readonly write: () => void;
+  readonly fail: (error: Readonly<Error>) => void;
+}
+
 class PortableClient<Bytes extends Uint8Array> {
   private readonly transport: PacketTransport<Bytes>;
   private sendPacket: PacketTransport<Bytes>['send'];
@@ -113,6 +128,15 @@ class PortableClient<Bytes extends Uint8Array> {
   private readonly options: PortableOptions<Bytes>;
   private readonly clientId: string;
   private readonly will: WillMessage | undefined;
+  private readonly cleanStart: boolean;
+  private readonly session: SessionBinding | undefined;
+  private readonly releaseSession: (() => void) | undefined;
+  private resending?: Promise<unknown>;
+  // Set while resends are unwritten: `unwritten` counts them, and `waiting` holds the QoS 0 publications that wait for
+  // them. New QoS 1 publications wait in the OutboundQosOne queue instead.
+  private resendPhase?: { readonly waiting: WaitingWrite[]; unwritten: number };
+  // Set once DISCONNECT is about to be written or the session ended. No resend or waiting write goes out after it.
+  private writesEnded?: Error;
   private pendingAck?: (packet: Acknowledgment) => void;
   private keepAlive?: KeepAlive;
   private automaticPing?: Promise<void>;
@@ -150,6 +174,9 @@ class PortableClient<Bytes extends Uint8Array> {
     this.options = options;
     this.clientId = options.clientId;
     this.will = options.will;
+    this.cleanStart = options.cleanStart ?? true;
+    this.session = options.session;
+    this.releaseSession = options.releaseSession;
     this.onQosOneMessage = options.onQosOneMessage;
     this.unlisten = transport.listen(
       packetReceiver(
@@ -200,7 +227,8 @@ class PortableClient<Bytes extends Uint8Array> {
               void this.abort(new MqttError('ERR_MQTT_PROTOCOL', 'Invalid PUBACK reason code')).catch(() => {});
               return;
             }
-            this.outbound?.accept(messageId, code);
+            const matched = this.outbound?.accept(messageId, code);
+            if (matched !== undefined) this.session?.settle(messageId, code, matched === 'resent');
           }
           if (packet.cmd === 'pingresp') this.pendingAck?.(packet);
           if (this.closing || packet.cmd !== 'publish') return;
@@ -238,7 +266,7 @@ class PortableClient<Bytes extends Uint8Array> {
       return;
     }
     this.connackReceived = true;
-    if (packet.sessionPresent) {
+    if (packet.sessionPresent && (this.cleanStart || packet.reasonCode !== 0)) {
       this.rejectProtocolInput(new ProtocolInputError('Unexpected MQTT Session Present', 0x82));
       return;
     }
@@ -285,6 +313,8 @@ class PortableClient<Bytes extends Uint8Array> {
       return;
     }
     const {
+      sessionPresent,
+      sessionExpiryInterval = this.options.sessionExpiryInterval ?? 0,
       retainAvailable = true,
       serverKeepAlive = 0,
       topicAliasMaximum = 0,
@@ -300,7 +330,8 @@ class PortableClient<Bytes extends Uint8Array> {
     if (this.failure) return;
     const connection = Object.freeze({
       clientId: assignedClientIdentifier ?? this.clientId,
-      sessionPresent: false,
+      sessionPresent,
+      sessionExpiryInterval,
       receiveMaximum,
       maximumQos: maximumQoS ?? 2,
       retainAvailable,
@@ -324,8 +355,9 @@ class PortableClient<Bytes extends Uint8Array> {
       {
         cmd: 'connect',
         clientId: this.clientId,
-        cleanStart: true,
+        cleanStart: this.cleanStart,
         keepAlive: 0,
+        ...(this.options.sessionExpiryInterval === undefined ? {} : { sessionExpiryInterval: this.options.sessionExpiryInterval }),
         username: this.options.username,
         password: this.options.password,
         ...(this.will === undefined ? {} : { will: this.will }),
@@ -349,7 +381,23 @@ class PortableClient<Bytes extends Uint8Array> {
       this.subscriptions.limitPacketSize(connection.maximumPacketSize);
     }
     if (maximumQos !== 0) {
-      this.outbound = new OutboundQosOne<OutgoingPublication>(receiveMaximum, this.identifiers, this.transmitQosOne.bind(this));
+      this.outbound = new OutboundQosOne<OutgoingPublication>(
+        receiveMaximum,
+        this.identifiers,
+        this.transmitter(false),
+        this.session?.record,
+      );
+    }
+    const resumed = this.session?.resume(connection);
+    if (resumed instanceof MqttError) {
+      await this.abort(resumed, 0);
+      throw resumed;
+    }
+    if (resumed !== undefined && resumed.size > 0 && this.outbound !== undefined) {
+      const resends: (readonly [OutgoingPublication, IdentifierLease])[] = [];
+      for (const [messageId, publication] of resumed) resends.push([publication, this.identifiers.claim(messageId)]);
+      this.resendPhase = { waiting: [], unwritten: resends.length };
+      this.outbound.resume(resends, this.transmitter(true));
     }
     this.activation = 'active';
     if (serverKeepAlive > 0) this.startKeepAlive(serverKeepAlive * 1000, connectSentAt);
@@ -470,6 +518,12 @@ class PortableClient<Bytes extends Uint8Array> {
       await this.outbound.enqueue(publication, release, signal);
       return;
     }
+    if (this.resendPhase !== undefined)
+      return this.afterResends(
+        // oxlint-disable-next-line typescript/promise-function-async -- An async wrapper would add a promise and a microtask hop per QoS 0 publish before QosZeroWrites.run in src/qosZeroWrites.ts chains on the write.
+        () => this.sendPacket(publishPacket(publication)),
+        release,
+      );
     await this.qosZeroWrites.run(
       // oxlint-disable-next-line typescript/promise-function-async -- Forward the native send promise directly to the write deadline owner.
       () => this.sendPacket(publishPacket(publication)),
@@ -477,23 +531,101 @@ class PortableClient<Bytes extends Uint8Array> {
     );
   }
 
-  private async transmitQosOne(
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- OutgoingPublication carries the caller's Uint8Array payload, which the PUBLISH must reference without a copy (src/publication.ts).
-    publication: OutgoingPublication,
-    messageId: number,
-    acknowledgment: Readonly<Promise<number>>,
-  ): Promise<number> {
-    let sent: Promise<void> | undefined;
-    try {
-      return await this.run(async () => {
-        sent = this.sendIdentified(publishPacket(publication, messageId), 'MQTT publication send failed');
-        const [code] = await Promise.all([acknowledgment, sent]);
-        return code;
-      }, 'outbound-publish');
-    } finally {
-      // Terminal failure can settle the caller before the native write releases its bytes.
-      await sent?.catch(() => {});
+  /** Write each QoS 1 PUBLISH with the DUP flag `dup` and wait for its PUBACK. */
+  private transmitter(dup: boolean) {
+    return async (
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- OutgoingPublication carries the caller's Uint8Array payload, which the PUBLISH must reference without a copy (src/publication.ts).
+      publication: OutgoingPublication,
+      messageId: number,
+      acknowledgment: Readonly<Promise<number>>,
+    ): Promise<number> => {
+      let sent: Promise<void> | undefined;
+      try {
+        return await this.run(async () => {
+          sent = dup
+            ? this.resend(publishPacket(publication, messageId, true))
+            : this.sendIdentified(publishPacket(publication, messageId), 'MQTT publication send failed');
+          const [code] = await Promise.all([acknowledgment, sent]);
+          return code;
+        }, 'outbound-publish');
+      } finally {
+        // Terminal failure can settle the caller before the native write releases its bytes.
+        await sent?.catch(() => {});
+      }
+    };
+  }
+
+  /**
+   * Write a resend once the write of the resend before it settled, so a transport whose write settles when its buffer
+   * took the bytes meets each resend with that buffer drained. The last written resend ends the resend phase.
+   */
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ClientPacket in src/wireCodec.ts carries the PUBLISH payload as a mutable Uint8Array, which sendIdentified hands to the transport by identity.
+  private async resend(packet: ClientPacket): Promise<void> {
+    const write = async () => this.sendIdentified(packet, 'MQTT publication send failed');
+    const sent =
+      this.resending === undefined
+        ? write()
+        : this.resending.then(async () => {
+            if (this.writesEnded) throw this.writesEnded;
+            await write();
+          });
+    this.resending = sent.catch(() => {});
+    await sent;
+    const phase = this.resendPhase;
+    if (phase !== undefined && --phase.unwritten === 0) this.endResendPhase();
+  }
+
+  /** Let the publications that waited for the resends go out. */
+  private endResendPhase(): void {
+    const phase = this.resendPhase;
+    if (phase === undefined) return;
+    this.resendPhase = undefined;
+    this.resending = undefined;
+    // The QoS 0 publications that waited go out first, then the queued QoS 1 publications in their call order.
+    for (const { write } of phase.waiting) write();
+    this.outbound?.release();
+  }
+
+  /**
+   * Write a QoS 0 publication once every resend was written. Its write deadline starts then. It keeps its admission
+   * reservation while it waits, so memory stays bounded, and a session end rejects it and returns the reservation.
+   */
+  private async afterResends(write: () => Promise<void>, release: () => void): Promise<void> {
+    const phase = this.resendPhase;
+    if (phase === undefined) {
+      await this.qosZeroWrites.run(write, release);
+      return;
     }
+    await new Promise<void>((resolve, reject) => {
+      phase.waiting.push({
+        write: () => {
+          this.qosZeroWrites.run(write, release).then(resolve, reject);
+        },
+        fail: (error) => {
+          release();
+          reject(error);
+        },
+      });
+    });
+  }
+
+  /**
+   * Stop every resend and waiting QoS 0 write that has not gone out, before DISCONNECT or at a session end. The stored
+   * publications stay stored for a later resume.
+   */
+  private endWrites(error: Readonly<Error>): void {
+    this.writesEnded ??= error;
+    const phase = this.resendPhase;
+    this.resendPhase = undefined;
+    for (const { fail } of phase?.waiting ?? []) fail(error);
+  }
+
+  /** `disconnect()` dropped resends that had not started, so the phase ends once the started ones are written. */
+  private dropResends(count: number): void {
+    const phase = this.resendPhase;
+    if (phase === undefined || count === 0) return;
+    phase.unwritten -= count;
+    if (phase.unwritten === 0) this.endResendPhase();
   }
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The transport accepts the original mutable packet shape.
@@ -501,10 +633,18 @@ class PortableClient<Bytes extends Uint8Array> {
     try {
       await this.sendPacket(packet);
     } catch (reason) {
-      const refusedBeforeWrite =
-        packet.cmd === 'publish' && packet.qos === 1 && takeNativeBudgetFailure(packet, reason) !== undefined;
       const failure = transportFailure(reason, fallback);
-      if (!refusedBeforeWrite) void this.abort(failure).catch(() => {});
+      if (packet.cmd !== 'publish' || packet.qos !== 1 || takeNativeBudgetFailure(packet, reason) === undefined)
+        void this.abort(failure).catch(() => {});
+      else if (packet.dup !== true) this.session?.forget(packet.messageId);
+      else {
+        const conflict = new MqttError('ERR_MQTT_SESSION_CONFLICT', 'Stored MQTT publication does not fit the write budget', {
+          reasonCode: 0,
+          cause: failure,
+        });
+        void this.abort(conflict, 0).catch(() => {});
+        throw conflict;
+      }
       throw failure;
     }
   }
@@ -597,7 +737,7 @@ class PortableClient<Bytes extends Uint8Array> {
     }
     this.drainingPublications = timeout !== undefined && this.outbound?.hasActive === true;
     if (!this.drainingPublications) this.stopKeepAlive();
-    this.outbound?.stop(closingError());
+    this.dropResends(this.outbound?.stop(closingError()) ?? 0);
     this.nextInbound = undefined;
     void Promise.resolve()
       .then(async () => this.end(timeout, reasonCode))
@@ -643,6 +783,8 @@ class PortableClient<Bytes extends Uint8Array> {
       if (drainTimeoutMs !== undefined && outbound?.hasActive === true) await outbound.waitForActive(drainTimeoutMs);
       this.drainingPublications = false;
       this.stopKeepAlive();
+      // MQTT-3.14.4-1: no packet may follow DISCONNECT.
+      this.endWrites(closingError());
       await this.run(async () =>
         this.sendPacket(reasonCode === undefined ? { cmd: 'disconnect' } : { cmd: 'disconnect', reasonCode }),
       );
@@ -723,6 +865,9 @@ class PortableClient<Bytes extends Uint8Array> {
   private fail(error: Readonly<Error>, kind: 'error' | 'disconnect' = 'error'): void {
     if (this.failure) return;
     this.failure = error;
+    this.releaseSession?.();
+    // Held QoS 1 publications stay queued until retire rejects them.
+    this.endWrites(error);
     this.drainingPublications = false;
     this.stopKeepAlive();
     this.nextInbound = undefined;
@@ -751,8 +896,12 @@ class PortableClient<Bytes extends Uint8Array> {
 }
 
 // Each PUBLISH with properties has every property key, set or undefined, so the encoder sees one object shape for them.
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- OutgoingPublication carries the caller's Uint8Array payload, which the PUBLISH must reference without a copy (src/publication.ts).
-function publishPacket({ topic, payload, retain, properties: p }: OutgoingPublication, messageId?: number): ClientPacket {
+function publishPacket(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- OutgoingPublication carries the caller's Uint8Array payload, which the PUBLISH must reference without a copy (src/publication.ts).
+  { topic, payload, retain, properties: p }: OutgoingPublication,
+  messageId?: number,
+  dup = false,
+): ClientPacket {
   if (messageId === undefined) {
     if (p === undefined) return { cmd: 'publish', topic, payload, retain };
     return {
@@ -768,14 +917,14 @@ function publishPacket({ topic, payload, retain, properties: p }: OutgoingPublic
       userProperties: p.userProperties,
     };
   }
-  if (p === undefined) return { cmd: 'publish', topic, payload, qos: 1, messageId, dup: false, retain };
+  if (p === undefined) return { cmd: 'publish', topic, payload, qos: 1, messageId, dup, retain };
   return {
     cmd: 'publish',
     topic,
     payload,
     qos: 1,
     messageId,
-    dup: false,
+    dup,
     retain,
     payloadFormatIndicator: p.payloadFormatIndicator,
     messageExpiryInterval: p.messageExpiryInterval,
