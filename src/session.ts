@@ -74,6 +74,10 @@ export interface ConnectionInfo {
   readonly sessionPresent: boolean;
   readonly receiveMaximum: number;
   readonly maximumQos: 0 | 1 | 2;
+  /**
+   * The Maximum Packet Size the broker sent, in bytes. Absent when the broker set none. The client rejects a PUBLISH,
+   * SUBSCRIBE or UNSUBSCRIBE larger than it with `ERR_MQTT_CAPACITY` before writing it.
+   */
   readonly maximumPacketSize?: number;
   readonly retainAvailable: boolean;
   readonly serverKeepAlive: number;

@@ -24,7 +24,7 @@ MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputErr
 | Code | Cause | `fatal` | `reasonCode` |
 | --- | --- | --- | --- |
 | `ERR_MQTT_INVALID_ARGUMENT` | Invalid topic or filter, unsupported QoS, QoS 1 without a broker or handler that supports it, a `$share/` filter the transport cannot send, an invalid publish payload, PUBLISH property or publish signal, `retain` when the broker does not allow it, an invalid Will, a password over 65,535 bytes or of another type, or an invalid `disconnect()` option | `false` | None |
-| `ERR_MQTT_CAPACITY` | The publication or subscription limit is full, all 65,535 packet identifiers are in use, or another ping awaits PINGRESP | `false` | None |
+| `ERR_MQTT_CAPACITY` | The publication or subscription limit is full, a PUBLISH, SUBSCRIBE or UNSUBSCRIBE is larger than the broker's Maximum Packet Size from CONNACK, all 65,535 packet identifiers are in use, or another ping awaits PINGRESP | `false` | None |
 | `ERR_MQTT_REFUSED` | The broker refused CONNACK | `true` | The CONNACK reason code |
 | `ERR_MQTT_REFUSED` | The broker refused SUBACK, UNSUBACK or PUBACK | `false` | The acknowledgment's reason code |
 | `ERR_MQTT_TIMEOUT` | An operation passed `timeoutMs`, or a Server Keep Alive deadline passed while an acknowledgment was pending | `true` | None |
@@ -32,6 +32,7 @@ MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputErr
 | `ERR_MQTT_TIMEOUT` | The disconnect drain passed `drainTimeoutMs` without a PUBACK. The publication outcome is unknown and DISCONNECT proceeds. | `true` | None |
 | `ERR_MQTT_BROKER_DISCONNECT` | The broker sent DISCONNECT | `true` | The DISCONNECT reason code, 0 when omitted |
 | `ERR_MQTT_PROTOCOL` | Malformed or out-of-profile broker input, such as a PUBACK with packet identifier 0. The error is a `ProtocolInputError`, and an active session sends DISCONNECT with its reason code. | `true` | 0x81, 0x82 or 0x94 |
+| `ERR_MQTT_PROTOCOL` | The broker's CONNACK set Maximum Packet Size from 1 to 3, which leaves no room for the client's 4-byte PUBACK | `true` | None |
 | `ERR_MQTT_PROTOCOL` | The broker sent more inbound QoS 1 messages than the client's Receive Maximum allows | `true` | 0x93 |
 | `ERR_MQTT_CLOSING` | The call came after `disconnect()` | `true` | None |
 | `ERR_MQTT_TRANSPORT` | The socket or WebSocket closed, a WebSocket handshake or subprotocol check failed, a text WebSocket message arrived, or no native WebSocket exists. Also used when a custom transport's `open`, or a write of CONNECT, PINGREQ, DISCONNECT, SUBSCRIBE, UNSUBSCRIBE or a QoS 1 PUBLISH, rejects with a value that is not an Error. A reconnecting client uses it when its `create` function throws a value that is not an Error. `cause` then holds that value. | `true` | None |

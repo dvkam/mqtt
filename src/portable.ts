@@ -278,8 +278,13 @@ class PortableClient<Bytes extends Uint8Array> {
       pending({ cmd: 'connack', error: 'Invalid broker Maximum QoS' });
       return;
     }
+    const { maximumPacketSize } = packet;
+    // The client's PUBACK takes 4 bytes, and MQTT-3.2.2-15 forbids sending a packet over the limit.
+    if (maximumPacketSize !== undefined && maximumPacketSize < 4) {
+      pending({ cmd: 'connack', error: 'Unsupported broker Maximum Packet Size' });
+      return;
+    }
     const {
-      maximumPacketSize,
       retainAvailable = true,
       serverKeepAlive = 0,
       topicAliasMaximum = 0,
@@ -339,6 +344,10 @@ class PortableClient<Bytes extends Uint8Array> {
     const { connection } = reply;
     const { receiveMaximum, maximumQos, serverKeepAlive } = connection;
     this.retainAvailable = connection.retainAvailable;
+    if (connection.maximumPacketSize !== undefined) {
+      this.publications.limitPacketSize(connection.maximumPacketSize);
+      this.subscriptions.limitPacketSize(connection.maximumPacketSize);
+    }
     if (maximumQos !== 0) {
       this.outbound = new OutboundQosOne<OutgoingPublication>(receiveMaximum, this.identifiers, this.transmitQosOne.bind(this));
     }
@@ -447,7 +456,15 @@ class PortableClient<Bytes extends Uint8Array> {
       throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'MQTT publish signal must be an AbortSignal');
     signal?.throwIfAborted();
     if (qos === 1 && !this.outbound) throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'Broker does not support QoS 1');
-    const publication = capturePublication(topic, payload, options, this.retainAvailable, this.publications.byteLimit);
+    const publication = capturePublication(
+      topic,
+      payload,
+      options,
+      this.retainAvailable,
+      this.publications.byteLimit,
+      this.publications.packetLimit,
+      qos,
+    );
     const release = this.publications.reserve(topic, publication.payloadBytes, publication.propertyBytes, qos);
     if (qos === 1 && this.outbound) {
       await this.outbound.enqueue(publication, release, signal);
