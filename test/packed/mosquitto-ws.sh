@@ -132,6 +132,7 @@ grep -q 'MQTT WebSocket handshake failed' "$broker_dir/native-hostname.log"
 if [[ ${MQTT_TEST_CHROMIUM:-0} == 1 ]]; then
   timeout 30 node test/packed/quickstart-check.ts "$consumer" --browser-only --chromium
   MQTT_TEST_WILL=1 timeout 30 node "$session" "$consumer" ws://127.0.0.1:18884/mqtt chromium
+  timeout 120 node test/packed/page-lifecycle.ts "$consumer" ws://127.0.0.1:18884/mqtt chromium firefox webkit
   chromium_home=$(mktemp -d)
   mkdir -p "$chromium_home/.pki/nssdb"
   "${CERTUTIL_BIN:-certutil}" -N -d "sql:$chromium_home/.pki/nssdb" --empty-password
