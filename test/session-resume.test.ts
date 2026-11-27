@@ -538,11 +538,12 @@ test('a new QoS 1 publication waits in the queue, cancelable and unstored, until
   }).connect();
   const controller = new AbortController();
   const withdrawn = second.publish('n', 'n', { qos: 1, signal: controller.signal });
-  const waiting = second.publish('m', 'm', { qos: 1 });
+  // The publication rejects while the timers advance, so the handler is attached at once.
+  const waiting = second.publish('m', 'm', { qos: 1 }).catch((reason: unknown) => reason);
   controller.abort('stop');
   await expect(withdrawn).rejects.toBe('stop');
   await vi.advanceTimersByTimeAsync(200);
-  await expect(waiting).rejects.toMatchObject({ code: 'ERR_MQTT_TIMEOUT' });
+  expect(await waiting).toMatchObject({ code: 'ERR_MQTT_TIMEOUT' });
   expect(peer.commands(1)).toEqual(['connect']);
   expect(ends).toMatchObject([
     {
