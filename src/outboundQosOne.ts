@@ -46,6 +46,8 @@ function reportAcknowledgment<Item>(publication: Readonly<Publication<Item>>, co
 export class OutboundQosOne<Item> {
   private readonly queued = new Set<Publication<Item>>();
   private readonly resends: Resend<Item>[] = [];
+  // Whether queued publications wait for `release`, because resends are not all written yet.
+  private holding = false;
   private readonly active = new Map<number, Exchange<Item>>();
   private readonly quota: number;
   private readonly identifiers: Readonly<Pick<PacketIdentifiers, 'reserve'>>;
@@ -115,12 +117,19 @@ export class OutboundQosOne<Item> {
   }
 
   /**
-   * Send the publications of an earlier connection again with `retransmit`, in the order given and before any queued
-   * publication. Each keeps the Packet Identifier lease the caller claimed for it.
+   * Send the publications of an earlier connection again with `retransmit`, in the order given. Each keeps the Packet
+   * Identifier lease the caller claimed for it. Queued publications stay queued, and so cancelable, until `release`.
    */
   resume(entries: readonly (readonly [Item, IdentifierLease])[], retransmit: Transmit<Item>): void {
     this.retransmit = retransmit;
+    this.holding = true;
     for (const [outgoing, identifier] of entries) this.resends.push({ publication: resentPublication(outgoing), identifier });
+    this.drain();
+  }
+
+  /** Dispatch the queued publications that `resume` held back. */
+  release(): void {
+    this.holding = false;
     this.drain();
   }
 
@@ -212,6 +221,7 @@ export class OutboundQosOne<Item> {
           this.start(resend.publication, resend.identifier, true);
           continue;
         }
+        if (this.holding) break;
         const publication = this.queued.values().next().value;
         if (publication === undefined) break;
         if (publication.cancelIfAborted()) continue;

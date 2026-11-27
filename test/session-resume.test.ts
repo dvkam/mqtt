@@ -29,6 +29,8 @@ interface Script {
    * writes that have not settled. Defaults to 0. Each write settles one microtask after it starts.
    */
   buffered?: (connection: number, publishBytes: number, pendingBytes: number) => number;
+  /** Whether a write of this many bytes on the nth connection never settles and never reaches the broker. */
+  hold?: (connection: number, bytes: number) => boolean;
 }
 
 // A broker over the byte transport. It answers CONNECT, SUBSCRIBE and, when the script says so, QoS 1 PUBLISH. It records
@@ -71,6 +73,7 @@ function broker(script: Readonly<Script> = {}) {
         },
         // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteWriter.write in src/byteTransport.ts takes the encoded Uint8Array by identity.
         async write(bytes: Uint8Array) {
+          if (script.hold?.(index, bytes.byteLength) === true) await new Promise<void>(() => {});
           pending += bytes.byteLength;
           for (const packet of decoder.push(bytes)) {
             if (packet.cmd === 'connack' || packet.cmd === 'suback' || packet.cmd === 'unsuback' || packet.cmd === 'pingresp')
@@ -129,7 +132,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const client = (transport: Readonly<ByteTransport>, options: Readonly<SessionOptions> = {}) =>
+const client = (transport: Readonly<ByteTransport>, options: Readonly<SessionOptions & { timeoutMs?: number }> = {}) =>
   createTransportClient(transport, { clientId: 'resume', onQosOneMessage() {}, ...options });
 
 test('CONNECT carries Clean Start false and the Session Expiry Interval, and CONNACK may lower the interval', async () => {
@@ -446,7 +449,7 @@ test('resends wait for the earlier resend writes, so a writer that drains on set
     ['a', 1, true],
     ['b', 2, true],
     ['c', 3, true],
-    ['d', 4, false],
+    ['d', 1, false],
   ]);
   expect(sessionState.inFlight).toEqual([]);
   await second.disconnect();
@@ -501,6 +504,86 @@ test('the reconnecting client retries a budget conflict, sends the earlier resen
       ['b', 2, true],
     ]);
   }
+});
+
+test('a new QoS 1 publication waits in the queue, cancelable and unstored, until every resend was written', async () => {
+  let held = false;
+  const peer = broker({
+    puback: (index) => index !== 1,
+    connack: (index) => ({ sessionPresent: index !== 1 }),
+    hold: (index, bytes) => {
+      if (index !== 2 || bytes < 1000 || held) return false;
+      held = true;
+      return true;
+    },
+  });
+  const sessionState = createSessionState();
+  const options = { cleanStart: false, sessionExpiryInterval: 600, sessionState };
+  const first = await client(peer.transport, { ...options, timeoutMs: 200 }).connect();
+  for (const topic of ['a', 'b', 'c']) {
+    first.publish(topic, new Uint8Array(2000), { qos: 1 }).catch(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+  }
+  peer.connections[0]?.end();
+  await vi.advanceTimersByTimeAsync(0);
+  const ends: unknown[] = [];
+  const second = await createTransportClient(peer.transport, {
+    clientId: 'resume',
+    onQosOneMessage() {},
+    ...options,
+    timeoutMs: 200,
+    onSessionEnd(end) {
+      ends.push(end);
+    },
+  }).connect();
+  const controller = new AbortController();
+  const withdrawn = second.publish('n', 'n', { qos: 1, signal: controller.signal });
+  const waiting = second.publish('m', 'm', { qos: 1 });
+  controller.abort('stop');
+  await expect(withdrawn).rejects.toBe('stop');
+  await vi.advanceTimersByTimeAsync(200);
+  await expect(waiting).rejects.toMatchObject({ code: 'ERR_MQTT_TIMEOUT' });
+  expect(peer.commands(1)).toEqual(['connect']);
+  expect(ends).toMatchObject([
+    {
+      kind: 'error',
+      error: { code: 'ERR_MQTT_TIMEOUT' },
+      uncertain: [
+        { topic: 'a', messageId: 1 },
+        { topic: 'b', messageId: 2 },
+        { topic: 'c', messageId: 3 },
+      ],
+    },
+  ]);
+  expect(sessionState.inFlight.map(({ topic }) => topic)).toEqual(['a', 'b', 'c']);
+});
+
+test('a QoS 0 publication waits for the resends, so its write does not share the budget with them', async () => {
+  const peer = broker({
+    puback: (index) => index !== 1,
+    connack: (index) => ({ sessionPresent: index !== 1 }),
+    buffered: (index, _written, pending) => (index === 2 ? pending : 0),
+  });
+  const sessionState = createSessionState();
+  const options = { cleanStart: false, sessionExpiryInterval: 600, sessionState };
+  const first = await client(peer.transport, options).connect();
+  for (const size of [100_000, 500_000]) {
+    first.publish(size === 100_000 ? 'a' : 'b', new Uint8Array(size), { qos: 1 }).catch(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+  }
+  peer.connections[0]?.end();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(sessionState.inFlight).toHaveLength(2);
+  const second = await client(peer.transport, options).connect();
+  await Promise.all([second.publish('z', new Uint8Array(700_000)), second.publish('n', 'n', { qos: 1 })]);
+  expect(peer.sent(1)).toEqual([
+    ['a', 1, true],
+    ['b', 2, true],
+    ['z', undefined, undefined],
+    ['n', 1, false],
+  ]);
+  expect(sessionState.inFlight).toEqual([]);
+  await second.disconnect();
 });
 
 test('the store refuses a new publication whose Packet Identifier a stored publication holds', () => {

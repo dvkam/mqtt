@@ -51,7 +51,7 @@ export interface SessionOptions {
   /**
    * The QoS 1 publications that a connection wrote and the broker did not acknowledge, kept for the next connection of
    * the same session. Pass the object `createSessionState()` returns. A connection with Clean Start false that the broker
-   * answers with Session Present true sends them again before any new QoS 1 publication.
+   * answers with Session Present true sends them again before any new publication.
    */
   sessionState?: SessionState;
 }

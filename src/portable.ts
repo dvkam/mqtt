@@ -126,6 +126,8 @@ class PortableClient<Bytes extends Uint8Array> {
   private readonly session: SessionBinding | undefined;
   private readonly releaseSession: (() => void) | undefined;
   private resending?: Promise<unknown>;
+  // Set while resends are unwritten. New publications wait until `done` settles.
+  private resendPhase?: { readonly done: Promise<void>; readonly finish: () => void; unwritten: number };
   private pendingAck?: (packet: Acknowledgment) => void;
   private keepAlive?: KeepAlive;
   private automaticPing?: Promise<void>;
@@ -385,6 +387,11 @@ class PortableClient<Bytes extends Uint8Array> {
     if (resumed !== undefined && resumed.size > 0 && this.outbound !== undefined) {
       const resends: (readonly [OutgoingPublication, IdentifierLease])[] = [];
       for (const [messageId, publication] of resumed) resends.push([publication, this.identifiers.claim(messageId)]);
+      let finish = () => {};
+      const done = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      this.resendPhase = { done, finish, unwritten: resends.length };
       this.outbound.resume(resends, this.transmitter(true));
     }
     this.activation = 'active';
@@ -507,8 +514,10 @@ class PortableClient<Bytes extends Uint8Array> {
       return;
     }
     await this.qosZeroWrites.run(
-      // oxlint-disable-next-line typescript/promise-function-async -- Forward the native send promise directly to the write deadline owner.
-      () => this.sendPacket(publishPacket(publication)),
+      this.resendPhase === undefined
+        ? // oxlint-disable-next-line typescript/promise-function-async -- Forward the native send promise directly to the write deadline owner.
+          () => this.sendPacket(publishPacket(publication))
+        : async () => this.writeAfterResends(publishPacket(publication)),
       release,
     );
   }
@@ -524,10 +533,9 @@ class PortableClient<Bytes extends Uint8Array> {
       let sent: Promise<void> | undefined;
       try {
         return await this.run(async () => {
-          sent =
-            dup || this.resending !== undefined
-              ? this.afterResends(publishPacket(publication, messageId, dup))
-              : this.sendIdentified(publishPacket(publication, messageId), 'MQTT publication send failed');
+          sent = dup
+            ? this.resend(publishPacket(publication, messageId, true))
+            : this.sendIdentified(publishPacket(publication, messageId), 'MQTT publication send failed');
           const [code] = await Promise.all([acknowledgment, sent]);
           return code;
         }, 'outbound-publish');
@@ -539,11 +547,11 @@ class PortableClient<Bytes extends Uint8Array> {
   }
 
   /**
-   * Write a QoS 1 PUBLISH once the write of the resend before it settled. A transport whose write settles when its buffer
-   * took the bytes then meets each resend with that buffer drained, and a new publication goes out after every resend.
+   * Write a resend once the write of the resend before it settled, so a transport whose write settles when its buffer
+   * took the bytes meets each resend with that buffer drained. The last written resend ends the resend phase.
    */
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The transport accepts the original mutable packet shape.
-  private async afterResends(packet: ClientPacket): Promise<void> {
+  private async resend(packet: ClientPacket): Promise<void> {
     const write = async () => this.sendIdentified(packet, 'MQTT publication send failed');
     const sent =
       this.resending === undefined
@@ -552,12 +560,30 @@ class PortableClient<Bytes extends Uint8Array> {
             if (this.failure) throw this.failure;
             await write();
           });
-    const settled = sent.catch(() => {});
-    this.resending = settled;
-    void settled.then(() => {
-      if (this.resending === settled) this.resending = undefined;
-    });
+    this.resending = sent.catch(() => {});
     await sent;
+    const phase = this.resendPhase;
+    if (phase !== undefined && --phase.unwritten === 0) this.endResendPhase();
+  }
+
+  /** Let the publications that waited for the resends go out. */
+  private endResendPhase(): void {
+    const phase = this.resendPhase;
+    if (phase === undefined) return;
+    this.resendPhase = undefined;
+    this.resending = undefined;
+    phase.finish();
+    // QoS 0 writes that waited resume first, so the publications go out in the order of their calls.
+    void phase.done.then(() => {
+      if (!this.failure) this.outbound?.release();
+    });
+  }
+
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The transport accepts the original mutable packet shape.
+  private async writeAfterResends(packet: ClientPacket): Promise<void> {
+    await this.resendPhase?.done;
+    if (this.failure) throw this.failure;
+    await this.sendPacket(packet);
   }
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The transport accepts the original mutable packet shape.
@@ -796,6 +822,9 @@ class PortableClient<Bytes extends Uint8Array> {
     if (this.failure) return;
     this.failure = error;
     this.releaseSession?.();
+    // Waiting QoS 0 writes see the failure. Held QoS 1 publications stay queued until retire rejects them.
+    this.resendPhase?.finish();
+    this.resendPhase = undefined;
     this.drainingPublications = false;
     this.stopKeepAlive();
     this.nextInbound = undefined;
