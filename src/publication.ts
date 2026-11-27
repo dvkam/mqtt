@@ -168,6 +168,7 @@ export function capturePublication(
   if (typeof payload === 'string') {
     if (loneSurrogate.test(payload)) throw invalid('MQTT publish payload is not well-formed UTF-16');
     // Each code unit encodes to at least one byte, so a longer string cannot pass admission.
+    if (payload.length > packetLimit) throw oversizedPacket();
     if (payload.length > maxBytes) throw oversizedText(topic, payload, options, packetLimit, qos);
     bytes = payloadEncoder.encode(payload);
   } else if (isBytes(payload)) bytes = payload;

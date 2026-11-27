@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import type { ByteInbound, ByteTransport } from '../src/byteTransport.js';
 import { encodePacket, PacketDecoder, type ClientPacket } from '../src/codec.js';
 import { createTransportClient } from '../src/portableClient.js';
@@ -179,6 +179,17 @@ test.each([
     await session.disconnect();
   },
 );
+
+test('a string longer than the limit and shorter than the byte limit rejects before it is encoded', async () => {
+  const peer = broker(100);
+  const session = await peer.connect();
+  const encode = vi.spyOn(TextEncoder.prototype, 'encode');
+  await expect(session.publish('t', 'x'.repeat(500_000))).rejects.toMatchObject(oversized);
+  expect(encode).not.toHaveBeenCalled();
+  encode.mockRestore();
+  expect(peer.commands()).toEqual(['connect']);
+  await session.disconnect();
+});
 
 test('User Properties can push a string over the byte limit past the packet limit', async () => {
   const peer = broker(80);
