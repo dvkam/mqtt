@@ -36,7 +36,7 @@ export async function start(url: string, clientId: string): Promise<void> {
           const code = isMqttError(previous?.error) ? previous.error.code : '';
           log.push(`connected ${String(event.generation)} ${code} uncertain=${String(previous?.uncertain?.length ?? 0)}`);
         } else if (event.kind === 'retrying') log.push(`retrying ${String(Math.round(event.delayMs))} ${event.error.message}`);
-        else log.push(`stopped ${event.reason}`);
+        else if (event.kind === 'stopped') log.push(`stopped ${event.reason}`);
       },
     },
   );
