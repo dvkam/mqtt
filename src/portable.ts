@@ -518,7 +518,7 @@ class PortableClient<Bytes extends Uint8Array> {
     if (this.resendPhase !== undefined) {
       await this.afterResends(
         // oxlint-disable-next-line typescript/promise-function-async -- Forward the native send promise directly to the write deadline owner.
-        () => this.qosZeroWrites.run(() => this.sendPacket(publishPacket(publication)), release),
+        () => this.sendPacket(publishPacket(publication)),
         release,
       );
       return;
@@ -593,7 +593,7 @@ class PortableClient<Bytes extends Uint8Array> {
     await new Promise<void>((resolve, reject) => {
       this.resendPhase?.waiting.push({
         write: () => {
-          write().then(resolve, reject);
+          this.qosZeroWrites.run(write, release).then(resolve, reject);
         },
         fail: (error) => {
           release();
