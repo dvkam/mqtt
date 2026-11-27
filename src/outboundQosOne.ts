@@ -146,7 +146,8 @@ export class OutboundQosOne<Item> {
     return this.active.size > 0;
   }
 
-  stop(reason: Readonly<Error>): void {
+  /** Rejects the queued publications and drops the resends that have not started. Returns how many resends it dropped. */
+  stop(reason: Readonly<Error>): number {
     this.stopped ??= reason;
     for (const publication of this.queued) {
       publication.detach();
@@ -154,8 +155,10 @@ export class OutboundQosOne<Item> {
       publication.reject(this.stopped);
     }
     this.queued.clear();
+    const dropped = this.resends.length;
     for (const { identifier } of this.resends) identifier.release();
     this.resends.length = 0;
+    return dropped;
   }
 
   /**

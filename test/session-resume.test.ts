@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { ByteInbound, ByteTransport } from '../src/byteTransport.js';
 import { encodePacket, PacketDecoder, type BrokerPacket, type ClientPacket } from '../src/codec.js';
-import { createSessionState, createTransportClient, type ByteClientOptions, type SessionOptions } from '../src/portableClient.js';
+import {
+  createSessionState,
+  createTransportClient,
+  type ByteClientOptions,
+  type SessionOptions,
+  type SessionState,
+} from '../src/portableClient.js';
 import { createReconnectingClient, type ReconnectEvent, type ReconnectOptions } from '../src/reconnect.js';
 import { bindSessionState } from '../src/sessionState.js';
 
@@ -31,6 +37,8 @@ interface Script {
   buffered?: (connection: number, publishBytes: number, pendingBytes: number) => number;
   /** Whether a write of this many bytes on the nth connection never settles and never reaches the broker. */
   hold?: (connection: number, bytes: number) => boolean;
+  /** How many milliseconds the broker waits before it sends a PUBACK on the nth connection. Defaults to none. */
+  pubackDelayMs?: (connection: number) => number;
 }
 
 // A broker over the byte transport. It answers CONNECT, SUBSCRIBE and, when the script says so, QoS 1 PUBLISH. It records
@@ -83,8 +91,15 @@ function broker(script: Readonly<Script> = {}) {
               reply({ cmd: 'connack', sessionPresent: false, reasonCode: 0, ...script.connack?.(index) });
             if (packet.cmd === 'subscribe') reply({ cmd: 'suback', messageId: packet.messageId, granted: [0] });
             if (packet.cmd === 'publish') connection.publishBytes.push(bytes.byteLength);
-            if (packet.cmd === 'publish' && packet.qos === 1 && (script.puback?.(index) ?? true))
-              reply({ cmd: 'puback', messageId: packet.messageId, reasonCode: 0 });
+            if (packet.cmd === 'publish' && packet.qos === 1 && (script.puback?.(index) ?? true)) {
+              const puback: BrokerPacket = { cmd: 'puback', messageId: packet.messageId, reasonCode: 0 };
+              const delay = script.pubackDelayMs?.(index);
+              if (delay === undefined) reply(puback);
+              else
+                setTimeout(() => {
+                  inbound.bytes(encodePacket(puback));
+                }, delay);
+            }
           }
           await Promise.resolve();
           pending -= bytes.byteLength;
@@ -581,9 +596,103 @@ test('a QoS 0 publication waits for the resends, so its write does not share the
     ['a', 1, true],
     ['b', 2, true],
     ['z', undefined, undefined],
-    ['n', 1, false],
+    ['n', 3, false],
   ]);
   expect(sessionState.inFlight).toEqual([]);
+  await second.disconnect();
+});
+
+// Stores three QoS 1 publications through a first connection that gets no PUBACK, then ends it.
+async function storeThree(transport: Readonly<ByteTransport>, end: () => void, sessionState: SessionState): Promise<void> {
+  const first = await client(transport, { cleanStart: false, sessionExpiryInterval: 600, sessionState }).connect();
+  for (const topic of ['a', 'b', 'c']) {
+    first.publish(topic, topic, { qos: 1 }).catch(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+  }
+  end();
+  await vi.advanceTimersByTimeAsync(0);
+}
+
+test('a QoS 0 publication waits through PUBACK round trips without its write deadline expiring', async () => {
+  const peer = broker({
+    puback: (index) => index !== 1,
+    connack: (index) => (index === 1 ? {} : { sessionPresent: true, receiveMaximum: 1 }),
+    pubackDelayMs: () => 150,
+  });
+  const sessionState = createSessionState();
+  await storeThree(
+    peer.transport,
+    () => {
+      peer.connections[0]?.end();
+    },
+    sessionState,
+  );
+  const second = await client(peer.transport, {
+    cleanStart: false,
+    sessionExpiryInterval: 600,
+    sessionState,
+    timeoutMs: 200,
+  }).connect();
+  const published = second.publish('z', 'z').catch((reason: unknown) => reason);
+  await vi.advanceTimersByTimeAsync(600);
+  expect(await published).toBeUndefined();
+  expect(peer.sent(1)).toEqual([
+    ['a', 1, true],
+    ['b', 2, true],
+    ['c', 3, true],
+    ['z', undefined, undefined],
+  ]);
+  await second.disconnect();
+});
+
+test('disconnect() during the resend phase still writes a QoS 0 publication it accepted before', async () => {
+  const peer = broker({
+    puback: (index) => index !== 1,
+    connack: (index) => (index === 1 ? {} : { sessionPresent: true, receiveMaximum: 1 }),
+    pubackDelayMs: () => 150,
+  });
+  const sessionState = createSessionState();
+  await storeThree(
+    peer.transport,
+    () => {
+      peer.connections[0]?.end();
+    },
+    sessionState,
+  );
+  const second = await client(peer.transport, { cleanStart: false, sessionExpiryInterval: 600, sessionState }).connect();
+  const published = second.publish('z', 'z').catch((reason: unknown) => reason);
+  const disconnected = second.disconnect({ drainTimeoutMs: 1000 });
+  await vi.advanceTimersByTimeAsync(200);
+  await disconnected;
+  expect(await published).toBeUndefined();
+  expect(peer.commands(1)).toEqual(['connect', 'publish', 'publish', 'disconnect']);
+  expect(peer.sent(1)).toEqual([
+    ['a', 1, true],
+    ['z', undefined, undefined],
+  ]);
+  expect(sessionState.inFlight.map(({ topic }) => topic)).toEqual(['b', 'c']);
+});
+
+test('after the resends, waiting QoS 0 writes go first and queued QoS 1 publications follow in call order', async () => {
+  const peer = broker({ puback: (index) => index !== 1, connack: (index) => ({ sessionPresent: index !== 1 }) });
+  const sessionState = createSessionState();
+  await storeThree(
+    peer.transport,
+    () => {
+      peer.connections[0]?.end();
+    },
+    sessionState,
+  );
+  const second = await client(peer.transport, { cleanStart: false, sessionExpiryInterval: 600, sessionState }).connect();
+  await Promise.all([
+    second.publish('A', 'x', { qos: 1 }),
+    second.publish('B', 'x'),
+    second.publish('C', 'x', { qos: 1 }),
+    second.publish('D', 'x'),
+  ]);
+  const topics: string[] = [];
+  for (const [topic] of peer.sent(1)) topics.push(topic);
+  expect(topics).toEqual(['a', 'b', 'c', 'B', 'D', 'A', 'C']);
   await second.disconnect();
 });
 

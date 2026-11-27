@@ -114,6 +114,12 @@ interface KeepAlive {
   timer?: ReturnType<typeof setTimeout>;
 }
 
+/** A QoS 0 publication that waits for the resends. */
+interface WaitingWrite {
+  readonly write: () => void;
+  readonly fail: (error: Readonly<Error>) => void;
+}
+
 class PortableClient<Bytes extends Uint8Array> {
   private readonly transport: PacketTransport<Bytes>;
   private sendPacket: PacketTransport<Bytes>['send'];
@@ -127,7 +133,7 @@ class PortableClient<Bytes extends Uint8Array> {
   private readonly releaseSession: (() => void) | undefined;
   private resending?: Promise<unknown>;
   // Set while resends are unwritten. New publications wait until `done` settles.
-  private resendPhase?: { readonly done: Promise<void>; readonly finish: () => void; unwritten: number };
+  private resendPhase?: { readonly waiting: WaitingWrite[]; unwritten: number };
   private pendingAck?: (packet: Acknowledgment) => void;
   private keepAlive?: KeepAlive;
   private automaticPing?: Promise<void>;
@@ -387,11 +393,7 @@ class PortableClient<Bytes extends Uint8Array> {
     if (resumed !== undefined && resumed.size > 0 && this.outbound !== undefined) {
       const resends: (readonly [OutgoingPublication, IdentifierLease])[] = [];
       for (const [messageId, publication] of resumed) resends.push([publication, this.identifiers.claim(messageId)]);
-      let finish = () => {};
-      const done = new Promise<void>((resolve) => {
-        finish = resolve;
-      });
-      this.resendPhase = { done, finish, unwritten: resends.length };
+      this.resendPhase = { waiting: [], unwritten: resends.length };
       this.outbound.resume(resends, this.transmitter(true));
     }
     this.activation = 'active';
@@ -513,11 +515,17 @@ class PortableClient<Bytes extends Uint8Array> {
       await this.outbound.enqueue(publication, release, signal);
       return;
     }
+    if (this.resendPhase !== undefined) {
+      await this.afterResends(
+        // oxlint-disable-next-line typescript/promise-function-async -- Forward the native send promise directly to the write deadline owner.
+        () => this.qosZeroWrites.run(() => this.sendPacket(publishPacket(publication)), release),
+        release,
+      );
+      return;
+    }
     await this.qosZeroWrites.run(
-      this.resendPhase === undefined
-        ? // oxlint-disable-next-line typescript/promise-function-async -- Forward the native send promise directly to the write deadline owner.
-          () => this.sendPacket(publishPacket(publication))
-        : async () => this.writeAfterResends(publishPacket(publication)),
+      // oxlint-disable-next-line typescript/promise-function-async -- Forward the native send promise directly to the write deadline owner.
+      () => this.sendPacket(publishPacket(publication)),
       release,
     );
   }
@@ -572,18 +580,35 @@ class PortableClient<Bytes extends Uint8Array> {
     if (phase === undefined) return;
     this.resendPhase = undefined;
     this.resending = undefined;
-    phase.finish();
-    // QoS 0 writes that waited resume first, so the publications go out in the order of their calls.
-    void phase.done.then(() => {
-      if (!this.failure) this.outbound?.release();
+    // The QoS 0 publications that waited go out first, then the queued QoS 1 publications in their call order.
+    for (const { write } of phase.waiting) write();
+    this.outbound?.release();
+  }
+
+  /**
+   * Write a QoS 0 publication once every resend was written. Its write deadline starts then. It keeps its admission
+   * reservation while it waits, so memory stays bounded, and a session end rejects it and returns the reservation.
+   */
+  private async afterResends(write: () => Promise<void>, release: () => void): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      this.resendPhase?.waiting.push({
+        write: () => {
+          write().then(resolve, reject);
+        },
+        fail: (error) => {
+          release();
+          reject(error);
+        },
+      });
     });
   }
 
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The transport accepts the original mutable packet shape.
-  private async writeAfterResends(packet: ClientPacket): Promise<void> {
-    await this.resendPhase?.done;
-    if (this.failure) throw this.failure;
-    await this.sendPacket(packet);
+  /** `disconnect()` dropped resends that had not started, so the phase ends once the started ones are written. */
+  private dropResends(count: number): void {
+    const phase = this.resendPhase;
+    if (phase === undefined || count === 0) return;
+    phase.unwritten -= count;
+    if (phase.unwritten === 0) this.endResendPhase();
   }
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The transport accepts the original mutable packet shape.
@@ -695,7 +720,7 @@ class PortableClient<Bytes extends Uint8Array> {
     }
     this.drainingPublications = timeout !== undefined && this.outbound?.hasActive === true;
     if (!this.drainingPublications) this.stopKeepAlive();
-    this.outbound?.stop(closingError());
+    this.dropResends(this.outbound?.stop(closingError()) ?? 0);
     this.nextInbound = undefined;
     void Promise.resolve()
       .then(async () => this.end(timeout, reasonCode))
@@ -822,8 +847,8 @@ class PortableClient<Bytes extends Uint8Array> {
     if (this.failure) return;
     this.failure = error;
     this.releaseSession?.();
-    // Waiting QoS 0 writes see the failure. Held QoS 1 publications stay queued until retire rejects them.
-    this.resendPhase?.finish();
+    // Held QoS 1 publications stay queued until retire rejects them.
+    for (const { fail } of this.resendPhase?.waiting ?? []) fail(error);
     this.resendPhase = undefined;
     this.drainingPublications = false;
     this.stopKeepAlive();
