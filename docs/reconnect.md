@@ -63,6 +63,8 @@ The delay before attempt `n + 1` is drawn from half to all of `min(maxDelayMs, i
 
 After a stop, `session()` rejects with the error of the `stopped` event, or with `ERR_MQTT_CLOSING` after a disconnect. That error is the session's error for `refused`, `fatal` and `exhausted`. An abort reason that is an Error is passed through unchanged. Any other abort reason becomes an `ERR_MQTT_ABORTED` error whose `name` is `AbortError` and whose `cause` holds the reason. A value thrown by `create` that is not an Error becomes an `ERR_MQTT_TRANSPORT` error whose `cause` holds the value. `client.disconnect()` clears the timer, abandons an attempt that is opening, and disconnects a connected session with the options you pass. It also works from inside `onReconnect`.
 
+`client.retryNow()` starts the next attempt at once while the client waits for its timer, and clears the timer. It returns true when it started an attempt. That attempt counts toward `maxAttempts` like any other. While an attempt opens, while a session is connected and after a stop, it does nothing and returns false, so it never starts a second attempt or a second timer. In a browser, [`watchPageLifecycle`](page-lifecycle.md) calls it when the page comes back.
+
 In Node, the retry timer keeps the process alive until the client connects or stops.
 
 ## Not covered yet
@@ -70,5 +72,4 @@ In Node, the retry timer keeps the process alive until the client connects or st
 - Resuming a session with Clean Start false and a Session Expiry Interval, tracked in #14. Until then, the broker forgets the subscriptions and queued messages of each session.
 - A CONNACK whose Session Present flag does not match the session the client asked to resume. This matters only once Clean Start false exists, tracked in #14.
 - A smaller packet limit or a Topic Alias map on resume, tracked in #12.
-- Page lifecycle events in the browser, such as a page restored from the back-forward cache, tracked in #32.
 - Server Reference redirects, tracked in #16.
