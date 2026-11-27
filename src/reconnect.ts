@@ -182,6 +182,12 @@ export interface ReconnectingClient {
    * `ERR_MQTT_CLOSING` after a disconnect.
    */
   session(): Promise<ClientSession>;
+  /**
+   * Starts the next attempt now when the client waits for its retry timer, and clears that timer. The attempt counts
+   * toward `maxAttempts` as one the timer started would. Returns true when it started an attempt. While an attempt
+   * opens, while a session is connected and after the client stopped, it does nothing and returns false.
+   */
+  retryNow(): boolean;
   /** Stops reconnecting, then disconnects the current session with `options`. */
   disconnect(options?: Readonly<DisconnectOptions>): Promise<void>;
   /**
@@ -479,6 +485,12 @@ export function createReconnectingClient<Options extends Reconnectable>(
     // oxlint-disable-next-line typescript/promise-function-async -- An async function returns a new promise on each call. The test 'returns the same session promise until that session ends' in test/reconnect.test.ts checks with toBe that repeated calls return one promise.
     session() {
       return stopError === undefined ? next.promise : Promise.reject(stopError);
+    },
+    retryNow() {
+      if (state !== 'waiting') return false;
+      clearTimeout(timer);
+      open();
+      return true;
     },
     async disconnect(disconnectOptions) {
       const session = current;

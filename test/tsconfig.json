@@ -11,6 +11,7 @@
       "/session.js": ["./packed/websocket-session.mjs"],
       "/streams.js": ["./packed/stream-comparison.ts"],
       "/receive.js": ["./packed/receive-client.ts"],
+      "/lifecycle.js": ["./packed/page-lifecycle-page.ts"],
       "/broker-echo.js": ["./bench/browser-broker-workload.ts"]
     }
   },

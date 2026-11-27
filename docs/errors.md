@@ -50,7 +50,7 @@ These rejections have no code yet, or lack a field that #155 asks for.
 - Codec failures that are not a `ProtocolInputError` are plain `Error` or `RangeError` values. Examples are invalid fixed-header flags, a malformed Remaining Length, a truncated field, many property defects such as a CONNACK Receive Maximum of 0 or Maximum QoS of 2, and a packet over `maxPacketBytes`. MQTT 5 treats most of them as Malformed Packet 0x81.
 - An inbound QoS 2 PUBLISH, when an `onQosOneMessage` handler is set, ends the session with a plain `Error`.
 - A QoS 0 publish write and the transport `close` during `disconnect()` reject with the transport's own value, even when it is not an Error.
-- Invalid client options such as `timeoutMs` or publication limits throw `RangeError`. The Will, the password, the session options and the `disconnect()` options are the exception: they reject with `ERR_MQTT_INVALID_ARGUMENT`. For the Will and `disconnect()`, the original error is the cause.
+- Invalid client options such as `timeoutMs` or publication limits throw `RangeError`, and so does an invalid `checkAfterMs` of `watchPageLifecycle`. The Will, the password, the session options and the `disconnect()` options are the exception: they reject with `ERR_MQTT_INVALID_ARGUMENT`. For the Will and `disconnect()`, the original error is the cause.
 - Custom transport errors pass through unchanged.
 - A write budget refusal is a plain `Error`. It leaves the session usable when it refuses a publication and ends the session when it refuses a control packet.
 - The browser receive message limit is a `RangeError`.
