@@ -498,6 +498,7 @@ class PortableClient<Bytes extends Uint8Array> {
       this.retainAvailable,
       this.publications.byteLimit,
       this.publications.packetLimit,
+      qos,
     );
     const release = this.publications.reserve(topic, publication.payloadBytes, publication.propertyBytes, qos);
     if (qos === 1 && this.outbound) {

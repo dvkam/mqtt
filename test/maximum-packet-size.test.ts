@@ -165,6 +165,44 @@ test('a string under the limit and over the publication byte limit reports capac
   await session.disconnect();
 });
 
+test.each([
+  ['a two-byte character string', 'é'.repeat(60), 100, 'oversized'],
+  ['a three-byte character string under the limit', '€'.repeat(60), 200, 'capacity'],
+  ['a three-byte character string over the limit', '€'.repeat(60), 150, 'oversized'],
+] as const)(
+  '%s over the byte limit reports the limit only when its encoded PUBLISH exceeds it',
+  async (_name, text, limit, outcome) => {
+    const peer = broker(limit);
+    const session = await peer.connect({ maxPendingPublishBytes: 50 });
+    await expect(session.publish('t', text)).rejects.toMatchObject(outcome === 'oversized' ? oversized : capacity);
+    expect(peer.commands()).toEqual(['connect']);
+    await session.disconnect();
+  },
+);
+
+test('User Properties can push a string over the byte limit past the packet limit', async () => {
+  const peer = broker(80);
+  const session = await peer.connect({ maxPendingPublishBytes: 50 });
+  await expect(session.publish('t', 'x'.repeat(60))).rejects.toMatchObject(capacity);
+  await expect(session.publish('t', 'x'.repeat(60), { userProperties: [['key', 'v'.repeat(20)]] })).rejects.toMatchObject(
+    oversized,
+  );
+  await session.disconnect();
+});
+
+test.each(['a string', 'bytes'])(
+  '%s larger than the byte limit and under the packet limit gets the capacity message and never fits',
+  async (kind) => {
+    const peer = broker(1000);
+    const session = await peer.connect({ maxPendingPublishBytes: 50 });
+    const payload = kind === 'bytes' ? new Uint8Array(60) : 'a'.repeat(60);
+    await expect(session.publish('t', payload)).rejects.toMatchObject(capacity);
+    await expect(session.publish('t', payload)).rejects.toMatchObject(capacity);
+    expect(peer.commands()).toEqual(['connect']);
+    await session.disconnect();
+  },
+);
+
 test('a SUBSCRIBE over the limit reports the limit even when every subscription slot is taken', async () => {
   const peer = broker(24, true);
   const session = await peer.connect({ maxPendingSubscriptions: 1 });
