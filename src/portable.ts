@@ -556,7 +556,7 @@ class PortableClient<Bytes extends Uint8Array> {
    * Write a resend once the write of the resend before it settled, so a transport whose write settles when its buffer
    * took the bytes meets each resend with that buffer drained. The last written resend ends the resend phase.
    */
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The transport accepts the original mutable packet shape.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ClientPacket in src/wireCodec.ts carries the PUBLISH payload as a mutable Uint8Array, which sendIdentified hands to the transport by identity.
   private async resend(packet: ClientPacket): Promise<void> {
     const write = async () => this.sendIdentified(packet, 'MQTT publication send failed');
     const sent =
