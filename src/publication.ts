@@ -1,5 +1,5 @@
 import { MqttError } from './mqttError.js';
-import { oversizedPacket } from './publicationAdmission.js';
+import { capacityExceeded, oversizedPacket, publishSize } from './publicationAdmission.js';
 import type { UserProperty } from './wireProperties.js';
 import { isBytes, maxBinaryBytes, ownByteLength, variableByteIntegerSize } from './util/bytes.js';
 import { loneSurrogate, utf8Length } from './util/utf8.js';
@@ -54,16 +54,24 @@ function invalid(message: string): MqttError {
   return new MqttError('ERR_MQTT_INVALID_ARGUMENT', message);
 }
 
-function encodePayload(payload: unknown, maxBytes: number, packetLimit: number): Uint8Array {
-  if (typeof payload === 'string') {
-    if (loneSurrogate.test(payload)) throw invalid('MQTT publish payload is not well-formed UTF-16');
-    // Each code unit encodes to at least one byte, so a longer string cannot pass admission.
-    if (payload.length > packetLimit) throw oversizedPacket();
-    if (payload.length > maxBytes) throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT publication capacity exceeded');
-    return payloadEncoder.encode(payload);
-  }
-  if (!isBytes(payload)) throw invalid('MQTT publish payload must be a string or a Uint8Array');
-  return payload;
+/**
+ * The rejection of a string payload with more code units than the publication byte limit, found without encoding it.
+ * Each code unit takes one to three bytes, so the client counts the bytes only when those bounds straddle the packet
+ * limit.
+ */
+function oversizedText(
+  topic: string,
+  text: string,
+  options: RuntimeOptions | undefined,
+  packetLimit: number,
+  qos: 0 | 1,
+): MqttError {
+  const topicBytes = utf8Length(topic);
+  const propertyBytes = options === undefined ? 1 : capturedProperties(options).propertyBytes;
+  if (publishSize(topicBytes, text.length, propertyBytes, qos) > packetLimit) return oversizedPacket();
+  if (publishSize(topicBytes, 3 * text.length, propertyBytes, qos) <= packetLimit) return capacityExceeded();
+  const size = publishSize(topicBytes, utf8Length(text, packetLimit), propertyBytes, qos);
+  return size > packetLimit ? oversizedPacket() : capacityExceeded();
 }
 
 function optionalString(value: unknown, name: string): string | undefined {
@@ -144,7 +152,8 @@ function capturedProperties(options: RuntimeOptions): { properties: PublicationP
 /**
  * Validate a publish call before admission, so that a bad argument rejects with ERR_MQTT_INVALID_ARGUMENT instead of
  * failing in the encoder, which would end the session. `maxBytes` is the publication byte limit, and `packetLimit` the
- * largest packet the client may send.
+ * largest packet the client may send. A publication over the packet limit rejects with that message, even when it is
+ * also over the byte limit.
  */
 export function capturePublication(
   topic: string,
@@ -153,8 +162,16 @@ export function capturePublication(
   retainAvailable: boolean,
   maxBytes: number,
   packetLimit: number,
+  qos: 0 | 1,
 ): OutgoingPublication {
-  const bytes = encodePayload(payload, maxBytes, packetLimit);
+  let bytes: Uint8Array;
+  if (typeof payload === 'string') {
+    if (loneSurrogate.test(payload)) throw invalid('MQTT publish payload is not well-formed UTF-16');
+    // Each code unit encodes to at least one byte, so a longer string cannot pass admission.
+    if (payload.length > maxBytes) throw oversizedText(topic, payload, options, packetLimit, qos);
+    bytes = payloadEncoder.encode(payload);
+  } else if (isBytes(payload)) bytes = payload;
+  else throw invalid('MQTT publish payload must be a string or a Uint8Array');
   const payloadBytes = ownByteLength(bytes);
   if (options === undefined) return { topic, payload: bytes, payloadBytes, retain: false, properties: undefined, propertyBytes: 1 };
   const { retain } = options;

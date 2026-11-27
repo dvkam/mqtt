@@ -225,7 +225,7 @@ test.each([
   const options = make();
   const topic = 'sized';
   const payload = Uint8Array.of(1, 2, 3);
-  const publication = capturePublication(topic, payload, options, true, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
+  const publication = capturePublication(topic, payload, options, true, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, 0);
   const { retain: _retain, ...propertyFields } = options;
   const frame = encodePacket({ cmd: 'publish', topic, payload, ...propertyFields });
   let remaining = 0;

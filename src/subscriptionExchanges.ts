@@ -65,7 +65,6 @@ export class SubscriptionExchanges {
     let lengthBytes = 1;
     for (let value = remaining; value >= 128; value = Math.floor(value / 128)) lengthBytes++;
     const bytes = 1 + lengthBytes + remaining;
-    // A packet over the limit can never be sent, so it rejects before the checks that a later retry can pass.
     if (bytes > this.maximumPacketSize) throw oversizedPacket();
     if (this.entries.size >= this.limits.maxPendingSubscriptions || bytes > this.limits.maxPendingSubscriptionBytes - this.bytes)
       throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT subscription capacity exceeded');
