@@ -37,7 +37,7 @@ MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputErr
 | `ERR_MQTT_CLOSING` | The call came after `disconnect()` | `true` | None |
 | `ERR_MQTT_TRANSPORT` | The socket or WebSocket closed, a WebSocket handshake or subprotocol check failed, a text WebSocket message arrived, or no native WebSocket exists. Also used when a custom transport's `open`, or a write of CONNECT, PINGREQ, DISCONNECT, SUBSCRIBE, UNSUBSCRIBE or a QoS 1 PUBLISH, rejects with a value that is not an Error. A reconnecting client uses it when its `create` function throws a value that is not an Error. `cause` then holds that value. | `true` | None |
 | `ERR_MQTT_SESSION_CONFLICT` | The broker resumed the session, and a stored QoS 1 publication is larger than its new Maximum Packet Size, is retained while CONNACK sets Retain Available 0, or the broker's Maximum QoS is now 0. The client sends no PUBLISH, writes DISCONNECT with reason 0 and keeps the stored publications. A [reconnecting client](reconnect.md#resuming-the-session) retries. | `true` | 0, the DISCONNECT the client sent |
-| `ERR_MQTT_SESSION_CONFLICT` | A new QoS 1 publication would take a Packet Identifier that a stored publication holds. The client claims those identifiers when it resumes, so this guards against a broken invariant. | `false` | None |
+| `ERR_MQTT_SESSION_CONFLICT` | The native write budget refused a stored publication that a resumed session sent again. `cause` holds the budget error. The client writes DISCONNECT with reason 0 and keeps the stored publications, and a reconnecting client retries. | `true` | 0, the DISCONNECT the client sent |
 | `ERR_MQTT_ABORTED` | The connection signal, or the signal of a reconnecting client, aborted with a reason that is not an Error. The error's `name` is `AbortError`, and `cause` holds the reason. A publish signal passes its reason through unchanged at either QoS. | `true` | None |
 
 ## Gaps
@@ -52,6 +52,6 @@ These rejections have no code yet, or lack a field that #155 asks for.
 - A QoS 0 publish write and the transport `close` during `disconnect()` reject with the transport's own value, even when it is not an Error.
 - Invalid client options such as `timeoutMs` or publication limits throw `RangeError`, and so does an invalid `checkAfterMs` of `watchPageLifecycle`. The Will, the password, the session options and the `disconnect()` options are the exception: they reject with `ERR_MQTT_INVALID_ARGUMENT`. For the Will and `disconnect()`, the original error is the cause.
 - Custom transport errors pass through unchanged.
-- A write budget refusal is a plain `Error`. It leaves the session usable when it refuses a publication and ends the session when it refuses a control packet.
+- A write budget refusal is a plain `Error`. It leaves the session usable when it refuses a new publication and ends the session when it refuses a control packet. When it refuses a resend after a resume, the session ends with `ERR_MQTT_SESSION_CONFLICT`, and the budget error is its `cause`.
 - The browser receive message limit is a `RangeError`.
 - After a reconnecting client stops, `session()` rejects with the stopping error unchanged. That error can be a `RangeError` for an invalid factory option, an Error abort reason or another error that is not an `MqttError`.

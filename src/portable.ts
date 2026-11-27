@@ -125,6 +125,7 @@ class PortableClient<Bytes extends Uint8Array> {
   private readonly cleanStart: boolean;
   private readonly session: SessionBinding | undefined;
   private readonly releaseSession: (() => void) | undefined;
+  private resending?: Promise<unknown>;
   private pendingAck?: (packet: Acknowledgment) => void;
   private keepAlive?: KeepAlive;
   private automaticPing?: Promise<void>;
@@ -523,7 +524,10 @@ class PortableClient<Bytes extends Uint8Array> {
       let sent: Promise<void> | undefined;
       try {
         return await this.run(async () => {
-          sent = this.sendIdentified(publishPacket(publication, messageId, dup), 'MQTT publication send failed');
+          sent =
+            dup || this.resending !== undefined
+              ? this.afterResends(publishPacket(publication, messageId, dup))
+              : this.sendIdentified(publishPacket(publication, messageId), 'MQTT publication send failed');
           const [code] = await Promise.all([acknowledgment, sent]);
           return code;
         }, 'outbound-publish');
@@ -534,17 +538,45 @@ class PortableClient<Bytes extends Uint8Array> {
     };
   }
 
+  /**
+   * Write a QoS 1 PUBLISH once the write of the resend before it settled. A transport whose write settles when its buffer
+   * took the bytes then meets each resend with that buffer drained, and a new publication goes out after every resend.
+   */
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The transport accepts the original mutable packet shape.
+  private async afterResends(packet: ClientPacket): Promise<void> {
+    const write = async () => this.sendIdentified(packet, 'MQTT publication send failed');
+    const sent =
+      this.resending === undefined
+        ? write()
+        : this.resending.then(async () => {
+            if (this.failure) throw this.failure;
+            await write();
+          });
+    const settled = sent.catch(() => {});
+    this.resending = settled;
+    void settled.then(() => {
+      if (this.resending === settled) this.resending = undefined;
+    });
+    await sent;
+  }
+
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The transport accepts the original mutable packet shape.
   private async sendIdentified(packet: ClientPacket, fallback: string): Promise<void> {
     try {
       await this.sendPacket(packet);
     } catch (reason) {
       const failure = transportFailure(reason, fallback);
-      if (packet.cmd === 'publish' && packet.qos === 1 && takeNativeBudgetFailure(packet, reason) !== undefined) {
-        // A resend that the budget refuses ends the connection, so the publication stays stored with its identifier.
-        if (packet.dup === true) void this.abort(failure).catch(() => {});
-        else this.session?.forget(packet.messageId);
-      } else void this.abort(failure).catch(() => {});
+      if (packet.cmd !== 'publish' || packet.qos !== 1 || takeNativeBudgetFailure(packet, reason) === undefined)
+        void this.abort(failure).catch(() => {});
+      else if (packet.dup !== true) this.session?.forget(packet.messageId);
+      else {
+        const conflict = new MqttError('ERR_MQTT_SESSION_CONFLICT', 'Stored MQTT publication does not fit the write budget', {
+          reasonCode: 0,
+          cause: failure,
+        });
+        void this.abort(conflict, 0).catch(() => {});
+        throw conflict;
+      }
       throw failure;
     }
   }

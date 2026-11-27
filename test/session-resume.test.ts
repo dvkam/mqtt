@@ -24,8 +24,11 @@ interface Script {
   connack?: (connection: number) => Partial<Omit<Connack, 'cmd'>>;
   /** Whether the broker answers a QoS 1 PUBLISH on the nth connection with PUBACK. Defaults to true. */
   puback?: (connection: number) => boolean;
-  /** The writer's `bufferedBytes` on the nth connection, given the PUBLISH bytes written on it so far. Defaults to 0. */
-  buffered?: (connection: number, publishBytes: number) => number;
+  /**
+   * The writer's `bufferedBytes` on the nth connection, given the PUBLISH bytes written on it so far and the bytes of the
+   * writes that have not settled. Defaults to 0. Each write settles one microtask after it starts.
+   */
+  buffered?: (connection: number, publishBytes: number, pendingBytes: number) => number;
 }
 
 // A broker over the byte transport. It answers CONNECT, SUBSCRIBE and, when the script says so, QoS 1 PUBLISH. It records
@@ -59,14 +62,16 @@ function broker(script: Readonly<Script> = {}) {
         },
       };
       connections.push(connection);
+      let pending = 0;
       return {
         get bufferedBytes() {
           let written = 0;
           for (const bytes of connection.publishBytes) written += bytes;
-          return script.buffered?.(index, written) ?? 0;
+          return script.buffered?.(index, written, pending) ?? 0;
         },
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- ByteWriter.write in src/byteTransport.ts takes the encoded Uint8Array by identity and returns a promise. This writer replies without waiting.
+        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteWriter.write in src/byteTransport.ts takes the encoded Uint8Array by identity.
         async write(bytes: Uint8Array) {
+          pending += bytes.byteLength;
           for (const packet of decoder.push(bytes)) {
             if (packet.cmd === 'connack' || packet.cmd === 'suback' || packet.cmd === 'unsuback' || packet.cmd === 'pingresp')
               continue;
@@ -78,6 +83,8 @@ function broker(script: Readonly<Script> = {}) {
             if (packet.cmd === 'publish' && packet.qos === 1 && (script.puback?.(index) ?? true))
               reply({ cmd: 'puback', messageId: packet.messageId, reasonCode: 0 });
           }
+          await Promise.resolve();
+          pending -= bytes.byteLength;
         },
         async close() {},
       };
@@ -366,7 +373,15 @@ test('a retained stored publication conflicts after CONNACK Retain Available 0',
   await third.disconnect();
 });
 
-test('a resend that the write budget refuses ends the connection and stays stored with its identifier', async () => {
+const budgetConflict = {
+  code: 'ERR_MQTT_SESSION_CONFLICT',
+  fatal: true,
+  reasonCode: 0,
+  message: 'Stored MQTT publication does not fit the write budget',
+  cause: { message: 'Session broker write budget exceeded' },
+};
+
+test('a resend that the write budget refuses ends the connection with a conflict and stays stored', async () => {
   const peer = broker({ puback: (index) => index === 3, connack: (index) => ({ sessionPresent: index !== 1 }) });
   const sessionState = createSessionState();
   const options = { cleanStart: false, sessionExpiryInterval: 600, sessionState };
@@ -387,11 +402,9 @@ test('a resend that the write budget refuses ends the connection and stays store
     },
   }).connect();
   await vi.advanceTimersByTimeAsync(0);
-  await expect(second.publish('b', 'b', { qos: 1 })).rejects.toThrow('Session broker write budget exceeded');
-  expect(peer.sent(1)).toEqual([]);
-  expect(ends).toMatchObject([
-    { kind: 'error', error: { message: 'Session broker write budget exceeded' }, uncertain: [{ topic: 'a', messageId: 1 }] },
-  ]);
+  await expect(second.publish('b', 'b', { qos: 1 })).rejects.toMatchObject(budgetConflict);
+  expect(peer.commands(1)).toEqual(['connect', 'disconnect']);
+  expect(ends).toMatchObject([{ kind: 'error', error: budgetConflict, uncertain: [{ topic: 'a', messageId: 1 }] }]);
   expect(sessionState.inFlight).toEqual([{ topic: 'a', messageId: 1, acknowledged: false }]);
   const third = await client(peer.transport, options).connect();
   await third.publish('c', 'c', { qos: 1 });
@@ -403,7 +416,43 @@ test('a resend that the write budget refuses ends the connection and stays store
   await third.disconnect();
 });
 
-test('a resend refused once the native queue fills ends the connection before a new publication takes its identifier', async () => {
+test('resends wait for the earlier resend writes, so a writer that drains on settle takes all of them', async () => {
+  const peer = broker({
+    puback: (index) => index !== 1,
+    connack: (index) => ({ sessionPresent: index !== 1 }),
+    buffered: (index, _written, pending) => (index === 2 ? pending : 0),
+  });
+  const sessionState = createSessionState();
+  const options = { cleanStart: false, sessionExpiryInterval: 600, sessionState };
+  const first = await client(peer.transport, options).connect();
+  const lost: Promise<unknown>[] = [];
+  for (const topic of ['a', 'b', 'c']) {
+    lost.push(first.publish(topic, new Uint8Array(300_000), { qos: 1 }).catch((reason: unknown) => reason));
+    await vi.advanceTimersByTimeAsync(0);
+  }
+  peer.connections[0]?.end();
+  await Promise.all(lost);
+  expect(sessionState.inFlight).toHaveLength(3);
+  // Three 300,000-byte resends written back to back would exceed this 700,000-byte budget.
+  const second = await createTransportClient(peer.transport, {
+    clientId: 'resume',
+    onQosOneMessage() {},
+    ...options,
+    maxBufferedBytes: 700_000,
+    reservedControlBytes: 0,
+  }).connect();
+  await second.publish('d', 'd', { qos: 1 });
+  expect(peer.sent(1)).toEqual([
+    ['a', 1, true],
+    ['b', 2, true],
+    ['c', 3, true],
+    ['d', 4, false],
+  ]);
+  expect(sessionState.inFlight).toEqual([]);
+  await second.disconnect();
+});
+
+test('a resend refused by a writer that never drains ends with a conflict before a new publication takes its identifier', async () => {
   const peer = broker({
     puback: () => false,
     connack: (index) => ({ sessionPresent: index !== 1 }),
@@ -418,7 +467,7 @@ test('a resend refused once the native queue fills ends the connection before a 
   for (const publication of lost) await expect(publication).rejects.toMatchObject({ code: 'ERR_MQTT_TRANSPORT' });
   const second = await client(peer.transport, options).connect();
   await vi.advanceTimersByTimeAsync(0);
-  await expect(second.publish('d', 'd', { qos: 1 })).rejects.toThrow('Session broker write budget exceeded');
+  await expect(second.publish('d', 'd', { qos: 1 })).rejects.toMatchObject(budgetConflict);
   expect(peer.sent(1)).toEqual([
     ['a', 1, true],
     ['b', 2, true],
@@ -430,13 +479,37 @@ test('a resend refused once the native queue fills ends the connection before a 
   ]);
 });
 
+test('the reconnecting client retries a budget conflict, sends the earlier resends again on each attempt, and stops', async () => {
+  const peer = broker({
+    puback: () => false,
+    connack: (index) => ({ sessionPresent: index !== 1 }),
+    buffered: (index, written) => (index === 1 ? 0 : written),
+  });
+  const { client: reconnecting, events } = supervise(peer.transport, { maxAttempts: 3, subscriptions: [] });
+  const first = await reconnecting.session();
+  for (const topic of ['a', 'b', 'c']) {
+    first.publish(topic, new Uint8Array(320_000), { qos: 1 }).catch(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+  }
+  peer.connections[0]?.end();
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(events.at(-1)).toMatchObject({ kind: 'stopped', reason: 'exhausted', error: budgetConflict });
+  expect(peer.connections).toHaveLength(3);
+  for (const index of [1, 2]) {
+    expect(peer.sent(index)).toEqual([
+      ['a', 1, true],
+      ['b', 2, true],
+    ]);
+  }
+});
+
 test('the store refuses a new publication whose Packet Identifier a stored publication holds', () => {
   const binding = bindSessionState();
   const stored = { topic: 'a', payload: Uint8Array.of(1), payloadBytes: 1, retain: false, properties: undefined, propertyBytes: 1 };
   binding.record(stored, 1);
   expect(() => {
     binding.record({ ...stored, topic: 'b' }, 1);
-  }).toThrow(expect.objectContaining({ code: 'ERR_MQTT_SESSION_CONFLICT', fatal: false }));
+  }).toThrow('MQTT session state already stores Packet Identifier 1');
   expect(binding.state.inFlight).toEqual([{ topic: 'a', messageId: 1, acknowledged: false }]);
 });
 

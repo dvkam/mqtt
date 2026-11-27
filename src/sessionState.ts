@@ -1,5 +1,6 @@
 import { MqttError } from './mqttError.js';
 import type { OutgoingPublication } from './publication.js';
+import { publishSize } from './publicationAdmission.js';
 import type { ConnectionInfo, UncertainPublication } from './session.js';
 import { utf8Length } from './util/utf8.js';
 
@@ -45,7 +46,7 @@ export interface SessionBinding {
   readonly resume: (connection: Readonly<ConnectionInfo>) => MqttError | ReadonlyMap<number, OutgoingPublication>;
   /**
    * Store a copy of a new QoS 1 publication before its first write, because the caller may reuse its payload and
-   * Correlation Data once the publish settles. Throws when a stored publication already holds the Packet Identifier.
+   * Correlation Data once the publish settles. Throws instead of replacing a stored publication.
    */
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- prefer-readonly-parameter-types needs every member deeply read-only, and the Uint8Array payload and Correlation Data of OutgoingPublication (src/publication.ts) have mutable index signatures that no readonly type removes.
   readonly record: (publication: OutgoingPublication, messageId: number) => void;
@@ -105,11 +106,8 @@ export function bindSessionState(events?: Readonly<SessionEvents>): SessionBindi
       if (connection.maximumQos === 0) return conflict('MQTT broker no longer accepts the stored QoS 1 publications');
       const limit = connection.maximumPacketSize ?? Number.POSITIVE_INFINITY;
       for (const { topic, payloadBytes, propertyBytes, retain } of publications.values()) {
-        // The size of a QoS 1 PUBLISH, counted as PublicationAdmission.reserve counts it.
-        const remaining = 2 + utf8Length(topic) + 2 + propertyBytes + payloadBytes;
-        let lengthBytes = 1;
-        for (let value = remaining; value >= 128; value = Math.floor(value / 128)) lengthBytes++;
-        if (1 + lengthBytes + remaining > limit) return conflict('Stored MQTT publication exceeds the Maximum Packet Size');
+        if (publishSize(utf8Length(topic), payloadBytes, propertyBytes, 1) > limit)
+          return conflict('Stored MQTT publication exceeds the Maximum Packet Size');
         if (retain && !connection.retainAvailable)
           return conflict('Stored MQTT publication is retained, and the broker no longer allows retained messages');
       }
@@ -117,10 +115,8 @@ export function bindSessionState(events?: Readonly<SessionEvents>): SessionBindi
     },
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- prefer-readonly-parameter-types needs every member deeply read-only, and the Uint8Array payload and Correlation Data of OutgoingPublication (src/publication.ts) have mutable index signatures that no readonly type removes.
     record(publication, messageId) {
-      if (publications.has(messageId))
-        throw new MqttError('ERR_MQTT_SESSION_CONFLICT', 'A stored MQTT publication holds this Packet Identifier', {
-          fatal: false,
-        });
+      // The client claims every stored identifier when it resumes, so no new publication can get one.
+      if (publications.has(messageId)) throw new Error('MQTT session state already stores Packet Identifier ' + String(messageId));
       const { payload, properties } = publication;
       const correlationData = properties?.correlationData;
       publications.set(messageId, {
