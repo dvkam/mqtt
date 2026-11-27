@@ -53,6 +53,21 @@ try {
     }
     await page.getByTestId('results').getByText(': PUBACK').waitFor();
     await page.getByTestId('reconnects').getByText('connected generation 1 attempt 1, previous end: none').waitFor();
+    await page.click('#retry-now');
+    await page.getByTestId('reconnects').getByText('retryNow() returned false').waitFor();
+
+    // A headless page stays visible, so the page's visibilityState getter is replaced before the dispatched events.
+    await page.evaluate(() => {
+      let state = 'hidden';
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+      document.dispatchEvent(new Event('visibilitychange'));
+      state = 'visible';
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await page
+      .getByTestId('reconnects')
+      .getByText(/^page returned on visibilitychange after \d+ ms: answered$/u)
+      .waitFor();
 
     if (mode === 'scripted') {
       await page.fill('#topic', 'playground/unacknowledged');
@@ -65,12 +80,16 @@ try {
         .getByTestId('reconnects')
         .getByText(/^retrying attempt 2 in \d+ ms after ERR_MQTT_TRANSPORT/u)
         .waitFor();
+      const retried = performance.now();
+      await page.click('#retry-now');
+      await page.getByTestId('reconnects').getByText('retryNow() returned true').waitFor();
       await page
         .getByTestId('reconnects')
         .getByText(
           /^connected generation 2 attempt 2, previous end: ERR_MQTT_TRANSPORT .*uncertain publications: playground\/unacknowledged #\d+$/u,
         )
         .waitFor();
+      assert.ok(performance.now() - retried < 2000, 'retryNow() connects before the backoff of at least 2,500 ms ends');
       await page.getByTestId('results').getByText(`subscribed playground/${process.pid}/# again after the reconnect`).waitFor();
       await page.fill('#topic', `playground/${process.pid}/again`);
       await page.fill('#payload', 'hello after the reconnect');
@@ -97,7 +116,7 @@ try {
     assert.doesNotMatch(diagnostics, /hello/u, 'diagnostics hold no payload');
     assert.deepEqual(pageErrors, []);
     console.log(
-      `Playground ${mode} mode connected, subscribed, published at QoS 0 and 1${mode === 'scripted' ? ', reconnected after a drop' : ''} and disconnected in Chromium`,
+      `Playground ${mode} mode connected, subscribed, published at QoS 0 and 1${mode === 'scripted' ? ', reconnected at once with Retry now after a drop' : ''}, reported a page return and disconnected in Chromium`,
     );
     await page.close();
   }

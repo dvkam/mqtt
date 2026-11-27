@@ -2,11 +2,14 @@ import {
   createBrowserClient,
   createReconnectingClient,
   isMqttError,
+  watchPageLifecycle,
   type BrowserMessage,
   type BrowserQosOneMessage,
   type ClientDiagnostic,
   type ClientSession,
+  type PageReturn,
   type ReconnectEvent,
+  type ReconnectOptions,
   type ReconnectingClient,
   type SessionEnd,
 } from 'mqtt/browser';
@@ -39,6 +42,7 @@ const drain = element('drain', HTMLInputElement);
 const sendWill = element('send-will', HTMLInputElement);
 const disconnectButton = element('disconnect', HTMLButtonElement);
 const dropButton = element('drop', HTMLButtonElement);
+const retryButton = element('retry-now', HTMLButtonElement);
 const reconnects = element('reconnects', HTMLOListElement);
 const results = element('results', HTMLOListElement);
 const messages = element('messages', HTMLOListElement);
@@ -47,6 +51,7 @@ const diagnostics = element('diagnostics', HTMLOListElement);
 let client: ReconnectingClient | undefined;
 let session: ClientSession | undefined;
 let broker: ScriptedBroker | undefined;
+let stopWatching: (() => void) | undefined;
 const subscribed = new Map<string, 0 | 1>();
 const decoder = new TextDecoder();
 
@@ -72,6 +77,7 @@ function setState(state: 'idle' | 'waiting' | 'connected'): void {
   publishButton.disabled = state !== 'connected';
   disconnectButton.disabled = state === 'idle';
   dropButton.disabled = state !== 'connected' || broker === undefined;
+  retryButton.disabled = state === 'idle';
 }
 
 function qos(select: HTMLSelectElement): 0 | 1 {
@@ -107,6 +113,10 @@ async function subscribeAgain(current: ClientSession): Promise<void> {
   }
 }
 
+function onReturn(event: PageReturn): void {
+  log(reconnects, `page returned on ${event.trigger} after ${String(Math.round(event.awayMs))} ms: ${event.outcome}`, 'info');
+}
+
 function onReconnect(event: ReconnectEvent): void {
   if (event.kind === 'connected') {
     session = event.session;
@@ -129,6 +139,8 @@ function onReconnect(event: ReconnectEvent): void {
     );
     setState('waiting');
   } else {
+    stopWatching?.();
+    stopWatching = undefined;
     client = undefined;
     session = undefined;
     broker = undefined;
@@ -163,14 +175,18 @@ connectButton.addEventListener('click', () => {
     ...(password.value === '' ? {} : { password: password.value }),
     ...(willTopic.value === '' ? {} : { will: { topic: willTopic.value, payload: 'offline' } }),
   };
+  const reconnect: ReconnectOptions = { initialDelayMs: 5000, onReconnect };
+  let created: ReconnectingClient;
   if (mode.value === 'scripted') {
     const scripted = scriptedBroker();
     broker = scripted;
-    client = createReconnectingClient((options) => createTransportClient(scripted.transport, options), shared, { onReconnect });
+    created = createReconnectingClient((options) => createTransportClient(scripted.transport, options), shared, reconnect);
   } else {
     broker = undefined;
-    client = createReconnectingClient(createBrowserClient, { ...shared, url: url.value }, { onReconnect });
+    created = createReconnectingClient(createBrowserClient, { ...shared, url: url.value }, reconnect);
   }
+  client = created;
+  stopWatching = watchPageLifecycle(created, { onReturn });
 });
 
 subscribeButton.addEventListener('click', () => {
@@ -207,6 +223,10 @@ disconnectButton.addEventListener('click', () => {
       log(results, `disconnect failed: ${describe(error)}`, 'error');
     }
   })();
+});
+
+retryButton.addEventListener('click', () => {
+  if (client !== undefined) log(reconnects, `retryNow() returned ${String(client.retryNow())}`, 'info');
 });
 
 dropButton.addEventListener('click', () => {
