@@ -132,8 +132,11 @@ class PortableClient<Bytes extends Uint8Array> {
   private readonly session: SessionBinding | undefined;
   private readonly releaseSession: (() => void) | undefined;
   private resending?: Promise<unknown>;
-  // Set while resends are unwritten. New publications wait until `done` settles.
+  // Set while resends are unwritten: `unwritten` counts them, and `waiting` holds the QoS 0 publications that wait for
+  // them. New QoS 1 publications wait in the OutboundQosOne queue instead.
   private resendPhase?: { readonly waiting: WaitingWrite[]; unwritten: number };
+  // Set once DISCONNECT is about to be written or the session ended. No resend or waiting write goes out after it.
+  private writesEnded?: Error;
   private pendingAck?: (packet: Acknowledgment) => void;
   private keepAlive?: KeepAlive;
   private automaticPing?: Promise<void>;
@@ -517,7 +520,7 @@ class PortableClient<Bytes extends Uint8Array> {
     }
     if (this.resendPhase !== undefined)
       return this.afterResends(
-        // oxlint-disable-next-line typescript/promise-function-async -- Forward the native send promise directly to the write deadline owner.
+        // oxlint-disable-next-line typescript/promise-function-async -- An async wrapper would add a promise and a microtask hop per QoS 0 publish before QosZeroWrites.run in src/qosZeroWrites.ts chains on the write.
         () => this.sendPacket(publishPacket(publication)),
         release,
       );
@@ -563,7 +566,7 @@ class PortableClient<Bytes extends Uint8Array> {
       this.resending === undefined
         ? write()
         : this.resending.then(async () => {
-            if (this.failure) throw this.failure;
+            if (this.writesEnded) throw this.writesEnded;
             await write();
           });
     this.resending = sent.catch(() => {});
@@ -588,8 +591,13 @@ class PortableClient<Bytes extends Uint8Array> {
    * reservation while it waits, so memory stays bounded, and a session end rejects it and returns the reservation.
    */
   private async afterResends(write: () => Promise<void>, release: () => void): Promise<void> {
+    const phase = this.resendPhase;
+    if (phase === undefined) {
+      await this.qosZeroWrites.run(write, release);
+      return;
+    }
     await new Promise<void>((resolve, reject) => {
-      this.resendPhase?.waiting.push({
+      phase.waiting.push({
         write: () => {
           this.qosZeroWrites.run(write, release).then(resolve, reject);
         },
@@ -599,6 +607,17 @@ class PortableClient<Bytes extends Uint8Array> {
         },
       });
     });
+  }
+
+  /**
+   * Stop every resend and waiting QoS 0 write that has not gone out, before DISCONNECT or at a session end. The stored
+   * publications stay stored for a later resume.
+   */
+  private endWrites(error: Readonly<Error>): void {
+    this.writesEnded ??= error;
+    const phase = this.resendPhase;
+    this.resendPhase = undefined;
+    for (const { fail } of phase?.waiting ?? []) fail(error);
   }
 
   /** `disconnect()` dropped resends that had not started, so the phase ends once the started ones are written. */
@@ -764,6 +783,8 @@ class PortableClient<Bytes extends Uint8Array> {
       if (drainTimeoutMs !== undefined && outbound?.hasActive === true) await outbound.waitForActive(drainTimeoutMs);
       this.drainingPublications = false;
       this.stopKeepAlive();
+      // MQTT-3.14.4-1: no packet may follow DISCONNECT.
+      this.endWrites(closingError());
       await this.run(async () =>
         this.sendPacket(reasonCode === undefined ? { cmd: 'disconnect' } : { cmd: 'disconnect', reasonCode }),
       );
@@ -846,8 +867,7 @@ class PortableClient<Bytes extends Uint8Array> {
     this.failure = error;
     this.releaseSession?.();
     // Held QoS 1 publications stay queued until retire rejects them.
-    for (const { fail } of this.resendPhase?.waiting ?? []) fail(error);
-    this.resendPhase = undefined;
+    this.endWrites(error);
     this.drainingPublications = false;
     this.stopKeepAlive();
     this.nextInbound = undefined;

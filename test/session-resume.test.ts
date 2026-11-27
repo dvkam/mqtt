@@ -37,6 +37,11 @@ interface Script {
   buffered?: (connection: number, publishBytes: number, pendingBytes: number) => number;
   /** Whether a write of this many bytes on the nth connection never settles and never reaches the broker. */
   hold?: (connection: number, bytes: number) => boolean;
+  /**
+   * How many milliseconds a write of a packet type other than CONNECT takes to settle on the nth connection. The type is
+   * the high nibble of the first byte, 3 for PUBLISH and 14 for DISCONNECT. Defaults to one microtask.
+   */
+  settleMs?: (connection: number, type: number) => number | undefined;
   /** How many milliseconds the broker waits before it sends a PUBACK on the nth connection. Defaults to none. */
   pubackDelayMs?: (connection: number) => number;
 }
@@ -101,7 +106,13 @@ function broker(script: Readonly<Script> = {}) {
                 }, delay);
             }
           }
-          await Promise.resolve();
+          const type = (bytes[0] ?? 0) >> 4;
+          const settleMs = type === 1 ? undefined : script.settleMs?.(index, type);
+          await (settleMs === undefined
+            ? Promise.resolve()
+            : new Promise<void>((resolve) => {
+                setTimeout(resolve, settleMs);
+              }));
           pending -= bytes.byteLength;
         },
         async close() {},
@@ -670,6 +681,38 @@ test('disconnect() during the resend phase still writes a QoS 0 publication it a
     ['a', 1, true],
     ['z', undefined, undefined],
   ]);
+  expect(sessionState.inFlight.map(({ topic }) => topic)).toEqual(['b', 'c']);
+});
+
+test.each([
+  ['drain false', { drain: false }],
+  ['an expired drain deadline', { drainTimeoutMs: 100 }],
+] as const)('after disconnect() with %s, no resend or waiting QoS 0 write follows DISCONNECT', async (_name, disconnect) => {
+  let held = 0;
+  const peer = broker({
+    puback: (index) => index !== 1,
+    connack: (index) => ({ sessionPresent: index !== 1 }),
+    // DISCONNECT settles after the resends would have, as on a socket that flushes it later.
+    settleMs: (index, type) => (index !== 2 ? undefined : type === 14 ? 50 : 10),
+    // After CONNECT and the first resend, the second resend write never settles, so a drain waits until its deadline.
+    hold: (index, bytes) => index === 2 && 'drainTimeoutMs' in disconnect && bytes > 4 && ++held === 3,
+  });
+  const sessionState = createSessionState();
+  await storeThree(
+    peer.transport,
+    () => {
+      peer.connections[0]?.end();
+    },
+    sessionState,
+  );
+  const second = await client(peer.transport, { cleanStart: false, sessionExpiryInterval: 600, sessionState }).connect();
+  const published = second.publish('z', 'z').catch((reason: unknown) => reason);
+  const disconnected = second.disconnect(disconnect);
+  await vi.advanceTimersByTimeAsync(500);
+  await disconnected;
+  expect(await published).toMatchObject({ code: 'ERR_MQTT_CLOSING' });
+  expect(peer.commands(1)).toEqual(['connect', 'publish', 'disconnect']);
+  expect(peer.sent(1)).toEqual([['a', 1, true]]);
   expect(sessionState.inFlight.map(({ topic }) => topic)).toEqual(['b', 'c']);
 });
 
