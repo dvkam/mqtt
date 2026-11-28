@@ -87,19 +87,24 @@ test('settles a pending operation and refuses later sends when the WebSocket clo
   }
 });
 
-test('does not deliver application messages before MQTT connection acceptance', async () => {
+test('a PUBLISH before CONNACK ends the attempt and delivers nothing', async () => {
   const broker = await peer(true);
   try {
     const delivered: unknown[] = [];
-    const client = await createWebSocketClient({
+    const connecting = createWebSocketClient({
       url: broker.url,
       clientId: 'early',
       onMessage: (packet: unknown) => {
         delivered.push(packet);
       },
     }).connect();
-    await client.disconnect();
+    await expect(connecting).rejects.toMatchObject({
+      code: 'ERR_MQTT_PROTOCOL',
+      reasonCode: 0x82,
+      message: 'MQTT PUBLISH arrived before CONNACK',
+    });
     expect(delivered).toEqual([]);
+    expect(broker.packets.map(({ cmd }: Readonly<{ cmd: string }>) => cmd)).toEqual(['connect']);
   } finally {
     await broker.close();
   }

@@ -5,15 +5,11 @@ import { nodePacketListener } from '../src/nodePacketListener.js';
 
 const publication: FramedPacket = { cmd: 'publish', topic: 'typed/message', payload: Buffer.from([0, 255]), retain: false };
 
-function listener(receiveQosOne = false, receiveQosTwo = false) {
+function listener() {
   const received: unknown[] = [];
-  const listen = nodePacketListener(
-    (packet: unknown) => {
-      received.push(packet);
-    },
-    receiveQosOne,
-    receiveQosTwo,
-  );
+  const listen = nodePacketListener((packet: unknown) => {
+    received.push(packet);
+  });
   return { received, listen };
 }
 
@@ -65,8 +61,8 @@ test('delivers every PUBLISH property flat, with User Properties in wire order',
   ]);
 });
 
-test('delivers a QoS 1 PUBLISH with its identifier and DUP flag when the session receives QoS 1', () => {
-  const { received, listen } = listener(true);
+test('delivers a QoS 1 PUBLISH with its identifier and DUP flag', () => {
+  const { received, listen } = listener();
   listen({ ...publication, qos: 1, messageId: 9, dup: true, contentType: 'c' });
   expect(received).toStrictEqual([
     {
@@ -82,37 +78,14 @@ test('delivers a QoS 1 PUBLISH with its identifier and DUP flag when the session
   ]);
 });
 
-test('drops QoS 1 and QoS 2 PUBLISH when the session receives only QoS 0', () => {
+test('delivers a QoS 2 PUBLISH with its identifier and DUP flag', () => {
   const { received, listen } = listener();
-  listen({ ...publication, qos: 1, messageId: 1 });
-  listen({ ...publication, qos: 2, messageId: 2 });
-  expect(received).toEqual([]);
-});
-
-test('rejects a QoS 2 PUBLISH when the session receives QoS 1 only', () => {
-  const { received, listen } = listener(true);
-  expect(() => {
-    listen({ ...publication, qos: 2, messageId: 2 });
-  }).toThrow('Unsupported incoming MQTT PUBLISH');
-  expect(received).toEqual([]);
-});
-
-test('delivers a QoS 2 PUBLISH with its identifier and DUP flag when the session receives QoS 2', () => {
-  const { received, listen } = listener(false, true);
   listen({ ...publication, qos: 2, messageId: 9, dup: true });
   listen({ ...publication, qos: 2, messageId: 10 });
   expect(received).toStrictEqual([
     { cmd: 'publish', topic: 'typed/message', payload: Buffer.from([0, 255]), qos: 2, dup: true, retain: false, messageId: 9 },
     { cmd: 'publish', topic: 'typed/message', payload: Buffer.from([0, 255]), qos: 2, dup: false, retain: false, messageId: 10 },
   ]);
-});
-
-test('rejects a QoS 1 PUBLISH when the session receives QoS 2 only', () => {
-  const { received, listen } = listener(false, true);
-  expect(() => {
-    listen({ ...publication, qos: 1, messageId: 2 });
-  }).toThrow('Unsupported incoming MQTT PUBLISH');
-  expect(received).toEqual([]);
 });
 
 test('forwards the public broker packets unchanged', () => {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import type { ByteTransport } from '../src/byteTransport.js';
+import type { ByteInbound, ByteTransport, OpenContext } from '../src/byteTransport.js';
 import {
   createSessionState,
   createTransportClient,
@@ -8,6 +8,7 @@ import {
   type SessionState,
 } from '../src/portableClient.js';
 import { createReconnectingClient, type ReconnectEvent } from '../src/reconnect.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 import { acknowledge, exchangeBroker, settle, type Delivery, type ExchangeConnection } from './experiments/exchange-broker.js';
 
 const qosTwo = { qos: 2 } as const;
@@ -577,7 +578,7 @@ function message(topic: string, messageId: number, dup = false): Delivery {
 const pubrecOne = [0x50, 2, 0, 1];
 const pubcompOne = [0x70, 2, 0, 1];
 
-test('MQTT-4.3.3-10: a handler of an earlier connection that fails late causes no second delivery of a newer message', async () => {
+test('MQTT-4.3.3-10: a handler of an earlier connection that fails late is called again once, and a newer message is delivered once', async () => {
   const peer = exchangeBroker({ connack: (index) => ({ sessionPresent: index >= 2 }) });
   const sessionState = createSessionState();
   const { calls, handlers, fail } = lateHandler();
@@ -591,6 +592,11 @@ test('MQTT-4.3.3-10: a handler of an earlier connection that fails late causes n
   const second = peer.connection(1);
   second.deliver(message('A', 1, true));
   await settle();
+  // The PUBREC waits for the handler, so the broker cannot end the exchange of A and give its identifier away.
+  expect(second.frames).toEqual([]);
+  fail();
+  await settle();
+  expect(second.frames).toEqual([pubrecOne]);
   second.deliver({ cmd: 'pubrel', messageId: 1, reasonCode: 0 });
   await settle();
   // The exchange of A is over, so the broker may give Packet Identifier 1 to B.
@@ -600,13 +606,11 @@ test('MQTT-4.3.3-10: a handler of an earlier connection that fails late causes n
   // The PUBREC for B is lost with the connection.
   second.end();
   await settle();
-  fail();
-  await settle();
   await connect(peer.transport, sessionState, { ...handlers, cleanStart: false }).connecting;
   peer.connection(2).deliver(message('B', 1, true));
   await settle();
   expect(peer.connection(2).frames).toEqual([pubrecOne]);
-  expect(calls).toEqual(['A id 1', 'B id 1']);
+  expect(calls).toEqual(['A id 1', 'A id 1 dup', 'B id 1']);
 });
 
 test('a handler of an earlier session that fails late leaves the exchange that now has its Packet Identifier', async () => {
@@ -654,7 +658,7 @@ test('a handler of an earlier connection that fails late frees its own Packet Id
   await second.disconnect();
 });
 
-test('a handler of an earlier connection that fulfills late does not record a Packet Identifier whose exchange ended', async () => {
+test('a handler of an earlier connection that fulfills late answers the duplicate, and its identifier then names a new message', async () => {
   const peer = exchangeBroker({ connack: (index) => ({ sessionPresent: index >= 2 }) });
   const sessionState = createSessionState();
   const { calls, handlers, fulfill } = lateHandler();
@@ -666,9 +670,10 @@ test('a handler of an earlier connection that fulfills late does not record a Pa
   const second = await connect(peer.transport, sessionState, { ...handlers, cleanStart: false }).connecting;
   peer.connection(1).deliver(message('A', 1, true));
   await settle();
-  peer.connection(1).deliver({ cmd: 'pubrel', messageId: 1, reasonCode: 0 });
-  await settle();
+  expect(peer.connection(1).frames).toEqual([]);
   fulfill();
+  await settle();
+  peer.connection(1).deliver({ cmd: 'pubrel', messageId: 1, reasonCode: 0 });
   await settle();
   // The exchange of A is over, so Packet Identifier 1 names a new message and not a duplicate.
   peer.connection(1).deliver(message('B', 1));
@@ -676,4 +681,62 @@ test('a handler of an earlier connection that fulfills late does not record a Pa
   expect(calls).toEqual(['A id 1', 'B id 1']);
   expect(peer.connection(1).frames).toEqual([pubrecOne, pubcompOne, pubrecOne]);
   await second.disconnect();
+});
+
+test('a QoS 2 PUBLISH without DUP is a new message although an earlier connection stored its identifier', async () => {
+  let opens = 0;
+  let lost: Readonly<ByteInbound> | undefined;
+  const peer = exchangeBroker({
+    connack: (index) => ({ sessionPresent: index === 3 }),
+    answer(packet, index) {
+      // The broker read the second CONNECT, and the connection ends before the client reads the CONNACK.
+      if (index === 2 && packet.cmd === 'connect')
+        queueMicrotask(() => {
+          lost?.end();
+        });
+      return undefined;
+    },
+  });
+  // The second connection reaches the broker, which has lost the session and starts a new one. Its CONNACK with Session
+  // Present false goes nowhere, so the client keeps its state.
+  const lossy: ByteTransport = {
+    name: 'lossy',
+    async open(inbound: Readonly<ByteInbound>, context: ReadonlyDeep<OpenContext>) {
+      opens += 1;
+      if (opens !== 2) return peer.transport.open(inbound, context);
+      lost = inbound;
+      return peer.transport.open({ bytes() {}, end() {}, fail() {} }, context);
+    },
+  };
+  const sessionState = createSessionState();
+  const { delivered, handlers } = receiver();
+  await connect(lossy, sessionState, handlers).connecting;
+  peer.connection(0).deliver(inbound(7));
+  await settle();
+  expect(peer.connection(0).frames).toEqual([[0x50, 2, 0, 7]]);
+  peer.connection(0).end();
+  await settle();
+  await expect(connect(lossy, sessionState, { ...handlers, cleanStart: false }).connecting).rejects.toMatchObject({
+    code: 'ERR_MQTT_TRANSPORT',
+  });
+  // The third CONNACK says Session Present true, for the new and empty session of the broker.
+  const third = await connect(lossy, sessionState, { ...handlers, cleanStart: false }).connecting;
+  expect(third.connection.sessionPresent).toBe(true);
+  // The new session numbers its Packet Identifiers from scratch, and a first PUBLISH has DUP 0 (MQTT-4.3.3-2).
+  peer.connection(2).deliver({ cmd: 'publish', topic: 'b', payload: 'new', qos: 2, messageId: 7, dup: false });
+  await settle();
+  expect(delivered).toEqual(['7', '7']);
+  expect(peer.connection(2).frames).toEqual([[0x50, 2, 0, 7]]);
+  // The identifier now names the new message, so its PUBLISH with DUP is a duplicate and its PUBREL ends the exchange.
+  peer.connection(2).deliver(inbound(7, true));
+  await settle();
+  peer.connection(2).deliver({ cmd: 'pubrel', messageId: 7, reasonCode: 0 });
+  await settle();
+  expect(delivered).toEqual(['7', '7']);
+  expect(peer.connection(2).frames).toEqual([
+    [0x50, 2, 0, 7],
+    [0x50, 2, 0, 7],
+    [0x70, 2, 0, 7],
+  ]);
+  await third.disconnect();
 });

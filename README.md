@@ -116,7 +116,7 @@ The [deadline guide](docs/deadlines.md) defines timeout validation, captured set
 
 The [outgoing admission guide](docs/outgoing-admission.md) defines publication count and wire-byte limits. Defaults allow 32 pending publications within 1 MiB. Capacity rejection occurs before sending and leaves the session usable.
 
-Pass `{ qos: 1 }` to publish with broker acknowledgment. The [publishing guide](docs/qos1-publish.md) explains quota, shared identifiers and cancellation. To receive at QoS 1, configure `onQosOneMessage` and request QoS 1 when subscribing. See the [delivery guide](docs/qos1-receive.md) for the callback contract. Pass `{ qos: 2 }` to publish through PUBREC, PUBREL and PUBCOMP, and configure `onQosTwoMessage` to receive each QoS 2 message once. The [QoS 2 guide](docs/qos2.md) describes both directions.
+Pass `{ qos: 1 }` to publish with broker acknowledgment. The [publishing guide](docs/qos1-publish.md) explains quota, shared identifiers and cancellation. To receive at QoS 1, configure `onQosOneMessage` and request QoS 1 when subscribing. See the [delivery guide](docs/qos1-receive.md) for the callback contract. Pass `{ qos: 2 }` to publish through PUBREC, PUBREL and PUBCOMP, and configure `onQosTwoMessage` together with `onQosOneMessage` to receive each QoS 2 message once. The [QoS 2 guide](docs/qos2.md) describes both directions.
 
 Set `will` to register a message for the broker to publish if the connection is interrupted. Use `disconnect({ reasonCode: 4 })` to request that Will on a deliberate shutdown. [Will messages](https://github.com/dvkam/mqtt/blob/main/docs/will-message.md)
 

@@ -58,7 +58,7 @@ The browser client applies the same inbound rules as the Node clients. The owner
 
 - AUTH is a protocol error with reason code 0x82, and the client sends DISCONNECT.
 - A QoS 0 PUBLISH with DUP set is a protocol error with 0x81, also with DISCONNECT.
-- A QoS 1 or QoS 2 PUBLISH is dropped when neither `onQosOneMessage` nor `onQosTwoMessage` is set, and no acknowledgment is sent. With only the handler of the other QoS it ends the session with `Unsupported incoming MQTT PUBLISH`.
+- A QoS 1 PUBLISH without `onQosOneMessage`, or a QoS 2 PUBLISH without `onQosTwoMessage`, ends the session with `ERR_MQTT_PROTOCOL` and DISCONNECT 0x82. [Inbound QoS 1](qos1-receive.md#a-publish-the-client-cannot-acknowledge)
 - PUBREC, PUBREL and PUBCOMP reach the session, which uses them for [QoS 2](qos2.md) exchanges. Without an exchange, a PUBREC gets PUBREL and a PUBREL gets PUBCOMP, each with reason 0x92, and a PUBCOMP is ignored.
 - A fixed header with invalid flags fails on its first byte.
 

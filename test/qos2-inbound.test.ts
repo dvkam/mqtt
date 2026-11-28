@@ -260,10 +260,9 @@ test('a transport that answers from inside its write call completes inbound QoS 
   await session.disconnect();
 });
 
-test('a QoS 2 handler alone advertises Receive Maximum 1', async () => {
-  const peer = exchangeBroker();
-  const session = await createTransportClient(peer.transport, { clientId: 'receiver', onQosTwoMessage() {} }).connect();
-  expect(peer.connection(0).packets[0]).toMatchObject({ cmd: 'connect', receiveMaximum: 1 });
+test('a client with both handlers advertises Receive Maximum 1', async () => {
+  const { session, connection } = await receiver();
+  expect(connection.packets[0]).toMatchObject({ cmd: 'connect', receiveMaximum: 1 });
   await session.disconnect();
 });
 
@@ -326,11 +325,8 @@ test('a second PUBLISH while the PUBCOMP write is pending exceeds the Receive Ma
   await expect(session.ping()).rejects.toMatchObject({ code: 'ERR_MQTT_PROTOCOL', reasonCode: 0x93 });
 });
 
-test.each([
-  ['no QoS 2 handler', { onQosTwoMessage: undefined }],
-  ['no QoS 1 handler', { onQosOneMessage: undefined }],
-] as const)('a QoS 2 subscription with %s rejects before any write', async (_name, missing) => {
-  const { session, connection } = await receiver({}, missing);
+test('a QoS 2 subscription with no QoS 2 handler rejects before any write', async () => {
+  const { session, connection } = await receiver({}, { onQosTwoMessage: undefined });
   await expect(session.subscribe('a', { qos: 2 })).rejects.toMatchObject({
     code: 'ERR_MQTT_INVALID_ARGUMENT',
     fatal: false,
@@ -378,14 +374,6 @@ test('a QoS 2 subscription delivers each publication to the handler of its own Q
   await session.disconnect();
 });
 
-test('a QoS 1 PUBLISH ends a session that handles only QoS 2', async () => {
-  const { session, connection, ends } = await receiver({}, { onQosOneMessage: undefined });
-  connection.deliver(publication(3, 1));
-  await settle();
-  expect(ends).toMatchObject([{ kind: 'error', error: { message: 'Unsupported incoming MQTT PUBLISH' } }]);
-  await expect(session.ping()).rejects.toThrow('Unsupported incoming MQTT PUBLISH');
-});
-
 test('disconnect() answers no PUBREL afterwards, and DISCONNECT is the last packet', async () => {
   const { session, connection } = await receiver();
   connection.deliver(publication(7));
@@ -423,9 +411,14 @@ test('a handler that finishes after disconnect() sends no PUBREC', async () => {
 
 test('a QoS 2 PUBLISH before CONNACK ends the connection attempt', async () => {
   const peer = exchangeBroker({ early: publishBytes(false) });
-  const connecting = createTransportClient(peer.transport, { clientId: 'receiver', onQosTwoMessage() {} }).connect();
+  const connecting = createTransportClient(peer.transport, {
+    clientId: 'receiver',
+    onQosOneMessage() {},
+    onQosTwoMessage() {},
+  }).connect();
   await expect(connecting).rejects.toMatchObject({
     code: 'ERR_MQTT_PROTOCOL',
-    message: 'Inbound QoS 2 PUBLISH arrived before CONNACK',
+    reasonCode: 0x82,
+    message: 'MQTT PUBLISH arrived before CONNACK',
   });
 });

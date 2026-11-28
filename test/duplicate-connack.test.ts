@@ -133,12 +133,12 @@ test.each([false, true])('an earlier terminal CONNACK keeps ownership, refusal=%
   });
 });
 
-test('each independent client accepts its first CONNACK and ordinary packets do not consume it', async () => {
+test('each independent client accepts its first CONNACK and an ordinary packet after it is no second one', async () => {
   for (let index = 0; index < 2; index++) {
     const peer = decodedPeer();
     const opening = connectPortable(peer.transport, { clientId: 'independent' });
-    peer.receive()?.({ cmd: 'pingresp' });
     peer.receive()?.({ cmd: 'connack', sessionPresent: false, reasonCode: 0 });
+    peer.receive()?.({ cmd: 'pingresp' });
     const client = await opening;
     await client.disconnect();
     expect(peer.commands).toEqual(['connect', 'disconnect']);

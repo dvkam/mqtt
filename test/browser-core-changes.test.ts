@@ -86,16 +86,16 @@ test('a QoS 0 PUBLISH with DUP set is a protocol error answered with DISCONNECT 
   });
 });
 
-test('a QoS 2 PUBLISH without a QoS 1 or QoS 2 handler is dropped and the session goes on', async () => {
-  // Main failed the session on the QoS 2 header.
+test('a QoS 2 PUBLISH without a QoS 1 or QoS 2 handler ends the session with DISCONNECT 0x82', async () => {
   vi.stubGlobal('WebSocket', ScriptedSocket);
   const onMessage = vi.fn<(message: unknown) => void>();
   const client = await createBrowserClient({ ...options, onMessage }).connect();
   ScriptedSocket.instance.receive([0x34, 6, 0, 1, 97, 0, 1, 0, 0x30, 5, 0, 1, 97, 0, 98]);
   await vi.waitFor(() => {
-    expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(ScriptedSocket.instance.sent[ScriptedSocket.instance.sent.length - 1]).toEqual([0xe0, 1, 0x82]);
   });
-  await client.disconnect();
+  await expect(client.ping()).rejects.toMatchObject({ code: 'ERR_MQTT_PROTOCOL', reasonCode: 0x82 });
+  expect(onMessage).not.toHaveBeenCalled();
 });
 
 test.each([

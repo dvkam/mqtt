@@ -119,16 +119,16 @@ test('forwards broker limits and PUBACK to the portable session', async () => {
   }
 });
 
-test('drops a QoS 1 publication without a QoS 1 handler and keeps the session, as on Node', async () => {
+test('ends the session on a QoS 1 publication without a QoS 1 handler, as on Node', async () => {
   const broker = await peer(0, true);
   const onMessage = vi.fn<(message: unknown) => void>();
   try {
     const client = await createBrowserClient({ url: broker.url, clientId: 'qos-1-inbound', onMessage }).connect();
     // A QoS 1 publication, then a QoS 0 one with payload 'b'.
     broker.sendWire([0x32, 7, 0, 1, 97, 0, 1, 0, 255, 0x30, 5, 0, 1, 97, 0, 98]);
-    await expect.poll(() => onMessage.mock.calls.length).toBe(1);
-    expect(onMessage.mock.calls[0]?.[0]).toMatchObject({ topic: 'a', payload: Uint8Array.of(98) });
-    await client.disconnect();
+    await expect.poll(() => broker.packets).toContainEqual(expect.objectContaining({ cmd: 'disconnect', reasonCode: 0x82 }));
+    await expect(client.ping()).rejects.toMatchObject({ code: 'ERR_MQTT_PROTOCOL', reasonCode: 0x82 });
+    expect(onMessage).not.toHaveBeenCalled();
     expect(broker.packets).not.toContainEqual(expect.objectContaining({ cmd: 'puback' }));
   } finally {
     await broker.close();

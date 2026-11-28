@@ -8,7 +8,7 @@ import {
   resolveNativeWriteLimits,
   type NativeWriteLimits,
 } from './nativeWriteBudget.js';
-import { connectPortable, type PacketTransport, type PortableOptions } from './portable.js';
+import { acknowledgedQos, connectPortable, type PacketTransport, type PortableOptions } from './portable.js';
 import { resolvePublicationLimits } from './publicationAdmission.js';
 import type { ClientFactory, ClientSession } from './session.js';
 import { resolveSubscriptionLimits } from './subscriptionExchanges.js';
@@ -56,7 +56,10 @@ export interface SessionOptions {
   sessionState?: SessionState;
 }
 
-function captureSessionOptions(options: Readonly<SessionOptions>): Readonly<{
+function captureSessionOptions(
+  options: Readonly<SessionOptions>,
+  acknowledged: 0 | 1 | 2,
+): Readonly<{
   cleanStart: boolean;
   sessionExpiryInterval: number | undefined;
   session: SessionBinding | undefined;
@@ -76,6 +79,17 @@ function captureSessionOptions(options: Readonly<SessionOptions>): Readonly<{
   // MQTT-3.2.2-4: a client without session state must close on Session Present true, so Clean Start false needs one.
   if (!cleanStart && session === undefined)
     throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'MQTT cleanStart false needs a sessionState');
+  // The broker delivers to the subscriptions of the resumed session at the QoS it granted them, so the handlers for that
+  // QoS have to exist before the first PUBLISH arrives. Clean Start true makes the broker discard those subscriptions.
+  const granted = cleanStart ? 0 : (session?.grantedQos() ?? 0);
+  if (granted > acknowledged)
+    throw new MqttError(
+      'ERR_MQTT_INVALID_ARGUMENT',
+      'MQTT session state was granted a QoS ' +
+        String(granted) +
+        ' subscription, which needs ' +
+        (granted === 2 ? 'onQosTwoMessage and onQosOneMessage' : 'onQosOneMessage'),
+    );
   const releaseSession = session?.claim();
   if (session !== undefined && releaseSession === undefined)
     throw new MqttError('ERR_MQTT_INVALID_ARGUMENT', 'MQTT session state is in use by another connection');
@@ -142,7 +156,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
   try {
     password = supportsPassword ? capturePassword(options.password) : undefined;
     will = captureWill(options.will);
-    session = captureSessionOptions(options);
+    session = captureSessionOptions(options, acknowledgedQos(options));
   } catch (error) {
     if (isAborted()) throw abortReason();
     throw invalidOption(error, 'Invalid MQTT connection option');
@@ -255,7 +269,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
         }
       },
       listen(onPacket, onClose, onProtocolError) {
-        return input.listen(onPacket, onClose, onQosOneMessage !== undefined, onProtocolError, onQosTwoMessage !== undefined);
+        return input.listen(onPacket, onClose, onProtocolError);
       },
       async close(force) {
         input.detachCore();
