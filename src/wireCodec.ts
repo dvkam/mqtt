@@ -3,7 +3,7 @@ import { ProtocolInputError } from './protocolInputError.js';
 import { isSubscriptionReason } from './subscriptionReason.js';
 import { isAcknowledgmentReason } from './pubackReason.js';
 import { captureWill, validateWillPayload, type WillMessage } from './will.js';
-import { isBytes, ownByteLength, variableByteIntegerSize } from './util/bytes.js';
+import { isBytes, ownByteLength, variableByteIntegerSize, type ReadonlyBytes } from './util/bytes.js';
 import { loneSurrogate, utf8Length } from './util/utf8.js';
 import {
   decodeUtf8,
@@ -222,8 +222,7 @@ function uint32(value: number, minimum = 0): Uint8Array<ArrayBuffer> {
   return Uint8Array.of(value >>> 24, (value >>> 16) & 255, (value >>> 8) & 255, value & 255);
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
-function binary(value: Readonly<Uint8Array>): Uint8Array<ArrayBuffer> {
+function binary(value: ReadonlyBytes): Uint8Array<ArrayBuffer> {
   return join([uint16(value.byteLength), value]);
 }
 
@@ -238,9 +237,7 @@ function variable(value: number): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(bytes);
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
-function join(parts: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
+function join(parts: readonly ReadonlyBytes[]): Uint8Array<ArrayBuffer> {
   const result = new Uint8Array(parts.reduce((size, part) => size + part.byteLength, 0));
   let offset = 0;
   for (const part of parts) {
@@ -351,35 +348,29 @@ function topic(value: string, filter: boolean, sharedSubscriptions = false): voi
     throw new Error('Invalid MQTT topic filter');
 }
 
-type PublicationProperties = Pick<
-  PublishFields,
-  'payloadFormatIndicator' | 'messageExpiryInterval' | 'contentType' | 'responseTopic' | 'correlationData'
->;
-
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Append encoded properties to the caller's list and preserve its byte views.
-function appendPublicationProperties(parts: Uint8Array[], packet: Readonly<PublicationProperties>): void {
-  if (packet.payloadFormatIndicator !== undefined) parts.push(Uint8Array.of(0x01, integer(packet.payloadFormatIndicator, 1)));
-  if (packet.messageExpiryInterval !== undefined) parts.push(Uint8Array.of(0x02), uint32(packet.messageExpiryInterval));
-  if (packet.contentType !== undefined) parts.push(Uint8Array.of(0x03), utf8(packet.contentType));
-  if (packet.responseTopic !== undefined) parts.push(Uint8Array.of(0x08), utf8(responseTopic(packet.responseTopic)));
-  if (packet.correlationData !== undefined) parts.push(Uint8Array.of(0x09), binary(packet.correlationData));
-}
-
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The parts carry mutable encoded byte views.
-function propertySection(parts: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
+function propertySection(parts: readonly ReadonlyBytes[]): Uint8Array<ArrayBuffer> {
   // MQTT encodes an empty property section as one byte with value zero.
   if (parts.length === 0) return new Uint8Array(1);
   const body = join(parts);
   return join([variable(body.length), body]);
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Will payload and correlation data are byte views.
-function encodeWill(will: Readonly<WillMessage>): Uint8Array<ArrayBuffer> {
+/** The Will fields that `encodeWill` reads. `WillMessage` in src/will.ts declares the two byte fields as `Uint8Array`, which prefer-readonly-parameter-types rejects. */
+interface EncodableWill extends Readonly<Omit<WillMessage, 'payload' | 'correlationData'>> {
+  readonly payload: ReadonlyBytes;
+  readonly correlationData?: ReadonlyBytes;
+}
+
+function encodeWill(will: EncodableWill): Uint8Array<ArrayBuffer> {
   const payload = binary(will.payload);
   const parts: Uint8Array[] = [];
   for (const [key, value] of will.userProperties ?? []) parts.push(Uint8Array.of(0x26), utf8(key), utf8(value));
   if (will.delayInterval !== undefined) parts.push(Uint8Array.of(0x18), uint32(will.delayInterval));
-  appendPublicationProperties(parts, will);
+  if (will.payloadFormatIndicator !== undefined) parts.push(Uint8Array.of(0x01, integer(will.payloadFormatIndicator, 1)));
+  if (will.messageExpiryInterval !== undefined) parts.push(Uint8Array.of(0x02), uint32(will.messageExpiryInterval));
+  if (will.contentType !== undefined) parts.push(Uint8Array.of(0x03), utf8(will.contentType));
+  if (will.responseTopic !== undefined) parts.push(Uint8Array.of(0x08), utf8(responseTopic(will.responseTopic)));
+  if (will.correlationData !== undefined) parts.push(Uint8Array.of(0x09), binary(will.correlationData));
   return join([propertySection(parts), utf8(will.topic), payload]);
 }
 

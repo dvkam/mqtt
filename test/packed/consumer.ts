@@ -84,7 +84,7 @@ export async function checkDeclarations(transport: Readonly<ByteTransport>) {
   const subscribed: SubscribeResult = await portable.subscribe('consumer/test');
   const unsubscribed: UnsubscribeResult = await portable.unsubscribe('consumer/test');
   await portable.publish('consumer/test', 'hello');
-  // @ts-expect-error The client accepts string payloads.
+  // @ts-expect-error The client accepts a string or a Uint8Array payload.
   await portable.publish('consumer/test', 42);
   const options: DisconnectOptions = { drainTimeoutMs: 1000, reasonCode: 4 };
   await portable.disconnect(options);

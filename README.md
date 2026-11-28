@@ -2,7 +2,7 @@
 
 This fork of [mqttjs-v5](https://github.com/mqttjs/mqttjs-v5) explores a TypeScript-first MQTT 5 client for new Node and browser applications. It builds on work from [MQTT.js](https://github.com/mqttjs/MQTT.js). The current preview supports a small, tested protocol profile; it is not yet a full MQTT.js replacement.
 
-The package is ESM only. Node consumers are supported on Node 26, the current LTS line. Development uses the exact Node version in [.node-version](.node-version) and the pnpm version in [package.json](package.json).
+The package is ESM only. Node consumers are supported on Node 26.13.0 and later releases of Node 26, the current LTS line. CI tests that minimum. Development uses the exact Node version in [.node-version](.node-version) and the pnpm version in [package.json](package.json).
 
 ## Try the preview
 
@@ -148,7 +148,7 @@ The [native write reserve](docs/native-write-reserve.md) checks observed queued 
 
 Use `createTransportClient` from `mqtt` for a custom byte transport with Buffer payloads. See the [custom transport guide](docs/recipes/using-custom-transports.md).
 
-The browser client, the Node adapters and the shared session all use the in-repository portable codec and its packet types. The package has no runtime dependency. The Node WebSocket client in `mqtt/ws` needs `ws` as an optional peer dependency. `mqtt-packet` is a development dependency that the tests use as an independent reference. The remaining protocol profile is tracked in [#8](https://github.com/dvkam/mqtt/issues/8) and [#37](https://github.com/dvkam/mqtt/issues/37).
+The browser client, the Node adapters and the shared session all use the in-repository portable codec and its packet types. The package has no runtime dependency. The Node WebSocket client in `mqtt/ws` needs `ws` as an optional peer dependency. `mqtt-packet` is a development dependency that the tests use as an independent reference. The remaining protocol profile is tracked in [#8](https://github.com/dvkam/mqtt/issues/8) and [#15](https://github.com/dvkam/mqtt/issues/15).
 
 The [public type guide](docs/public-types.md) lists named options, factories, sessions and platform message types.
 

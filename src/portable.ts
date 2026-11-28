@@ -693,7 +693,7 @@ class PortableClient<Bytes extends Uint8Array> {
         release,
       );
     await this.qosZeroWrites.run(
-      // oxlint-disable-next-line typescript/promise-function-async -- Forward the native send promise directly to the write deadline owner.
+      // oxlint-disable-next-line typescript/promise-function-async -- Removing this suppression would cost performance, because an async arrow would allocate a second promise around the sendPacket promise for every QoS 0 publish. QosZeroWrites.run in src/qosZeroWrites.ts chains on the promise it gets, and test/bench/packed-qos0.ts measures this path.
       () => this.sendPacket(publishPacket(publication)),
       release,
     );

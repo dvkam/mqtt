@@ -4,6 +4,12 @@ const arrayByteLength = Reflect.getOwnPropertyDescriptor(typedArrayPrototype, 'b
 
 export const maxBinaryBytes = 65_535;
 
+/**
+ * A Uint8Array that a function only reads. Every Uint8Array is assignable to it, and `TextDecoder.decode` accepts it.
+ * `Readonly<Uint8Array>` alone fails prefer-readonly-parameter-types, because its `buffer` keeps the writable buffer type.
+ */
+export type ReadonlyBytes = Readonly<Uint8Array<Readonly<ArrayBufferLike>>>;
+
 export function copyBinaryData(value: unknown): Uint8Array<ArrayBuffer> | 'not bytes' | 'too long' {
   if (!isBytes(value)) return 'not bytes';
   // The TypedArray constructor copies through internal slots, not through getters a subclass overrides.

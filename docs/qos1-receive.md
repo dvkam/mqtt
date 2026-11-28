@@ -26,7 +26,7 @@ A QoS 1 publication can arrive with successful CONNACK while the local CONNECT w
 
 A handler rejection, inbound deadline, or failed PUBACK write retires the connection and preserves its first failure. An excess publication triggers a bounded attempt to send DISCONNECT with reason 0x93 before forcing transport closure. The public error keeps code 0x93 if that report cannot be written. Graceful disconnect stops new deliveries, discards the follower and prevents late PUBACK submission. An already-running handler can finish its own application work. The client cannot cancel that work.
 
-QoS 1 covers acknowledgment on the current clean connection. The application owns durable or idempotent processing and should handle repeat delivery. [Resuming the session](reconnect.md#resuming-the-session) describes what a resumed session does, and [QoS 2](qos2.md#receive-at-qos-2) describes delivery that happens once.
+QoS 1 delivers at least once. The client keeps no record of inbound QoS 1 messages between connections. When a session resumes with `cleanStart: false`, the broker sends again, with DUP set, each message the client has not acknowledged, and the handler receives it again. The application owns durable or idempotent processing and should handle repeat delivery. [Resuming the session](reconnect.md#resuming-the-session) [QoS 2](qos2.md#receive-at-qos-2) describes delivery that happens once.
 
 ## Verification
 
