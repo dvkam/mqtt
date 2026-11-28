@@ -1,4 +1,14 @@
 ------------------------------ MODULE ReadyBatch ------------------------------
+\* Rule: A batch read returns the first ready messages in order within the item and byte limits. One batch read can
+\* be pending. A cancelled or failed queue returns no batch.
+\* Source: test/experiments/message-queue.ts (createMessageQueue, iterateBatches, takeQueued)
+\* Tests: test/batch-queue.test.ts
+\* Mapping: Init is the state after the single read staged the first item. TakeReady is the while loop in
+\* iterateBatches. Commit is next returning the batch. Stop is close, cancel or fail before the commit. Overlap is a
+\* second next while one is reading.
+\* Not modeled: Message contents and the single-item and stream views, which MessageQueueOwnership and
+\* StreamTerminal cover.
+\* This model covers test-only code under test/experiments. The package does not export the queue.
 EXTENDS Naturals, Sequences
 CONSTANT Fault
 VARIABLE state

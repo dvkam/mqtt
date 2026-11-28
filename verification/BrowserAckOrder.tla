@@ -1,4 +1,18 @@
 ----------------------------- MODULE BrowserAckOrder -------------------------
+\* Rule: A CONNACK that precedes a rejected packet in the same input still reaches the session. A classified
+\* rejection after an accepted CONNACK sends one DISCONNECT notice, and a generic decode failure sends none. A
+\* refusal stays the cause of the session end.
+\* Source: src/packetFramer.ts (PacketFramer, push, flush)
+\* Source: src/packetInput.ts (PacketInput, push)
+\* Source: src/portable.ts (receiveConnack, rejectProtocolInput, fail)
+\* Tests: test/browser-client.test.ts, test/tcp-client.test.ts
+\* Mapping: Connack is flush handing the CONNACK to receiveConnack before the framer reads the next packet.
+\* DecodeFailure is the catch in PacketInput.push. Suffix "malformed" is a ProtocolInputError, which goes to
+\* rejectProtocolInput. Suffix "generic" is any other error, which goes to retire. The layouts are one chunk, a
+\* CONNACK split over two chunks, and one packet per chunk.
+\* Not modeled: Packet bytes, the DISCONNECT write and its deadline. ParserAckNotice covers the notice up to the
+\* close.
+\* The name predates the shared byte core. The Node and browser clients both use this path.
 CONSTANT Fault
 VARIABLE state
 vars == <<state>>

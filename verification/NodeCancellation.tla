@@ -1,4 +1,15 @@
 --------------------------- MODULE NodeCancellation ---------------------------
+\* Rule: An active session keeps its abort listener. An abort retires an active session. A closed connection has
+\* released the listener.
+\* Source: src/transportCore.ts (connectOverBytes, abort, release, finish, isAborted)
+\* Tests: test/node-cancellation.test.ts
+\* Mapping: Init is the state after addEventListener on the caller's signal. Transfer is connectPortable resolving
+\* and the isAborted check passing. Abort is the abort listener, which releases itself, retires the input and tears
+\* the transport down. Send is a write on the active session. Retire is another terminal cause. ReleaseRetired is
+\* release in a forced close. NativeClose is the transport reporting its end to finish, or close settling.
+\* Not modeled: The abort reason, the controller that cancels transport.open, and socket teardown in the TCP and
+\* WebSocket openers.
+\* The name predates the shared byte core. The browser client uses the same listener.
 EXTENDS Naturals
 CONSTANT Fault
 VARIABLES phase, attached, cancelled, retired, sent

@@ -1,4 +1,12 @@
 --------------------------- MODULE QosZeroDeadline ----------------------------
+\* Rule: One timer covers every pending QoS 0 write. Each write keeps its own deadline. The session retires no
+\* earlier than the earliest deadline, and retirement clears every pending write.
+\* Source: src/qosZeroWrites.ts (QosZeroWrites, run, wake, arm, retire)
+\* Source: src/portable.ts (publish)
+\* Tests: test/operation-timeout.test.ts
+\* Mapping: Write is run. Finish is a write settling, where run compares the earliest deadline with the clock. Tick
+\* is the clock. Wake is wake, which arms the timer for the earliest pending write or calls onTimeout.
+\* Not modeled: Timer ref and unref, clock granularity, and QoS 0 writes that wait for resends.
 EXTENDS Naturals
 CONSTANT Fault
 VARIABLES now, timer, deadlines, issued, retired, expiredDeadline

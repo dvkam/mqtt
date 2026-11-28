@@ -1,4 +1,13 @@
 ----------------------- MODULE PropertyCardinalityValues -----------------------
+\* Rule: A property that may appear once is rejected when it repeats. A flag or a nonzero property is rejected when
+\* its value is out of range. User Property and Subscription Identifier may repeat.
+\* Source: src/wireProperties.ts (readProperties, Section, flag, nonzero, duplicate, responseTopic)
+\* Tests: test/property-cardinality-values.test.ts
+\* Mapping: Read is one turn of the loop in readProperties. Identifier "flag" is a property read with flag,
+\* "nonzero" one checked with nonzero, "topic" the Response Topic, "width" a fixed-width integer without a range
+\* rule, "repeat" the User Property and "repeatNonzero" the Subscription Identifier.
+\* Not modeled: Which packet types allow an identifier, string bytes, which NodeConnackProperties covers, and Topic
+\* Alias, which fails with a reason code of its own.
 EXTENDS Naturals, FiniteSets
 CONSTANT Fault
 VARIABLES phase, seen, reads, duplicatePassed, scalarPassed, repeatRejected, delivered

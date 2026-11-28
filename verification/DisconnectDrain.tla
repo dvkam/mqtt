@@ -1,4 +1,15 @@
 ---------------------------- MODULE DisconnectDrain ---------------------------
+\* Rule: disconnect() accepts no new publication. It writes DISCONNECT only after the active QoS 1 exchange settled
+\* or the drain deadline expired. At the deadline a publication keeps the outcome of a PUBACK that already arrived.
+\* Source: src/portable.ts (disconnect, end, publish, fail)
+\* Source: src/outboundQosOne.ts (OutboundQosOne, stop, waitForActive, finishActive, accept)
+\* Tests: test/qos1-publish.test.ts
+\* Mapping: Send is publish. Start is disconnect setting closing and calling stop. ObserveAck is accept recording
+\* the reason code. Settle is the exchange completing. Expire is the timer in waitForActive, which calls
+\* finishActive and keeps recorded acknowledgments. Disconnect is end writing DISCONNECT. Fail is fail calling
+\* retire.
+\* Not modeled: More than one publication, the resends that stop drops, keep alive during the drain, and QoS 0
+\* writes.
 CONSTANT Fault
 VARIABLES phase, publication, brokerOutcome, expired, sentAfterStop, disconnectSent
 vars == <<phase, publication, brokerOutcome, expired, sentAfterStop, disconnectSent>>
