@@ -41,7 +41,8 @@ export interface BrowserClientOptions extends PublicationLimits, SubscriptionLim
   onQosOneMessage?: (message: BrowserQosOneMessage) => void | Promise<void>;
   /**
    * Receives each inbound QoS 2 publication once. The client sends PUBREC after the handler returns or its promise
-   * fulfills. A handler that throws or rejects ends the session without PUBREC.
+   * fulfills. A handler that throws or rejects ends the session without PUBREC. It needs `onQosOneMessage` too, because a
+   * QoS 2 subscription also delivers QoS 1 publications. Without it `connect()` rejects with `ERR_MQTT_INVALID_ARGUMENT`.
    */
   onQosTwoMessage?: NonNullable<PortableOptions['onQosTwoMessage']>;
 }
