@@ -1,4 +1,15 @@
 ----------------------- MODULE NodeConnackProperties -----------------------
+\* Rule: The property walk never reads past the Property Length, and a CONNACK or PUBLISH with an ill-formed
+\* property section is rejected before delivery.
+\* Source: src/wireProperties.ts (readProperties, Section, need, decodeUtf8)
+\* Source: src/wireCodec.ts (decodeBody)
+\* Tests: test/connack-property-strings.test.ts, test/publish-property-strings.test.ts
+\* Mapping: Read is a Section read, which need bounds by the end of the section. HasPayload = TRUE is a PUBLISH,
+\* whose packet continues after the section. The shapes are invalid UTF-8, U+0000, a truncated section, an
+\* identifier that the packet type does not allow, and a variable byte integer that is not canonical. Complete is
+\* readProperties returning. Dispatch is the decoded packet leaving the decoder. The NodePublishProperties
+\* configurations run this module with HasPayload = TRUE.
+\* Not modeled: Repeated properties and scalar ranges, which PropertyCardinalityValues covers.
 EXTENDS Naturals
 CONSTANT Fault, HasPayload
 VARIABLES phase, shape, cursor, propertyEnd, frameEnd, reads, delivered

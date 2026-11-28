@@ -1,4 +1,14 @@
 ------------------------ MODULE MessageQueueOwnership ------------------------
+\* Rule: The application message queue stays within its item and byte limits, delivers nothing after it stopped,
+\* allows one pending read, and cannot stop the protocol session.
+\* Source: test/experiments/message-queue.ts (createMessageQueue, push, takeQueued, cancel, fail)
+\* Tests: test/message-queue.test.ts, test/browser-message-stream.test.ts
+\* Mapping: Offer is push. Read is takeQueued in next. Wait is the pending read. Close is close. Stop is cancel,
+\* reached through return or throw of the iterator. Fail is fail, also on overflow. Control is protocol traffic,
+\* which the queue has no reference to.
+\* Not modeled: Message contents, the weight formula, and the batch and stream views, which ReadyBatch and
+\* StreamTerminal cover.
+\* This model covers test-only code under test/experiments. The package does not export the queue.
 EXTENDS Naturals, Sequences
 CONSTANT Fault
 VARIABLES phase, entries, bytes, waiting, lateDelivery, protocolAlive, control

@@ -1,4 +1,17 @@
 -------------------------- MODULE SubscriptionOwnership --------------------------
+\* Rule: Pending SUBSCRIBE and UNSUBSCRIBE exchanges stay within the item and byte limits. Each owns its Packet
+\* Identifier until its write settled and its acknowledgment arrived. Only the expected acknowledgment type settles
+\* it. An invalid matching acknowledgment retires the session. A stale release does not free a reused identifier,
+\* and nothing is admitted after retirement.
+\* Source: src/subscriptionExchanges.ts (SubscriptionExchanges, reserve, accept, retire)
+\* Source: src/packetIdentifiers.ts (PacketIdentifiers, reserve)
+\* Source: src/portable.ts (changeSubscription, sendIdentified, rejectProtocolInput)
+\* Tests: test/subscription-exchanges.test.ts, test/concurrent-subscriptions.test.ts, test/unsubscribe.test.ts
+\* Mapping: Reserve is reserve. Send is sendIdentified. Ack is accept. Release is the release function in the
+\* finally block of changeSubscription. OldCleanup is a repeated call of a release function, which the entry
+\* identity check ignores. BadAck is accept returning a reason code, which the session's packet listener passes to
+\* rejectProtocolInput. Retire is retire.
+\* Not modeled: Reason code values, the granted QoS, Maximum Packet Size and shared subscriptions.
 EXTENDS Naturals, FiniteSets
 CONSTANT Fault
 VARIABLES owner, started, held, sent, acked, released, cleaned, cost, identifierOf, retired, terminalStarted, wrong, invalidSeen

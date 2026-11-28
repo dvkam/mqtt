@@ -1,4 +1,16 @@
 --------------------------- MODULE NodeInputLifecycle ---------------------------
+\* Rule: The packet input keeps its first terminal cause, stops the framer when it retires, reports a truncation
+\* when the peer ends inside a packet, replays its cause to a listener that registers late, and never reports its
+\* internal detach reason.
+\* Source: src/packetInput.ts (PacketInput, listen, push, retire, remoteEnd, detachCore, notify)
+\* Source: src/packetFramer.ts (PacketFramer, finish, stop)
+\* Tests: test/node-packet-input.test.ts
+\* Mapping: Begin and Boundary are the framer entering and leaving a partial packet. Register is listen. Retire is
+\* retire. RemoteEnd is remoteEnd. DetachCore is detachCore. UnlistenInput is the function that listen returns. The
+\* broken configurations add RepeatEnd, ReplaceCause and LateRead.
+\* Not modeled: Packet contents, the protocol error path, which ParserAckNotice covers, and teardown in the
+\* transport core.
+\* The name predates the shared byte core. The browser client uses the same class.
 EXTENDS Naturals
 CONSTANT Fault
 VARIABLES owner, kind, partial, remotePartial, registered, everRegistered, notified,

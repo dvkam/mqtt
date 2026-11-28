@@ -1,4 +1,17 @@
 ------------------------ MODULE QosOneNativeAdmission ------------------------
+\* Rule: A QoS 1 PUBLISH that the write budget refused before submission fails alone and returns its Packet
+\* Identifier and its reservation. Any other write failure retires the session.
+\* Source: src/transportCore.ts (connectOverBytes, send)
+\* Source: src/nativeWriteBudget.ts (recordNativeBudgetFailure, takeNativeBudgetFailure)
+\* Source: src/portable.ts (sendIdentified, transmitter)
+\* Source: src/outboundQosOne.ts (OutboundQosOne, complete)
+\* Tests: test/native-qos-one-budget.test.ts
+\* Mapping: Submit is the writer's write. Reject("budget") is send throwing the error that recordNativeBudgetFailure
+\* tied to this packet, which sendIdentified recognizes with takeNativeBudgetFailure. Reject("replay") is an error
+\* tied to another packet. Reject("uncertain") is an error without that record. Complete and the releases are
+\* complete in OutboundQosOne. Retry is a later publish.
+\* Not modeled: A refused resend, which ends the session with ERR_MQTT_SESSION_CONFLICT, and the stored publication
+\* that sendIdentified forgets after a refusal.
 CONSTANT Fault
 VARIABLE state
 vars == <<state>>

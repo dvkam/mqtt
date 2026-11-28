@@ -1,4 +1,14 @@
 ----------------------------- MODULE SessionEndNotice -----------------------------
+\* Rule: The first retirement queues one session end notice with its cause. For a protocol failure the DISCONNECT
+\* notice starts before the observer runs.
+\* Source: src/portable.ts (fail, abort, reportProtocolError, onSessionEnd)
+\* Source: src/diagnostics.ts (notifyObserver)
+\* Tests: test/portable.test.ts, test/browser-client.test.ts
+\* Mapping: Retire is fail recording the failure and queueing the observer in a microtask. StartProtocolNotice is
+\* abort creating forcedClose, whose microtask starts reportProtocolError before fail queues the observer. Deliver
+\* is the observer microtask.
+\* Not modeled: Error identity, the list of uncertain publications, whether the observer completes, and physical
+\* closure.
 EXTENDS Naturals
 CONSTANT Fault
 VARIABLE state
