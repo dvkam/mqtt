@@ -43,7 +43,7 @@ function reportAcknowledgment<Item>(publication: Readonly<Publication<Item>>, co
 }
 
 /** Ordered QoS 1 exchanges. `Item` is the publication the session hands to `transmit`; the queue never reads it. */
-export class OutboundQosOne<Item> {
+export class OutboundPublications<Item> {
   private readonly queued = new Set<Publication<Item>>();
   private readonly resends: Resend<Item>[] = [];
   // Whether queued publications wait for `release`, because resends are not all written yet.

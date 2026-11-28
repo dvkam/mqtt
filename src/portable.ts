@@ -23,7 +23,7 @@ import { capturePublication, type OutgoingPublication } from './publication.js';
 import { PublicationAdmission, type PublicationLimits } from './publicationAdmission.js';
 import { SubscriptionExchanges, type SubscriptionLimits } from './subscriptionExchanges.js';
 import { PacketIdentifiers, type IdentifierLease } from './packetIdentifiers.js';
-import { OutboundQosOne } from './outboundQosOne.js';
+import { OutboundPublications } from './outboundPublications.js';
 import { QosZeroWrites } from './qosZeroWrites.js';
 import { isPubackReason } from './pubackReason.js';
 import { takeNativeBudgetFailure } from './nativeWriteBudget.js';
@@ -133,7 +133,7 @@ class PortableClient<Bytes extends Uint8Array> {
   private readonly releaseSession: (() => void) | undefined;
   private resending?: Promise<unknown>;
   // Set while resends are unwritten: `unwritten` counts them, and `waiting` holds the QoS 0 publications that wait for
-  // them. New QoS 1 publications wait in the OutboundQosOne queue instead.
+  // them. New QoS 1 publications wait in the OutboundPublications queue instead.
   private resendPhase?: { readonly waiting: WaitingWrite[]; unwritten: number };
   // Set once DISCONNECT is about to be written or the session ended. No resend or waiting write goes out after it.
   private writesEnded?: Error;
@@ -148,7 +148,7 @@ class PortableClient<Bytes extends Uint8Array> {
   private readonly unlisten: (() => void) | undefined;
   private readonly subscriptions: SubscriptionExchanges;
   private readonly identifiers = new PacketIdentifiers();
-  private outbound?: OutboundQosOne<OutgoingPublication>;
+  private outbound?: OutboundPublications<OutgoingPublication>;
   private activation: 'opening' | 'accepted' | 'active' = 'opening';
   private retainAvailable = true;
   private connackReceived = false;
@@ -381,7 +381,7 @@ class PortableClient<Bytes extends Uint8Array> {
       this.subscriptions.limitPacketSize(connection.maximumPacketSize);
     }
     if (maximumQos !== 0) {
-      this.outbound = new OutboundQosOne<OutgoingPublication>(
+      this.outbound = new OutboundPublications<OutgoingPublication>(
         receiveMaximum,
         this.identifiers,
         this.transmitter(false),
