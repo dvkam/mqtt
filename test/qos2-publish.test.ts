@@ -181,6 +181,22 @@ test('a PUBCOMP before PUBREC and a PUBCOMP for an unknown Packet Identifier lea
   await session.disconnect();
 });
 
+test('a PUBCOMP that arrives before the client wrote its PUBREL is ignored', async () => {
+  const sessionState = createSessionState();
+  const { session, connection, sent } = await publisher({}, { sessionState });
+  const publishing = session.publish('a', 'hi', qosTwo);
+  await settle();
+  // One chunk carries PUBREC and PUBCOMP. The PUBCOMP cannot answer a PUBREL that has not left.
+  connection.deliverBytes([0x50, 2, 0, 1, 0x70, 2, 0, 1]);
+  await expect(stateOf(publishing)).resolves.toBe('pending');
+  expect(sent()).toEqual(['publish a qos 2 id 1', 'pubrel 1']);
+  expect(sessionState.inFlight).toEqual([{ topic: 'a', messageId: 1, qos: 2, acknowledged: true }]);
+  connection.deliver(pubcomp(1));
+  await expect(publishing).resolves.toBeUndefined();
+  expect(sessionState.inFlight).toEqual([]);
+  await session.disconnect();
+});
+
 test('an acknowledgment of the other QoS leaves an exchange pending', async () => {
   const { session, connection, sent } = await publisher();
   const exactlyOnce = session.publish('a', 'hi', qosTwo);

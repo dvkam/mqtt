@@ -11,10 +11,11 @@ interface Publication<Item> {
 }
 
 /**
- * Where a QoS 2 exchange stands. `publish` waits for PUBREC. `release` has written PUBREL and waits for PUBCOMP.
- * `complete` has its PUBCOMP and waits for the PUBLISH and PUBREL writes.
+ * Where a QoS 2 exchange stands. `publish` waits for PUBREC. `accepted` has its PUBREC and has not handed PUBREL to the
+ * transport. `release` has handed it over and waits for PUBCOMP. `complete` has its PUBCOMP and waits for the PUBLISH
+ * and PUBREL writes.
  */
-type Phase = 'publish' | 'release' | 'complete';
+type Phase = 'publish' | 'accepted' | 'release' | 'complete';
 
 interface Exchange<Item> {
   readonly publication: Publication<Item>;
@@ -29,7 +30,7 @@ interface Exchange<Item> {
   /** Present on a QoS 2 exchange only, so QoS 1 exchanges share one object shape. */
   phase?: Phase;
   /**
-   * On a QoS 2 exchange only. Writes PUBREL, enters the release phase and sets `releasing`. `resent` is true when a
+   * On a QoS 2 exchange only. Enters the accepted phase, starts the PUBREL and sets `releasing`. `resent` is true when a
    * resumed session sends the PUBREL of an earlier connection again.
    */
   readonly release?: (resent: boolean) => void;
@@ -43,7 +44,8 @@ type Transmit<Item> = (outgoing: Item, messageId: number, acknowledgment: Readon
 
 /**
  * Write PUBREL and wait for the PUBCOMP reason code in `completion`. `resent` is true when a resumed session sends the
- * PUBREL of an earlier connection again. It must observe `completion` even when it writes nothing.
+ * PUBREL of an earlier connection again. It must observe `completion` even when it writes nothing, and it must call
+ * `released` in the step that hands the PUBREL to the transport.
  */
 type Release = (messageId: number, completion: Readonly<Promise<number>>, resent: boolean) => Promise<number>;
 
@@ -60,10 +62,11 @@ function resentPublication<Item>(outgoing: Item): Publication<Item> {
   return { outgoing, releaseBudget: ignore, detach: ignore, cancelIfAborted: () => false, resolve: ignore, reject: ignore };
 }
 
+/** A PUBLISH of an earlier connection that waits for a quota slot. `twoPhase` is true at QoS 2. */
 interface Resend<Item> {
   readonly publication: Publication<Item>;
   readonly identifier: IdentifierLease;
-  readonly phase: 'publish' | 'release' | undefined;
+  readonly twoPhase: boolean;
 }
 
 function reportAcknowledgment<Item>(publication: Readonly<Publication<Item>>, code: number): void {
@@ -81,7 +84,7 @@ function reportAcknowledgment<Item>(publication: Readonly<Publication<Item>>, co
 export class OutboundQosOne<Item> {
   private readonly queued = new Set<Publication<Item>>();
   private readonly resends: Resend<Item>[] = [];
-  // Whether queued publications wait for `release`, because resends are not all written yet.
+  // Whether queued publications wait for `releaseQueued`, because resends are not all written yet.
   private holding = false;
   private readonly active = new Map<number, Exchange<Item>>();
   private readonly quota: number;
@@ -159,14 +162,19 @@ export class OutboundQosOne<Item> {
   }
 
   /**
-   * Continue the exchanges of an earlier connection in the order given. A PUBLISH goes out again through `retransmit`.
-   * Queued publications stay queued, and so cancelable, until `releaseQueued`.
+   * Continue the exchanges of an earlier connection in the order given. A PUBLISH goes out again through `retransmit`
+   * when the quota has a slot for it. Every PUBREL starts here, because the quota holds back only PUBLISH packets
+   * (MQTT 5 section 4.9). Its exchange still takes a slot from the PUBLISH packets that follow until its PUBCOMP. Queued
+   * publications stay queued, and so cancelable, until `releaseQueued`.
    */
   resume(entries: readonly Resumed<Item>[], retransmit: Transmit<Item>): void {
     this.retransmit = retransmit;
     this.holding = true;
-    for (const [outgoing, identifier, phase] of entries)
-      this.resends.push({ publication: resentPublication(outgoing), identifier, phase });
+    for (const [outgoing, identifier, phase] of entries) {
+      const publication = resentPublication(outgoing);
+      if (phase === 'release') this.startTwoPhase(publication, identifier, true, true);
+      else this.resends.push({ publication, identifier, twoPhase: phase === 'publish' });
+    }
     this.drain();
   }
 
@@ -187,12 +195,14 @@ export class OutboundQosOne<Item> {
 
   /**
    * A PUBREC arrived. Returns `resent` or `sent` when it is the first PUBREC of an active QoS 2 exchange. Returns
-   * `ignored` when the Packet Identifier belongs to another active exchange, which the PUBREC leaves as it is. Returns
-   * undefined when no active exchange has the Packet Identifier.
+   * `ignored` when the Packet Identifier belongs to another exchange, which the PUBREC leaves as it is. That exchange is
+   * active, or it is a PUBLISH of an earlier connection that waits for a quota slot and goes out again. Returns undefined
+   * when no exchange has the Packet Identifier.
    */
   received(messageId: number, code: number): 'resent' | 'sent' | 'ignored' | undefined {
     const exchange = this.active.get(messageId);
-    if (exchange === undefined) return undefined;
+    if (exchange === undefined)
+      return this.resends.some(({ identifier }) => identifier.messageId === messageId) ? 'ignored' : undefined;
     if (exchange.phase !== 'publish' || exchange.acknowledgmentCode !== undefined) return 'ignored';
     exchange.acknowledgmentCode = code;
     const { acknowledge } = exchange;
@@ -200,6 +210,12 @@ export class OutboundQosOne<Item> {
     if (code < 128) exchange.release?.(false);
     acknowledge(code);
     return exchange.resent ? 'resent' : 'sent';
+  }
+
+  /** The PUBREL of an exchange is about to reach the transport, so a PUBCOMP can answer it from now on. */
+  released(messageId: number): void {
+    const exchange = this.active.get(messageId);
+    if (exchange?.phase === 'accepted') exchange.phase = 'release';
   }
 
   /** Returns `resent` or `sent` when the PUBCOMP answers the PUBREL of an active QoS 2 exchange, and undefined otherwise. */
@@ -293,8 +309,8 @@ export class OutboundQosOne<Item> {
       while (!this.stopped && this.active.size < this.quota) {
         const resend = this.resends.length === 0 ? undefined : this.resends.shift();
         if (resend !== undefined) {
-          if (resend.phase === undefined) this.start(resend.publication, resend.identifier, true);
-          else this.startTwoPhase(resend.publication, resend.identifier, true, resend.phase === 'release');
+          if (resend.twoPhase) this.startTwoPhase(resend.publication, resend.identifier, true, false);
+          else this.start(resend.publication, resend.identifier, true);
           continue;
         }
         if (this.holding) break;
@@ -369,7 +385,7 @@ export class OutboundQosOne<Item> {
       phase: 'publish',
       release: (resentRelease) => {
         const completion = new Promise<number>((resolve, reject) => {
-          exchange.phase = 'release';
+          exchange.phase = 'accepted';
           exchange.acknowledge = resolve;
           exchange.rejectAck = reject;
         });

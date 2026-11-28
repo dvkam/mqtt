@@ -1,3 +1,4 @@
+import { inboundQosTwo, type InboundQosTwo } from './inboundQosTwo.js';
 import { MqttError } from './mqttError.js';
 import type { OutgoingPublication } from './publication.js';
 import { publishSize } from './publicationAdmission.js';
@@ -70,11 +71,8 @@ export interface SessionBinding {
   readonly received: (messageId: number, reasonCode: number, resent: boolean) => void;
   /** A PUBCOMP arrived, which ends the exchange of a QoS 2 publication. */
   readonly completed: (messageId: number, reasonCode: number, resent: boolean) => void;
-  /**
-   * The Packet Identifier of each inbound QoS 2 publication that the application received and that waits for PUBREL. The
-   * connection adds and deletes them.
-   */
-  readonly inbound: Set<number>;
+  /** The inbound QoS 2 publications whose exchange has not ended. The connection reports each step of a delivery. */
+  readonly inbound: InboundQosTwo;
   /** The write budget refused a new publication before writing it, so the broker never saw it. */
   readonly forget: (messageId: number) => void;
   /** Delete every stored publication and inbound Packet Identifier, and return the publications. */
@@ -99,7 +97,7 @@ export function bindSessionState(events?: Readonly<SessionEvents>): SessionBindi
   const publications = new Map<number, OutgoingPublication>();
   // The QoS 2 publications that have their PUBREC, in the order the PUBRECs arrived (MQTT-4.6.0-4).
   const releases = new Map<number, OutgoingPublication>();
-  const inbound = new Set<number>();
+  const inbound = inboundQosTwo();
   const inFlight = (): UncertainPublication[] => {
     const list: UncertainPublication[] = [];
     for (const [messageId, { topic }] of releases) list.push({ topic, messageId, qos: 2, acknowledged: true });

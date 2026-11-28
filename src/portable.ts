@@ -25,6 +25,7 @@ import { PublicationAdmission, type PublicationLimits } from './publicationAdmis
 import { SubscriptionExchanges, type SubscriptionLimits } from './subscriptionExchanges.js';
 import { PacketIdentifiers } from './packetIdentifiers.js';
 import { OutboundQosOne, type Resumed } from './outboundQosOne.js';
+import { inboundQosTwo, type InboundQosTwo } from './inboundQosTwo.js';
 import { QosZeroWrites } from './qosZeroWrites.js';
 import { isPubackReason } from './pubackReason.js';
 import { takeNativeBudgetFailure } from './nativeWriteBudget.js';
@@ -173,9 +174,9 @@ class PortableClient<Bytes extends Uint8Array> {
   private nextInbound?: AcknowledgedMessage<Bytes>;
   // The Packet Identifier of the inbound QoS 2 publication that holds the receive slot.
   private inboundExchange?: number;
-  // The inbound QoS 2 Packet Identifiers that the handler received and that wait for PUBREL. A session state shares its
-  // own set, so the identifiers outlive the connection.
-  private delivered?: Set<number>;
+  // The inbound QoS 2 publications whose exchange has not ended. A session state shares its own, so they outlive the
+  // connection.
+  private inbound?: InboundQosTwo;
   private readonly onQosOneMessage: PortableOptions<Bytes>['onQosOneMessage'];
   private readonly onQosTwoMessage: PortableOptions<Bytes>['onQosTwoMessage'];
   private readonly timeoutMs: number;
@@ -202,7 +203,7 @@ class PortableClient<Bytes extends Uint8Array> {
     this.releaseSession = options.releaseSession;
     this.onQosOneMessage = options.onQosOneMessage;
     this.onQosTwoMessage = options.onQosTwoMessage;
-    this.delivered = options.session?.inbound;
+    this.inbound = options.session?.inbound;
     this.unlisten = transport.listen(
       packetReceiver(
         // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Adapters retain mutable protocol packets and byte buffers shared with the session.
@@ -498,10 +499,11 @@ class PortableClient<Bytes extends Uint8Array> {
       ).catch(() => {});
       return;
     }
-    // The session state says which Packet Identifiers wait for PUBREL only once the session is active.
-    if (packet.qos === 2 && this.activation === 'active' && this.delivered?.has(packet.messageId) === true) {
+    // The session state says which Packet Identifiers name a publication only once the session is active.
+    if (packet.qos === 2 && this.activation === 'active' && this.inbound?.phase(packet.messageId) !== undefined) {
       // MQTT-4.3.3-10: the PUBLISH is a duplicate until PUBREL, so it gets PUBREC again and no second delivery. While its
-      // handler still runs, the PUBREC that follows the handler answers it.
+      // handler still runs on this connection, the PUBREC that follows the handler answers it. A handler of an earlier
+      // connection can no longer answer, so its duplicate gets PUBREC now.
       if (this.inboundExchange !== packet.messageId || this.inboundPhase !== 'handling')
         this.answer({ cmd: 'pubrec', messageId: packet.messageId, reasonCode: 0 });
       return;
@@ -541,15 +543,15 @@ class PortableClient<Bytes extends Uint8Array> {
   }
 
   /**
-   * Deliver a QoS 2 publication once, then send PUBREC. The Packet Identifier is recorded before the handler runs, so a
-   * duplicate PUBLISH never starts a second delivery. A handler that fails removes it again, so the next PUBLISH with that
+   * Deliver a QoS 2 publication once, then send PUBREC. The delivery is recorded before the handler runs, so a duplicate
+   * PUBLISH never starts a second one. A handler that fails removes its own delivery again, so the next PUBLISH with that
    * Packet Identifier is delivered.
    */
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Performance: PortableOptions.onQosTwoMessage takes a writable message, so a readonly parameter here could reach the handler only through a copy of the message or a closure per delivery. 'a handler that changes messageId does not change the PUBREC' in test/qos2-inbound.test.ts covers the identifier.
   private async deliverQosTwo(packet: QosTwoMessage<PublishMessage<Bytes>>): Promise<void> {
     const { messageId } = packet;
-    const delivered = (this.delivered ??= new Set());
-    delivered.add(messageId);
+    const inbound = (this.inbound ??= inboundQosTwo());
+    const delivery = inbound.begin(messageId);
     this.inboundExchange = messageId;
     let acknowledged = false;
     try {
@@ -557,10 +559,12 @@ class PortableClient<Bytes extends Uint8Array> {
         try {
           await this.onQosTwoMessage?.(packet);
         } catch (reason) {
-          // The handler can settle after the session ended, so its own outcome decides, not the end of this operation.
-          delivered.delete(messageId);
+          inbound.failed(messageId, delivery);
           throw reason;
         }
+        // The handler can settle after its connection ended and after a later connection finished the exchange, so its
+        // outcome reaches the record through the token of this delivery, whatever became of this operation.
+        inbound.delivered(messageId, delivery);
         if (this.failure || this.closing) return false;
         this.inboundPhase = 'releasing';
         await this.sendPacket({ cmd: 'pubrec', messageId, reasonCode: 0 });
@@ -620,7 +624,7 @@ class PortableClient<Bytes extends Uint8Array> {
       this.rejectProtocolInput(new ProtocolInputError('MQTT PUBREL arrived before PUBREC', 0x82));
       return;
     }
-    if (this.delivered?.delete(messageId) !== true) {
+    if (this.inbound?.release(messageId) !== true) {
       this.answer({ cmd: 'pubcomp', messageId, reasonCode: this.unknownIdentifierReason() });
       return;
     }
@@ -751,6 +755,8 @@ class PortableClient<Bytes extends Uint8Array> {
     await Promise.resolve();
     // MQTT-3.14.4-1: a PUBREC that arrives once DISCONNECT is due gets no PUBREL. The exchange stays for a resume.
     if (this.writesEnded) throw this.writesEnded;
+    // Only a PUBCOMP that arrives from here on answers this PUBREL.
+    this.outbound?.released(messageId);
     await this.sendIdentified({ cmd: 'pubrel', messageId, reasonCode: 0 }, 'MQTT publication release failed');
   }
 
@@ -760,7 +766,11 @@ class PortableClient<Bytes extends Uint8Array> {
    */
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ClientPacket in src/wireCodec.ts carries the PUBLISH payload as a mutable Uint8Array, which sendIdentified hands to the transport by identity.
   private async resend(packet: ClientPacket): Promise<void> {
-    const write = async () => this.sendIdentified(packet, 'MQTT publication send failed');
+    const write = async () => {
+      // Only a PUBCOMP that arrives from here on answers this PUBREL.
+      if (packet.cmd === 'pubrel') this.outbound?.released(packet.messageId);
+      await this.sendIdentified(packet, 'MQTT publication send failed');
+    };
     const sent =
       this.resending === undefined
         ? write()

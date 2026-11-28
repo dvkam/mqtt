@@ -142,7 +142,7 @@ test('a resumed session sends PUBREL in PUBREC order, then each PUBLISH in its f
   await second.disconnect();
 });
 
-test('a resumed PUBREL that the session does not finish stays stored and is reported as acknowledged', async () => {
+test('MQTT-3.3.4-8: a resumed session sends every stored PUBREL although the send quota is used up', async () => {
   const peer = exchangeBroker({
     connack: (index) => (index === 1 ? {} : { sessionPresent: true, receiveMaximum: 1 }),
     answer: (packet, index) => (index === 1 && packet.cmd === 'publish' ? acknowledge(packet) : undefined),
@@ -160,11 +160,84 @@ test('a resumed PUBREL that the session does not finish stays stored and is repo
   const { connecting, ends } = connect(peer.transport, sessionState, { cleanStart: false });
   await connecting;
   await settle();
-  expect(peer.sent(1)).toEqual(['pubrel 1']);
+  // Section 4.9: a PUBREL takes no quota, and the client must not delay a packet other than PUBLISH.
+  expect(peer.sent(1)).toEqual(['pubrel 1', 'pubrel 2']);
   peer.connection(1).end();
   await settle();
-  expect(ends).toMatchObject([{ kind: 'error', uncertain: [stored[0]] }]);
+  expect(ends).toMatchObject([{ kind: 'error', uncertain: stored }]);
   expect(sessionState.inFlight).toEqual(stored);
+});
+
+test('a resumed PUBREL holds its quota slot against a new PUBLISH until its PUBCOMP', async () => {
+  const peer = exchangeBroker({
+    connack: (index) => (index === 1 ? {} : { sessionPresent: true, receiveMaximum: 2 }),
+    answer: (packet, index) => (index === 1 && packet.cmd === 'publish' ? acknowledge(packet) : undefined),
+  });
+  const sessionState = createSessionState();
+  const first = await connect(peer.transport, sessionState).connecting;
+  const publications = [first.publish('a', '1', qosTwo), first.publish('b', '2', qosTwo), first.publish('c', '3', qosTwo)];
+  await settle();
+  await lose(peer.connection(0), publications);
+  const second = await connect(peer.transport, sessionState, { cleanStart: false }).connecting;
+  const next = second.publish('d', 'new', qosOne);
+  await settle();
+  expect(peer.sent(1)).toEqual(['pubrel 1', 'pubrel 2', 'pubrel 3']);
+  peer.connection(1).deliver({ cmd: 'pubcomp', messageId: 1, reasonCode: 0 });
+  await settle();
+  // Three exchanges were open against a Receive Maximum of 2, so one PUBCOMP frees no slot.
+  expect(peer.sent(1)).toEqual(['pubrel 1', 'pubrel 2', 'pubrel 3']);
+  peer.connection(1).deliver({ cmd: 'pubcomp', messageId: 3, reasonCode: 0 });
+  await settle();
+  expect(peer.sent(1)).toEqual(['pubrel 1', 'pubrel 2', 'pubrel 3', 'publish d qos 1 id 1']);
+  peer.connection(1).deliver({ cmd: 'puback', messageId: 1, reasonCode: 0 });
+  await next;
+  await second.disconnect({ drain: false });
+});
+
+test('a PUBREC for a stored PUBLISH that still waits for quota gets no PUBREL, and the PUBLISH goes out again', async () => {
+  const peer = exchangeBroker({ connack: (index) => (index === 1 ? {} : { sessionPresent: true, receiveMaximum: 1 }) });
+  const sessionState = createSessionState();
+  const first = await connect(peer.transport, sessionState).connecting;
+  const publications = [first.publish('a', '1', qosTwo), first.publish('b', '2', qosTwo)];
+  await settle();
+  await lose(peer.connection(0), publications);
+  const second = await connect(peer.transport, sessionState, { cleanStart: false }).connecting;
+  await settle();
+  expect(peer.sent(1)).toEqual(['publish a qos 2 id 1 dup']);
+  // The broker answers the PUBLISH of the earlier connection. The client still stores that exchange.
+  peer.connection(1).deliver(pubrec(2));
+  await settle();
+  expect(peer.sent(1)).toEqual(['publish a qos 2 id 1 dup']);
+  peer.connection(1).deliver(pubrec(1));
+  await settle();
+  peer.connection(1).deliver({ cmd: 'pubcomp', messageId: 1, reasonCode: 0 });
+  await settle();
+  expect(peer.sent(1)).toEqual(['publish a qos 2 id 1 dup', 'pubrel 1', 'publish b qos 2 id 2 dup']);
+  expect(sessionState.inFlight).toEqual([{ topic: 'b', messageId: 2, qos: 2, acknowledged: false }]);
+  await second.disconnect({ drain: false });
+});
+
+test('MQTT-4.4.0-2: a refusing PUBREC ends the stored exchange, so a resumed session sends nothing for it', async () => {
+  const peer = exchangeBroker({
+    connack: (index) => ({ sessionPresent: index === 2 }),
+    hold: (packet, index) => index === 1 && packet.cmd === 'publish',
+  });
+  const sessionState = createSessionState();
+  const { connecting, ends } = connect(peer.transport, sessionState);
+  const first = await connecting;
+  const refused = first.publish('a', '1', qosTwo);
+  await settle();
+  expect(sessionState.inFlight).toEqual([{ topic: 'a', messageId: 1, qos: 2, acknowledged: false }]);
+  peer.connection(0).deliver(pubrec(1, 0x97));
+  await settle();
+  expect(sessionState.inFlight).toEqual([]);
+  await lose(peer.connection(0), [refused]);
+  // The PUBLISH write was still pending, so the session end lists the publication although its exchange is over.
+  expect(ends).toMatchObject([{ kind: 'error', uncertain: [{ topic: 'a', messageId: 1, qos: 2, acknowledged: false }] }]);
+  const second = await connect(peer.transport, sessionState, { cleanStart: false }).connecting;
+  await settle();
+  expect(peer.sent(1)).toEqual([]);
+  await second.disconnect();
 });
 
 test('a stored QoS 2 PUBLISH conflicts with a lower Maximum QoS and stays stored', async () => {
@@ -471,5 +544,110 @@ test('a handler that finishes after its connection ended keeps the identifier fo
   await settle();
   expect(delivered).toEqual([]);
   expect(peer.connection(1).frames).toEqual([[0x50, 2, 0, 7]]);
+  await second.disconnect();
+});
+
+/** A receiver whose first QoS 2 handler call stays pending until the test fails it. */
+function lateHandler() {
+  const calls: string[] = [];
+  let fail: (reason: Readonly<Error>) => void = () => {};
+  const first = new Promise<void>((_resolve, reject) => {
+    fail = reject;
+  });
+  first.catch(() => {});
+  const handlers: Options = {
+    onQosOneMessage() {},
+    async onQosTwoMessage({ topic, messageId, dup }: Readonly<{ topic: string; messageId: number; dup: boolean }>) {
+      calls.push(`${topic} id ${String(messageId)}${dup ? ' dup' : ''}`);
+      if (calls.length === 1) await first;
+    },
+  };
+  const failFirst = (): void => {
+    fail(new Error('the first handler fails late'));
+  };
+  return { calls, handlers, fail: failFirst };
+}
+
+function message(topic: string, messageId: number, dup = false): Delivery {
+  return { cmd: 'publish', topic, payload: topic, qos: 2, messageId, dup };
+}
+
+const pubrecOne = [0x50, 2, 0, 1];
+const pubcompOne = [0x70, 2, 0, 1];
+
+test('MQTT-4.3.3-10: a handler of an earlier connection that fails late causes no second delivery of a newer message', async () => {
+  const peer = exchangeBroker({ connack: (index) => ({ sessionPresent: index >= 2 }) });
+  const sessionState = createSessionState();
+  const { calls, handlers, fail } = lateHandler();
+  await connect(peer.transport, sessionState, handlers).connecting;
+  peer.connection(0).deliver(message('A', 1));
+  await settle();
+  // The handler of A still runs when its connection ends.
+  peer.connection(0).end();
+  await settle();
+  await connect(peer.transport, sessionState, { ...handlers, cleanStart: false }).connecting;
+  const second = peer.connection(1);
+  second.deliver(message('A', 1, true));
+  await settle();
+  second.deliver({ cmd: 'pubrel', messageId: 1, reasonCode: 0 });
+  await settle();
+  // The exchange of A is over, so the broker may give Packet Identifier 1 to B.
+  second.deliver(message('B', 1));
+  await settle();
+  expect(second.frames).toEqual([pubrecOne, pubcompOne, pubrecOne]);
+  // The PUBREC for B is lost with the connection.
+  second.end();
+  await settle();
+  fail();
+  await settle();
+  await connect(peer.transport, sessionState, { ...handlers, cleanStart: false }).connecting;
+  peer.connection(2).deliver(message('B', 1, true));
+  await settle();
+  expect(peer.connection(2).frames).toEqual([pubrecOne]);
+  expect(calls).toEqual(['A id 1', 'B id 1']);
+});
+
+test('a handler of an earlier session that fails late leaves the exchange that now has its Packet Identifier', async () => {
+  const peer = exchangeBroker();
+  const sessionState = createSessionState();
+  const { calls, handlers, fail } = lateHandler();
+  await connect(peer.transport, sessionState, handlers).connecting;
+  peer.connection(0).deliver(message('A', 1));
+  await settle();
+  peer.connection(0).end();
+  await settle();
+  // Session Present false starts a new session, whose broker counts its Packet Identifiers from 1 again.
+  const { connecting, ends } = connect(peer.transport, sessionState, handlers);
+  await connecting;
+  const second = peer.connection(1);
+  second.deliver(message('B', 1));
+  await settle();
+  fail();
+  await settle();
+  second.deliver({ cmd: 'pubrel', messageId: 1, reasonCode: 0 });
+  await settle();
+  second.deliver(message('C', 2));
+  await settle();
+  expect(second.frames).toEqual([pubrecOne, pubcompOne, [0x50, 2, 0, 2]]);
+  expect(calls).toEqual(['A id 1', 'B id 1', 'C id 2']);
+  expect(ends).toEqual([]);
+});
+
+test('a handler of an earlier connection that fails late frees its own Packet Identifier for the next PUBLISH', async () => {
+  const peer = exchangeBroker({ connack: (index) => ({ sessionPresent: index >= 2 }) });
+  const sessionState = createSessionState();
+  const { calls, handlers, fail } = lateHandler();
+  await connect(peer.transport, sessionState, handlers).connecting;
+  peer.connection(0).deliver(message('A', 1));
+  await settle();
+  peer.connection(0).end();
+  await settle();
+  fail();
+  await settle();
+  const second = await connect(peer.transport, sessionState, { ...handlers, cleanStart: false }).connecting;
+  peer.connection(1).deliver(message('A', 1, true));
+  await settle();
+  expect(calls).toEqual(['A id 1', 'A id 1 dup']);
+  expect(peer.connection(1).frames).toEqual([pubrecOne]);
   await second.disconnect();
 });
