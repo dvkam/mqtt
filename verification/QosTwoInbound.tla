@@ -2,10 +2,10 @@
 \* Rule: One inbound QoS 2 exchange reaches the handler at most once, also across a resumed session. A publication of
 \* this connection holds the one receive slot until its PUBREL. A failed handler forgets the Packet Identifier, and the
 \* session answers no PUBREL after a stop.
-\* Source: src/portable.ts (receiveAcknowledged, deliverQosTwo, receiveRelease, answer, advanceInbound, disconnect)
+\* Source: src/portable.ts (receiveQosOne, deliverQosTwo, receiveRelease, answer, advanceInbound, disconnect)
 \* Source: src/sessionState.ts (inbound, resume)
 \* Tests: test/qos2-inbound.test.ts, test/qos2-resume.test.ts
-\* Mapping: Publish is receiveAcknowledged with its duplicate check. Start is deliverQosTwo recording the identifier
+\* Mapping: Publish is receiveQosOne with its duplicate check. Start is deliverQosTwo recording the identifier
 \* and calling onQosTwoMessage. HandlerSuccess is the PUBREC write and HandlerFailure the catch in deliverQosTwo.
 \* Release is receiveRelease. CompleteSettled is the settled PUBCOMP write in answer, which calls advanceInbound.
 \* Stop is disconnect. Drop ends the connection. Resume and Fresh are resume in the session state.

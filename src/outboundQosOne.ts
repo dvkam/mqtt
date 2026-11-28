@@ -73,11 +73,12 @@ function reportAcknowledgment<Item>(publication: Readonly<Publication<Item>>, co
 }
 
 /**
- * Ordered QoS 1 and QoS 2 exchanges under one Receive Maximum quota. `Item` is the publication the session hands to
+ * Ordered QoS 1 and QoS 2 exchanges under one Receive Maximum quota. The class keeps the name of its first use, which
+ * `AGENTS.md` and the verification models cite. `Item` is the publication the session hands to
  * `transmit`; the queue never reads it. A QoS 2 exchange keeps its quota slot and Packet Identifier until its PUBCOMP,
  * or until a PUBREC with a reason code of 0x80 or above.
  */
-export class OutboundPublications<Item> {
+export class OutboundQosOne<Item> {
   private readonly queued = new Set<Publication<Item>>();
   private readonly resends: Resend<Item>[] = [];
   // Whether queued publications wait for `release`, because resends are not all written yet.

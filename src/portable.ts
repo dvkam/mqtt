@@ -24,7 +24,7 @@ import { capturePublication, type OutgoingPublication } from './publication.js';
 import { PublicationAdmission, type PublicationLimits } from './publicationAdmission.js';
 import { SubscriptionExchanges, type SubscriptionLimits } from './subscriptionExchanges.js';
 import { PacketIdentifiers } from './packetIdentifiers.js';
-import { OutboundPublications, type Resumed } from './outboundPublications.js';
+import { OutboundQosOne, type Resumed } from './outboundQosOne.js';
 import { QosZeroWrites } from './qosZeroWrites.js';
 import { isPubackReason } from './pubackReason.js';
 import { takeNativeBudgetFailure } from './nativeWriteBudget.js';
@@ -149,7 +149,7 @@ class PortableClient<Bytes extends Uint8Array> {
   private readonly releaseSession: (() => void) | undefined;
   private resending?: Promise<unknown>;
   // Set while resends are unwritten: `unwritten` counts them, and `waiting` holds the QoS 0 publications that wait for
-  // them. New QoS 1 and QoS 2 publications wait in the OutboundPublications queue instead.
+  // them. New QoS 1 and QoS 2 publications wait in the OutboundQosOne queue instead.
   private resendPhase?: { readonly waiting: WaitingWrite[]; unwritten: number };
   // Set once DISCONNECT is about to be written or the session ended. No resend or waiting write goes out after it.
   private writesEnded?: Error;
@@ -164,7 +164,7 @@ class PortableClient<Bytes extends Uint8Array> {
   private readonly unlisten: (() => void) | undefined;
   private readonly subscriptions: SubscriptionExchanges;
   private readonly identifiers = new PacketIdentifiers();
-  private outbound?: OutboundPublications<OutgoingPublication>;
+  private outbound?: OutboundQosOne<OutgoingPublication>;
   private activation: 'opening' | 'accepted' | 'active' = 'opening';
   private retainAvailable = true;
   private maximumQos: 0 | 1 | 2 = 2;
@@ -274,7 +274,7 @@ class PortableClient<Bytes extends Uint8Array> {
               );
               return;
             }
-            this.receiveAcknowledged({ ...packet, messageId, dup });
+            this.receiveQosOne({ ...packet, messageId, dup });
           }
         },
         this.onDiagnostic,
@@ -417,7 +417,7 @@ class PortableClient<Bytes extends Uint8Array> {
       this.subscriptions.limitPacketSize(connection.maximumPacketSize);
     }
     // A broker with Maximum QoS 0 still gets the PUBREL of a stored QoS 2 exchange that has its PUBREC.
-    const outbound = new OutboundPublications<OutgoingPublication>(
+    const outbound = new OutboundQosOne<OutgoingPublication>(
       receiveMaximum,
       this.identifiers,
       this.transmitter(false),
@@ -489,8 +489,9 @@ class PortableClient<Bytes extends Uint8Array> {
     });
   }
 
+  /** Take a QoS 1 or QoS 2 PUBLISH through the one receive slot. The name is from its first use, which `AGENTS.md` cites. */
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The handler receives the adapter's mutable packet payload.
-  private receiveAcknowledged(packet: AcknowledgedMessage<Bytes>): void {
+  private receiveQosOne(packet: AcknowledgedMessage<Bytes>): void {
     if (this.activation === 'opening') {
       void this.abort(
         new MqttError('ERR_MQTT_PROTOCOL', 'Inbound QoS ' + String(packet.qos) + ' PUBLISH arrived before CONNACK'),
@@ -586,7 +587,7 @@ class PortableClient<Bytes extends Uint8Array> {
   private advanceInbound(): void {
     const next = this.nextInbound;
     this.nextInbound = undefined;
-    if (next && !this.failure && !this.closing) this.receiveAcknowledged(next);
+    if (next && !this.failure && !this.closing) this.receiveQosOne(next);
   }
 
   /** PUBREC and PUBCOMP continue an outbound QoS 2 exchange. PUBREL ends an inbound one. */

@@ -2,7 +2,7 @@
 \* Rule: An outbound QoS 2 exchange keeps its quota slot until PUBCOMP or a refusing PUBREC. The client writes PUBREL
 \* only after an accepting PUBREC and never writes the PUBLISH again afterwards, also on a resumed session. The publish
 \* promise resolves only on PUBCOMP, and nothing is written once DISCONNECT is due.
-\* Source: src/outboundPublications.ts (startTwoPhase, received, completed, stop, waitForActive, finishActive, resume)
+\* Source: src/outboundQosOne.ts (startTwoPhase, received, completed, stop, waitForActive, finishActive, resume)
 \* Source: src/sessionState.ts (record, received, completed, resume)
 \* Source: src/portable.ts (releasePublication, endWrites)
 \* Tests: test/qos2-publish.test.ts, test/qos2-resume.test.ts
