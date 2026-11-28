@@ -29,6 +29,8 @@ export interface Fixture {
   readonly openedAt: () => number;
   /** The `performance.now()` of the last closed connection. */
   readonly closedAt: () => number;
+  /** How long each closed connection was open, in milliseconds, in the order they closed. */
+  readonly durations: () => readonly number[];
   /** Stops passing on bytes of the open connections, in both directions. */
   readonly stall: () => void;
   /** Closes the open connections. */
@@ -41,6 +43,7 @@ export interface Fixture {
 }
 
 interface Pair {
+  readonly acceptedAt: number;
   readonly client: Socket;
   readonly upstream: Socket;
   stalled: boolean;
@@ -98,6 +101,7 @@ export async function createFixture(
   let opened = 0;
   let openedAt = 0;
   let closedAt = 0;
+  const durations: number[] = [];
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The connection listener of createServer in node:net receives a native net.Socket, and the proxy calls its write and destroy methods.
   const proxy = createTcpServer((client) => {
     opened++;
@@ -108,12 +112,14 @@ export async function createFixture(
       return;
     }
     const upstream = connect(Number(brokerUrl.port), brokerUrl.hostname);
-    const pair: Pair = { client, upstream, stalled: mode === 'silent' };
+    const pair: Pair = { acceptedAt: openedAt, client, upstream, stalled: mode === 'silent' };
     pairs.add(pair);
     const close = () => {
       client.destroy();
       upstream.destroy();
-      if (pairs.delete(pair)) closedAt = performance.now();
+      if (!pairs.delete(pair)) return;
+      closedAt = performance.now();
+      durations.push(closedAt - pair.acceptedAt);
     };
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- A net.Socket data event passes a native Buffer, which the proxy writes on unchanged.
     client.on('data', (bytes: Buffer) => {
@@ -179,6 +185,7 @@ await fetch('/report', { method: 'POST', body: JSON.stringify({ wasDiscarded: do
     open: () => pairs.size,
     openedAt: () => openedAt,
     closedAt: () => closedAt,
+    durations: () => durations,
     stall() {
       for (const pair of pairs) pair.stalled = true;
     },

@@ -139,6 +139,16 @@ export function published(): Readonly<{ code: string; elapsedMs: number }> | und
   return pending;
 }
 
+/** Runs `count` timers of `delayMs` one after another and returns the elapsed milliseconds, which shows timer throttling. */
+export async function timerChain(count: number, delayMs: number): Promise<number> {
+  const started = performance.now();
+  for (let index = 0; index < count; index++)
+    await new Promise((resolve) => {
+      setTimeout(resolve, delayMs);
+    });
+  return performance.now() - started;
+}
+
 export async function stop(): Promise<void> {
   await client?.disconnect();
 }

@@ -260,6 +260,37 @@ try {
       current = undefined;
     }
     await waitFor(() => fixture.open() === 0, 'the connections of ' + engine + ' to close');
+    if (engine === 'firefox') {
+      // PROBE: does Firefox restore from the cache once the session history may keep viewers?
+      for (const prefs of [
+        { 'browser.sessionhistory.max_total_viewers': 8 },
+        { 'browser.sessionhistory.max_total_viewers': 8, 'fission.bfcacheInParent': true },
+      ]) {
+        current = await firefox.launch({ firefoxUserPrefs: prefs });
+        try {
+          active = await current.newPage();
+          tab().on('console', (message: Readonly<{ text: () => string }>) => {
+            const text = message.text();
+            if (text.startsWith('lifecycle ')) consoleLog.push(text.slice('lifecycle '.length));
+          });
+          console.log('PROBE', JSON.stringify(prefs));
+          const restored = await Promise.race([control(engine), sleep(20_000).then(() => 'timed out')]);
+          console.log('PROBE restored', restored);
+          if (restored === true) {
+            await tab().goto(fixture.origin + '/a');
+            await start();
+            const back = await Promise.race([leaveAndGoBack(2000), sleep(20_000).then(() => 'timed out')]);
+            console.log('PROBE connected page restored', back, JSON.stringify(consoleLog), JSON.stringify(await timeline()));
+          }
+        } catch (error) {
+          console.log('PROBE failed', String(error));
+        } finally {
+          active = undefined;
+          await current.close();
+          current = undefined;
+        }
+      }
+    }
   }
 } finally {
   fixture.close();
