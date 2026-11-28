@@ -641,11 +641,11 @@ class PortableClient<Bytes extends Uint8Array> {
   }
 
   /**
-   * Write a PUBREC, PUBREL or PUBCOMP outside a handler call. A failed write ends the session. `freesSlot` marks the
-   * PUBCOMP that ends the publication in the receive slot, so the retained next PUBLISH starts once the write settled.
+   * Write a PUBREC, PUBREL or PUBCOMP outside a handler call. The callers answer nothing once `disconnect()` was called.
+   * A failed write ends the session. `freesSlot` marks the PUBCOMP that ends the publication in the receive slot, so the
+   * retained next PUBLISH starts once the write settled.
    */
   private answer(packet: Readonly<Extract<ClientPacket, { cmd: 'pubrec' | 'pubrel' | 'pubcomp' }>>, freesSlot = false): void {
-    if (this.failure || this.writesEnded) return;
     void this.run(async () => this.sendPacket(packet), 'inbound-publish')
       .catch(this.failInbound.bind(this))
       .finally(() => {
