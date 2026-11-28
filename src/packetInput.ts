@@ -48,18 +48,12 @@ export class PacketInput<Bytes extends Uint8Array> {
     return this.decoder.maxPacketBytes;
   }
 
-  listen(
-    onPacket: PacketSink<Bytes>,
-    onClose: FailureSink<Bytes>,
-    receiveQosOne = false,
-    protocolError?: ProtocolErrorSink<Bytes>,
-    receiveQosTwo = false,
-  ): () => void {
+  listen(onPacket: PacketSink<Bytes>, onClose: FailureSink<Bytes>, protocolError?: ProtocolErrorSink<Bytes>): () => void {
     if (this.registered) throw new Error('MQTT packet input already registered');
     if (this.terminal?.owner === 'core') throw new Error('MQTT packet input has retired');
     this.registered = true;
     const registration: Registration<Bytes> = {
-      received: inboundPacketListener(onPacket, receiveQosOne, this.toBytes, receiveQosTwo),
+      received: inboundPacketListener(onPacket, this.toBytes),
       failed: onClose,
       protocolError,
     };

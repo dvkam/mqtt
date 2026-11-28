@@ -577,7 +577,7 @@ function message(topic: string, messageId: number, dup = false): Delivery {
 const pubrecOne = [0x50, 2, 0, 1];
 const pubcompOne = [0x70, 2, 0, 1];
 
-test('MQTT-4.3.3-10: a handler of an earlier connection that fails late causes no second delivery of a newer message', async () => {
+test('MQTT-4.3.3-10: a handler of an earlier connection that fails late is called again once, and a newer message is delivered once', async () => {
   const peer = exchangeBroker({ connack: (index) => ({ sessionPresent: index >= 2 }) });
   const sessionState = createSessionState();
   const { calls, handlers, fail } = lateHandler();
@@ -591,6 +591,11 @@ test('MQTT-4.3.3-10: a handler of an earlier connection that fails late causes n
   const second = peer.connection(1);
   second.deliver(message('A', 1, true));
   await settle();
+  // The PUBREC waits for the handler, so the broker cannot end the exchange of A and give its identifier away.
+  expect(second.frames).toEqual([]);
+  fail();
+  await settle();
+  expect(second.frames).toEqual([pubrecOne]);
   second.deliver({ cmd: 'pubrel', messageId: 1, reasonCode: 0 });
   await settle();
   // The exchange of A is over, so the broker may give Packet Identifier 1 to B.
@@ -600,13 +605,11 @@ test('MQTT-4.3.3-10: a handler of an earlier connection that fails late causes n
   // The PUBREC for B is lost with the connection.
   second.end();
   await settle();
-  fail();
-  await settle();
   await connect(peer.transport, sessionState, { ...handlers, cleanStart: false }).connecting;
   peer.connection(2).deliver(message('B', 1, true));
   await settle();
   expect(peer.connection(2).frames).toEqual([pubrecOne]);
-  expect(calls).toEqual(['A id 1', 'B id 1']);
+  expect(calls).toEqual(['A id 1', 'A id 1 dup', 'B id 1']);
 });
 
 test('a handler of an earlier session that fails late leaves the exchange that now has its Packet Identifier', async () => {
@@ -654,7 +657,7 @@ test('a handler of an earlier connection that fails late frees its own Packet Id
   await second.disconnect();
 });
 
-test('a handler of an earlier connection that fulfills late does not record a Packet Identifier whose exchange ended', async () => {
+test('a handler of an earlier connection that fulfills late answers the duplicate, and its identifier then names a new message', async () => {
   const peer = exchangeBroker({ connack: (index) => ({ sessionPresent: index >= 2 }) });
   const sessionState = createSessionState();
   const { calls, handlers, fulfill } = lateHandler();
@@ -666,9 +669,10 @@ test('a handler of an earlier connection that fulfills late does not record a Pa
   const second = await connect(peer.transport, sessionState, { ...handlers, cleanStart: false }).connecting;
   peer.connection(1).deliver(message('A', 1, true));
   await settle();
-  peer.connection(1).deliver({ cmd: 'pubrel', messageId: 1, reasonCode: 0 });
-  await settle();
+  expect(peer.connection(1).frames).toEqual([]);
   fulfill();
+  await settle();
+  peer.connection(1).deliver({ cmd: 'pubrel', messageId: 1, reasonCode: 0 });
   await settle();
   // The exchange of A is over, so Packet Identifier 1 names a new message and not a duplicate.
   peer.connection(1).deliver(message('B', 1));

@@ -27,6 +27,8 @@ export interface ExchangeConnection {
   readonly packets: ClientPacket[];
   /** The bytes of every write after CONNECT, in order. */
   readonly frames: number[][];
+  /** The `force` argument of each call that closed the transport, in order. */
+  readonly closes: boolean[];
   /** Sends a broker packet on this connection at once. */
   deliver(delivery: Delivery): void;
   /** Sends bytes as given, so a test can pin a wire vector. */
@@ -108,6 +110,7 @@ export function exchangeBroker(script: Readonly<ExchangeScript> = {}) {
       const connection: ExchangeConnection = {
         packets: [],
         frames: [],
+        closes: [],
         deliver(delivery) {
           inbound.bytes(encode(delivery));
         },
@@ -163,7 +166,10 @@ export function exchangeBroker(script: Readonly<ExchangeScript> = {}) {
               held.push(resolve);
             });
         },
-        async close() {},
+        async close(force: boolean) {
+          connection.closes.push(force);
+          await Promise.resolve();
+        },
       };
     },
   };
