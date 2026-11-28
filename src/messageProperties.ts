@@ -1,4 +1,5 @@
 import type { FramedPacket, UserProperty } from './wireCodec.js';
+import type { ReadonlyBytes, ReadonlyDeep } from './util/bytes.js';
 
 /** The PUBLISH properties a broker sent. A property the broker left out is an absent key. */
 export interface MessageProperties<Bytes extends Uint8Array = Uint8Array> {
@@ -25,10 +26,8 @@ export interface PublishMessage<Bytes extends Uint8Array = Uint8Array> extends M
 
 /** Build the received message for a decoded PUBLISH. A QoS 1 caller adds `qos`, `messageId` and `dup`. */
 export function publishMessage<Bytes extends Uint8Array>(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Decoded packets carry mutable byte views that the message hands to the application.
-  packet: Extract<FramedPacket, { cmd: 'publish' }>,
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The converter returns a view of the same mutable bytes.
-  bytes: (value: Uint8Array) => Bytes,
+  packet: ReadonlyDeep<Extract<FramedPacket, { cmd: 'publish' }>>,
+  bytes: (value: ReadonlyBytes) => Bytes,
 ): PublishMessage<Bytes> {
   const message: PublishMessage<Bytes> = {
     cmd: 'publish',

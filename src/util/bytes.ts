@@ -10,6 +10,18 @@ export const maxBinaryBytes = 65_535;
  */
 export type ReadonlyBytes = Readonly<Uint8Array<Readonly<ArrayBufferLike>>>;
 
+/**
+ * A value that a function only reads, at every depth. A byte view becomes `ReadonlyBytes`, a function stays as it is, and
+ * every other object gets read-only members. Every `Value` is assignable to it.
+ */
+export type ReadonlyDeep<Value> = Value extends Uint8Array
+  ? ReadonlyBytes
+  : Value extends (...parameters: readonly never[]) => unknown
+    ? Value
+    : Value extends object
+      ? { readonly [Key in keyof Value]: ReadonlyDeep<Value[Key]> }
+      : Value;
+
 export function copyBinaryData(value: unknown): Uint8Array<ArrayBuffer> | 'not bytes' | 'too long' {
   if (!isBytes(value)) return 'not bytes';
   // The TypedArray constructor copies through internal slots, not through getters a subclass overrides.
