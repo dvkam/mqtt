@@ -9,6 +9,8 @@ import { isMqttError, MqttError, type MqttErrorCode } from '../src/mqttError.js'
 import { connectPortable, type PacketTransport } from '../src/portable.js';
 import { ProtocolInputError } from '../src/protocolInputError.js';
 import type { SessionEnd } from '../src/session.js';
+import type { ClientPacket } from '../src/wireCodec.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 // What a test needs to answer a sent packet. Missing identifiers and QoS read as zero.
 type Sent = Readonly<{ cmd: string; messageId: number; qos: number }>;
@@ -34,8 +36,7 @@ function peer(reply: Responder = answer): Readonly<{ transport: PacketTransport;
     deliver?.(packet);
   };
   const transport: PacketTransport = {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PacketTransport.send in src/portable.ts receives the session's ClientPacket, whose PUBLISH payload is a native Uint8Array.
-    async send(packet) {
+    async send(packet: ReadonlyDeep<ClientPacket>) {
       const messageId = 'messageId' in packet && typeof packet.messageId === 'number' ? packet.messageId : 0;
       const qos = 'qos' in packet && typeof packet.qos === 'number' ? packet.qos : 0;
       await reply({ cmd: packet.cmd, messageId, qos }, receive);

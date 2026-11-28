@@ -6,6 +6,7 @@ import type { PublishMessage } from '../src/messageProperties.js';
 import type { QosOneMessage } from '../src/session.js';
 import { connectPortable, type PacketTransport, type PortableOptions } from '../src/portable.js';
 import { MqttError } from '../src/mqttError.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 test('encodes and parses CONNECT Receive Maximum and QoS 1 SUBSCRIBE', () => {
   const connect = Uint8Array.of(0x10, 17, 0, 4, 77, 81, 84, 84, 5, 2, 0, 0, 3, 0x21, 0, 1, 0, 1, 97);
@@ -51,8 +52,7 @@ function gate() {
 }
 
 async function peer(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Options retain callbacks with mutable packet payloads.
-  options: Readonly<Partial<PortableOptions>>,
+  options: ReadonlyDeep<Partial<PortableOptions>>,
   acknowledgment?: Readonly<Promise<void>>,
   grant = 1,
   disconnectWrite?: Readonly<Promise<void>>,
@@ -62,8 +62,7 @@ async function peer(
   const sent: ClientPacket[] = [];
   const closes: Array<boolean | undefined> = [];
   const transport: PacketTransport = {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The scripted peer records the original packet and may reply during send.
-    async send(packet) {
+    async send(packet: ReadonlyDeep<ClientPacket>) {
       sent.push(packet);
       if (packet.cmd === 'connect') receive({ cmd: 'connack', reasonCode: 0, sessionPresent: false });
       if (packet.cmd === 'subscribe') receive({ cmd: 'suback', messageId: packet.messageId, granted: [grant] });
@@ -141,7 +140,7 @@ test('keeps inbound ownership separate and waits for application success before 
     onMessage(message: Readonly<{ topic: string }>) {
       qosZero.push(message.topic);
     },
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Mutate the delivered packet to test that the session keeps its own ACK identifier.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. This function writes to `message` (Cannot assign to 'messageId' because it is a read-only property), and the rule accepts no parameter that is written, so the code would have to copy the value first. `QosOneMessage` is declared in `src/session.ts`.
     async onQosOneMessage(message) {
       delivered.push(message.messageId);
       message.messageId = 99;
@@ -200,10 +199,9 @@ test.each(['handling', 'acknowledging'] as const)('bounds retained inbound messa
   const received: number[] = [];
   const broker = await peer(
     {
-      // oxlint-disable-next-line typescript/promise-function-async -- Reuse the gate so the fixture can hold exactly one phase.
-      onQosOneMessage(message: Readonly<{ messageId: number }>) {
+      async onQosOneMessage(message: Readonly<{ messageId: number }>) {
         received.push(message.messageId);
-        return phase === 'handling' ? held.promise : undefined;
+        if (phase === 'handling') await held.promise;
       },
     },
     phase === 'acknowledging' ? held.promise : undefined,
@@ -282,8 +280,7 @@ test('retains the first QoS 1 PUBLISH arriving with CONNACK while CONNECT send s
         receive = onPacket;
         return () => {};
       },
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture forwards mutable packets during the opening send.
-      async send(packet) {
+      async send(packet: ReadonlyDeep<ClientPacket>) {
         if (packet.cmd === 'connect') {
           receive({ cmd: 'connack', reasonCode: 0, sessionPresent: false });
           receive(publication(7));

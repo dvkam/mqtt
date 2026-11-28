@@ -1,10 +1,12 @@
 import { once } from 'node:events';
 import { generate, parser, type Packet } from 'mqtt-packet';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, type RawData } from 'ws';
 import { afterEach, expect, test, vi } from 'vitest';
 import { createBrowserClient } from '../src/browserClient.js';
 import * as portable from '../src/portable.js';
 import type { SessionEnd } from '../src/session.js';
+import type { PacketTransport, PortableOptions, ReceivedPacket } from '../src/portable.js';
+import type { ReadonlyBytes, ReadonlyDeep } from '../src/util/bytes.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -26,20 +28,19 @@ async function peer(
   if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
   const packets: Packet[] = [];
   let closed = false;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `socket` is typed `WebSocket`, and the published package exports no name for that type, so the accepted type would be a hand-written copy of it. `WebSocket` is declared in `ws`.
   server.on('connection', (socket) => {
     socket.once('close', () => {
       closed = true;
     });
     const decoder = parser({ protocolVersion: 5 });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    socket.on('message', (bytes) => {
+    socket.on('message', (bytes: ReadonlyDeep<RawData>) => {
       if (Buffer.isBuffer(bytes)) decoder.parse(bytes);
     });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
     decoder.on('packet', (packet) => {
       packets.push(packet);
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `value` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `value` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
       const send = (value: Packet) => {
         socket.send(generate(value, { protocolVersion: 5 }));
       };
@@ -93,12 +94,11 @@ test('forwards broker limits and PUBACK to the portable session', async () => {
   const broker = await peer(0, false, { receiveMaximum: 1, maximumQoS: 0 });
   const connect = portable.connectPortable;
   const received: unknown[] = [];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The test observes the existing mutable packet transport contract.
-  vi.spyOn(portable, 'connectPortable').mockImplementation(async (transport, options) => {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. This function writes to `transport` (Cannot assign to 'listen' because it is a read-only property), and the rule accepts no parameter that is written, so the code would have to copy the value first. `PacketTransport` is declared in `src/portable.ts`.
+  vi.spyOn(portable, 'connectPortable').mockImplementation(async (transport, options: ReadonlyDeep<PortableOptions>) => {
     const listen = transport.listen.bind(transport);
     transport.listen = (onPacket, onClose) =>
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Forward the adapter's original mutable packets to the session.
-      listen((packet) => {
+      listen((packet: ReadonlyDeep<ReceivedPacket>) => {
         if (packet.cmd === 'connack' || packet.cmd === 'puback') received.push(packet);
         onPacket(packet);
       }, onClose);
@@ -235,12 +235,13 @@ test('rejects cancellation during portable-to-browser connection handoff', async
   const controller = new AbortController();
   const reason = new Error('cancel final handoff');
   const connect = portable.connectPortable;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  vi.spyOn(portable, 'connectPortable').mockImplementation(async (transport, options) => {
-    const client = await connect(transport, options);
-    controller.abort(reason);
-    return client;
-  });
+  vi.spyOn(portable, 'connectPortable').mockImplementation(
+    async (transport: Readonly<PacketTransport>, options: ReadonlyDeep<PortableOptions>) => {
+      const client = await connect(transport, options);
+      controller.abort(reason);
+      return client;
+    },
+  );
   try {
     await expect(createBrowserClient({ url: broker.url, clientId: 'handoff', signal: controller.signal }).connect()).rejects.toBe(
       reason,
@@ -264,8 +265,7 @@ test('ping timeout retires locally without waiting for a second native-close dea
         this.dispatchEvent(new Event('open'));
       });
     }
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    send(bytes: Uint8Array) {
+    send(bytes: ReadonlyBytes) {
       if (bytes[0] === 0x10)
         queueMicrotask(() => {
           this.dispatchEvent(new MessageEvent('message', { data: Uint8Array.of(0x20, 3, 0, 0, 0).buffer }));

@@ -6,24 +6,21 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { describe, expect, test } from 'vitest';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { createWebSocketClient } from '../src/ws.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 const options = { url: 'ws://127.0.0.1:9/mqtt', clientId: 'core-changes' };
 const connack = Buffer.of(0x20, 0x03, 0x00, 0x00, 0x00);
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer drives native ws sockets and requests.
-type OnConnect = (socket: WebSocket, request: IncomingMessage) => void;
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ws passes its own Set of offered subprotocols.
-type SelectProtocol = (offered: Set<string>) => string | false;
+type OnConnect = (socket: Readonly<WebSocket>, request: ReadonlyDeep<IncomingMessage>) => void;
+type SelectProtocol = (offered: Readonly<Set<string>>) => string | false;
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ws passes its own Set of offered subprotocols.
-const selectMqtt: SelectProtocol = (offered) => offered.has('mqtt') && 'mqtt';
+const selectMqtt: SelectProtocol = (offered: Readonly<Set<string>>) => offered.has('mqtt') && 'mqtt';
 
 /** A WebSocket peer that speaks the mqtt subprotocol and hands each socket to `onConnect` after the client's CONNECT. */
 async function peer(onConnect: OnConnect, protocols: SelectProtocol = selectMqtt) {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0, handleProtocols: protocols });
   let connections = 0;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer drives native ws sockets and requests.
-  server.on('connection', (socket, request) => {
+  server.on('connection', (socket: Readonly<WebSocket>, request: ReadonlyDeep<IncomingMessage>) => {
     connections++;
     socket.on('error', () => {});
     socket.once('message', () => {
@@ -71,8 +68,7 @@ describe('changes from the ws client on main', () => {
   });
 
   test('a failed attempt reports its first failure even when the caller aborts afterwards', async () => {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer drives native ws sockets and requests.
-    const server = await peer((socket) => {
+    const server = await peer((socket: Readonly<WebSocket>) => {
       socket.send('text');
     });
     const controller = new AbortController();
@@ -93,8 +89,7 @@ describe('changes from the ws client on main', () => {
   });
 
   test('a write over the budget on a closing socket reports the budget refusal', async () => {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer drives native ws sockets and requests.
-    const server = await peer((socket, request) => {
+    const server = await peer((socket: Readonly<WebSocket>, request: ReadonlyDeep<IncomingMessage>) => {
       // Send the close frame right behind CONNACK, then stop reading so the client stays in the closing handshake.
       socket.send(connack);
       socket.close(1000);
@@ -144,8 +139,7 @@ describe('behavior the ws client keeps on the core', () => {
   });
 
   test('a text frame during a graceful close ends the close at once', async () => {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer drives native ws sockets and requests.
-    const server = await peer((socket, request) => {
+    const server = await peer((socket: Readonly<WebSocket>, request: ReadonlyDeep<IncomingMessage>) => {
       socket.send(connack);
       // Stop reading so the client's closing handshake gets no answer, then send a text frame.
       request.socket.pause();

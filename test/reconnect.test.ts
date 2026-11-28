@@ -4,6 +4,7 @@ import { MqttError } from '../src/mqttError.js';
 import { createTransportClient } from '../src/portableClient.js';
 import { createReconnectingClient, type ReconnectEvent, type ReconnectOptions } from '../src/reconnect.js';
 import { broker } from './experiments/scripted-broker.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 interface FactoryOptions {
   readonly signal?: AbortSignal;
@@ -14,13 +15,19 @@ interface FactoryOptions {
 function reconnecting(
   transport: Readonly<ByteTransport>,
   reconnect: Readonly<ReconnectOptions> = {},
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- FactoryOptions holds a native AbortSignal, which ByteClientOptions in src/transportCore.ts takes by identity.
-  factory: FactoryOptions = {},
+  factory: ReadonlyDeep<FactoryOptions> = {},
 ) {
   const events: ReconnectEvent[] = [];
   const client = createReconnectingClient(
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteClientOptions in src/transportCore.ts holds a native AbortSignal and Uint8Array callbacks, which createTransportClient keeps by identity.
-    (options) => createTransportClient(transport, options),
+    (
+      options: ReadonlyDeep<{
+        signal?: AbortSignal | undefined;
+        timeoutMs?: number | undefined;
+        maxPacketBytes?: number | undefined;
+        clientId: string;
+        onQosOneMessage(): void;
+      }>,
+    ) => createTransportClient(transport, options),
     { clientId: 'reconnect', onQosOneMessage() {}, ...factory },
     {
       random: () => 0,
@@ -480,8 +487,7 @@ test('reports a stop before any attempt after createReconnectingClient returns',
   const events: string[] = [];
   let client: ReturnType<typeof createReconnectingClient> | undefined;
   client = createReconnectingClient(
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteClientOptions in src/transportCore.ts holds a native AbortSignal, which createTransportClient keeps by identity.
-    (options) => createTransportClient(peer.transport, options),
+    (options: ReadonlyDeep<{ clientId: string; signal: AbortSignal }>) => createTransportClient(peer.transport, options),
     { clientId: 'early', signal: AbortSignal.abort(new Error('gone')) },
     {
       onReconnect(event) {

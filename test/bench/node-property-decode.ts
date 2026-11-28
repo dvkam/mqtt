@@ -79,12 +79,10 @@ const batches = 40;
 const warmupBatches = 10;
 let sink = 0;
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The decoder reads native mutable byte views.
-function run(wire: Readonly<Uint8Array>): number {
+function run(wire: Readonly<Uint8Array<Readonly<ArrayBufferLike>>>): number {
   const decoder = new NodePacketDecoder({
     maxPacketBytes: wire.length,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Decoded packets carry mutable byte views.
-    onPacket(packet) {
+    onPacket(packet: Readonly<{ cmd: string }>) {
       sink += packet.cmd.length;
     },
   });

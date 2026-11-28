@@ -43,11 +43,15 @@ export async function startMixedTrafficPeer(options: Readonly<PeerOptions>) {
       throw new Error('Probe wire control order mismatch');
     stats.controlRounds++;
   }
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The scripted peer writes the external codec's native Buffer result.
-  function attach(write: (bytes: Buffer) => void, pause: () => void, resume: () => void, terminate: () => void) {
+  function attach(
+    write: (bytes: Readonly<Buffer<Readonly<ArrayBufferLike>>>) => void,
+    pause: () => void,
+    resume: () => void,
+    terminate: () => void,
+  ) {
     const decoder = parser({ protocolVersion: 5 });
     let resumeTimer: ReturnType<typeof setTimeout> | undefined;
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The retained codec's packet union is mutable.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
     const send = (packet: Packet) => {
       write(generate(packet, { protocolVersion: 5 }));
     };
@@ -80,7 +84,7 @@ export async function startMixedTrafficPeer(options: Readonly<PeerOptions>) {
       }, options.echoDelayMs);
     }
     decoder.on('error', fail);
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The retained parser delivers native mutable packets.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type '{ readonly messageId?: number | undefined; readonly length?: number | undefined; readonly cmd: ), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
     decoder.on('packet', (packet: Packet) => {
       try {
         switch (packet.cmd) {
@@ -135,8 +139,7 @@ export async function startMixedTrafficPeer(options: Readonly<PeerOptions>) {
       }
     });
     return {
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer parses native Buffer data without changing its ownership contract.
-      push(bytes: Buffer) {
+      push(bytes: Readonly<Buffer<Readonly<ArrayBufferLike>>>) {
         if (stopped) return;
         if (options.readPauseMs > 0 && resumeTimer === undefined) {
           pause();
@@ -163,13 +166,11 @@ export async function startMixedTrafficPeer(options: Readonly<PeerOptions>) {
     };
   }
   if (server instanceof WebSocketServer) {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer owns native WebSocket lifecycle.
-    server.on('connection', (socket) => {
+    server.on('connection', (socket: Readonly<WebSocket>) => {
       sockets.add(socket);
 
       const input = attach(
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ws consumes the codec's native Buffer view with mutable backing storage.
-        (bytes: Readonly<Buffer>) => {
+        (bytes: Readonly<Buffer<Readonly<ArrayBufferLike>>>) => {
           socket.send(bytes);
         },
         () => {
@@ -187,21 +188,19 @@ export async function startMixedTrafficPeer(options: Readonly<PeerOptions>) {
         sockets.delete(socket);
         input.close();
       });
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ws delivers a native binary Buffer in this fixture.
-      socket.on('message', (bytes: Readonly<Buffer>) => {
+      socket.on('message', (bytes: Readonly<Buffer<Readonly<ArrayBufferLike>>>) => {
         if (Buffer.isBuffer(bytes)) input.push(bytes);
         else options.onFailure(new Error('Nonbinary probe frame'));
       });
     });
   } else {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer owns native Socket lifecycle.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `socket` is typed `Socket`. `Readonly<Socket>` still fails the rule, and with `ReadonlyDeep<Socket>` this code stops compiling (TS2345, Argument of type '{ readonly [EventEmitter.captureRejectionSymbol]?: ((error: Error, event: string | symbol, ...args: ), so `socket` would need a copy or a second hand-written type before it is passed on. `Socket` is declared in `node:net`.
     server.on('connection', (socket) => {
       sockets.add(socket);
       socket.setNoDelay(true);
 
       const input = attach(
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- TCP consumes the codec's native Buffer view with mutable backing storage.
-        (bytes: Readonly<Buffer>) => {
+        (bytes: Readonly<Buffer<Readonly<ArrayBufferLike>>>) => {
           socket.write(bytes);
         },
         () => {
@@ -219,8 +218,7 @@ export async function startMixedTrafficPeer(options: Readonly<PeerOptions>) {
         sockets.delete(socket);
         input.close();
       });
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- TCP delivers native Buffer data.
-      socket.on('data', (bytes: Readonly<Buffer>) => {
+      socket.on('data', (bytes: Readonly<Buffer<Readonly<ArrayBufferLike>>>) => {
         input.push(typeof bytes === 'string' ? Buffer.from(bytes) : bytes);
       });
     });

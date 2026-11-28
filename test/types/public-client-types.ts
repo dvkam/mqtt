@@ -46,7 +46,7 @@ export type SessionIsNamed = RequireTrue<Awaited<ReturnType<ClientFactory['conne
 const tcpOptions: TcpClientOptions = {
   host: '127.0.0.1',
   clientId: 'named-tcp-types',
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The callback contract preserves the original mutable Node Buffer.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `message` is typed `PublishMessage<Buffer>`, which this file cannot write in a read-only form by name, so the accepted type would be a hand-written copy of it. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `PublishMessage` is declared in `src/messageProperties.ts`.
   onMessage(message) {
     const payload: Buffer = message.payload;
     const qualityOfService: 0 = message.qos;
@@ -56,7 +56,7 @@ const tcpOptions: TcpClientOptions = {
 const websocketOptions: WebSocketClientOptions = {
   url: 'wss://localhost/mqtt',
   clientId: 'named-ws-types',
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The callback contract preserves the original mutable Node Buffer.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `message` is typed `PublishMessage<Buffer>`, which this file cannot write in a read-only form by name, so the accepted type would be a hand-written copy of it. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `PublishMessage` is declared in `src/messageProperties.ts`.
   onMessage(message) {
     message.payload.subarray(0, 1).fill(0);
   },
@@ -99,8 +99,7 @@ export type PublishOptionsCarryProperties = RequireTrue<
   NonNullable<Parameters<Publish>[2]> extends Readonly<PublishProperties> ? true : false
 >;
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- AbortSignal is a native mutable object, and ClientSession.publish takes it by identity.
-export async function publishWithProperties(session: Readonly<ClientSession>, signal: AbortSignal): Promise<void> {
+export async function publishWithProperties(session: Readonly<ClientSession>, signal: Readonly<AbortSignal>): Promise<void> {
   await session.publish('bytes', Buffer.from([1, 2]), { signal });
   await session.publish('reply', 'text', {
     qos: 1,

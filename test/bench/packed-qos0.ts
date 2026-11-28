@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { Session } from 'node:inspector/promises';
-import { createTransportClient, type ByteTransport, type PublishOptions } from 'mqtt';
+import { createTransportClient, type ByteTransport, type PublishOptions, type ByteInbound } from 'mqtt';
 import { summarizeLatencies } from '../experiments/latencies.ts';
 
 const iterations = Number(process.env['MQTT_TEST_ITERATIONS'] ?? 200_000);
@@ -40,12 +40,11 @@ let publications = 0;
 let byteCount = 0;
 const transport: ByteTransport = {
   name: 'benchmark writer',
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares these parameters. ByteInbound declares methods and OpenContext holds a native AbortSignal, and the rule counts both as mutable. A type the rule accepts would be a second copy of the public interfaces that every transport author would have to keep in step.
-  async open(inbound) {
+  async open(inbound: Readonly<ByteInbound>) {
     return Promise.resolve({
       bufferedBytes: 0,
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/promise-function-async -- An async writer allocates one promise per published packet, 96 bytes and about 58 ns per call under Node 26, and the benchmark would report that as the client's cost. The bytes are the Uint8Array that ByteWriter.write in src/byteTransport.ts declares, which has no read-only form.
-      write(bytes) {
+      // oxlint-disable-next-line typescript/promise-function-async -- Removing it would cost performance. An async writer allocates one promise for every published packet, which the benchmark would report as the client's cost. test/bench/promise-forwarding.ts measures about 97 bytes and 50 ns more per awaited call for the async form, and docs/measurements.md records the runs.
+      write(bytes: Readonly<Uint8Array<Readonly<ArrayBufferLike>>>) {
         const header = bytes[0];
         if (header === 0x10) inbound.bytes(Uint8Array.of(0x20, 3, 0, 0, 0));
         else if (header === 0x30) {
@@ -72,7 +71,7 @@ try {
   for (let index = 0; index < warmup; index++) await client.publish(topic, payload, options);
   if (countTimers) {
     globalThis.setTimeout = new Proxy(originalTimer, {
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProxyHandler.apply declares its target as the native setTimeout function type, which the rule does not accept. Reflect.apply below needs that same function as its target.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `ProxyHandler.apply` passes the proxied `setTimeout` as `schedule`, and `Reflect.apply` below needs that same function as its target. The rule reports the type `typeof setTimeout`, which has no read-only form, so the accepted type would be a hand-written call signature that drops the overloads.
       apply(schedule, receiver: unknown, args: readonly unknown[]) {
         timerCalls++;
         const result: unknown = Reflect.apply(schedule, receiver, args);

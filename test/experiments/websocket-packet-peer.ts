@@ -1,6 +1,7 @@
 import { once } from 'node:events';
-import { generate, parser } from 'mqtt-packet';
-import { WebSocketServer } from 'ws';
+import { generate, parser, type Packet } from 'mqtt-packet';
+import { WebSocketServer, type RawData, type WebSocket } from 'ws';
+import type { ReadonlyDeep } from '../../src/util/bytes.js';
 
 const publication = Uint8Array.of(0x30, 6, 0, 1, 97, 0, 104, 105);
 const connack = Uint8Array.of(0x20, 3, 0, 0, 0);
@@ -13,19 +14,16 @@ export async function startWebSocketPacketPeer(mode: string, pingReply?: readonl
   if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
   const commands: string[] = [];
   const disconnectReasons: number[] = [];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The scripted peer owns mutable native WebSockets.
-  server.on('connection', (socket) => {
+  server.on('connection', (socket: Readonly<WebSocket>) => {
     socket.on('error', () => {});
     const decoder = parser({ protocolVersion: 5 });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The retained parser consumes mutable native Buffer objects.
-    socket.on('message', (bytes) => {
+    socket.on('message', (bytes: ReadonlyDeep<RawData>) => {
       if (Buffer.isBuffer(bytes)) decoder.parse(bytes);
     });
     decoder.on('error', () => {
       socket.terminate();
     });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The retained parser delivers mutable protocol packets.
-    decoder.on('packet', (packet) => {
+    decoder.on('packet', (packet: ReadonlyDeep<Packet>) => {
       commands.push(packet.cmd);
       if (packet.cmd === 'connect') {
         if (mode === 'fixed-connect' && pingReply) socket.send(Uint8Array.from(pingReply));

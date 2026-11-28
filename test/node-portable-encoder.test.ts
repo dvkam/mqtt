@@ -1,9 +1,10 @@
 import { once } from 'node:events';
-import { createServer } from 'node:net';
+import { createServer, type Socket } from 'node:net';
 import { generate, parser, type Packet } from 'mqtt-packet';
 import { expect, test } from 'vitest';
 import { encodePacket, type ClientPacket } from '../src/codec.js';
 import { createTcpClient } from '../src/tcpClient.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 // Each row is a packet the session sends, in the codec model, and the same operation as an mqtt-packet input.
 const sessionPackets: [string, ClientPacket, Packet][] = [
@@ -81,7 +82,7 @@ function comparable(packet: unknown): unknown {
 function parse(bytes: readonly number[]): Packet[] {
   const packets: Packet[] = [];
   const decoder = parser({ protocolVersion: 5 });
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
   decoder.on('packet', (packet) => {
     packets.push(packet);
   });
@@ -89,13 +90,16 @@ function parse(bytes: readonly number[]): Packet[] {
   return packets;
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-test.each(sessionPackets)('mqtt-packet reads the portable encoding of %s as the same packet', (_name, packet, legacy) => {
-  const portable = parse(Array.from(encodePacket(packet, { sharedSubscriptions: true })));
-  const reference = parse(Array.from(generate(legacy, { protocolVersion: 5 })));
-  expect(portable).toHaveLength(1);
-  expect(comparable(portable[0])).toEqual(comparable(reference[0]));
-});
+test.each(sessionPackets)(
+  'mqtt-packet reads the portable encoding of %s as the same packet',
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `legacy` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `legacy` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
+  (_name, packet: ReadonlyDeep<ClientPacket>, legacy) => {
+    const portable = parse(Array.from(encodePacket(packet, { sharedSubscriptions: true })));
+    const reference = parse(Array.from(generate(legacy, { protocolVersion: 5 })));
+    expect(portable).toHaveLength(1);
+    expect(comparable(portable[0])).toEqual(comparable(reference[0]));
+  },
+);
 
 test('encodes the CONNECT Session Expiry Interval with the same bytes as mqtt-packet', () => {
   const portable = encodePacket({
@@ -140,17 +144,14 @@ test('encodes a shared filter only when the caller allows shared subscriptions',
 
 test('TCP client writes the portable encoding for a connect, subscribe, publish and disconnect exchange', async () => {
   const written: number[] = [];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  const server = createServer((socket) => {
+  const server = createServer((socket: ReadonlyDeep<Socket>) => {
     const decoder = parser({ protocolVersion: 5 });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    socket.on('data', (chunk) => {
+    socket.on('data', (chunk: string | Readonly<Buffer<Readonly<ArrayBufferLike>>>) => {
       if (typeof chunk === 'string') throw new Error('Expected bytes');
       written.push(...chunk);
       decoder.parse(chunk);
     });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    decoder.on('packet', (packet) => {
+    decoder.on('packet', (packet: ReadonlyDeep<Packet>) => {
       if (packet.cmd === 'connect')
         socket.write(generate({ cmd: 'connack', sessionPresent: false, reasonCode: 0 }, { protocolVersion: 5 }));
       if (packet.cmd === 'subscribe')

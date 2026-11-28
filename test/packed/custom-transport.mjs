@@ -10,12 +10,14 @@ assert.equal(BrowserMqttError, MqttError, 'mqtt/browser must export the same Mqt
 assert.equal(PortableMqttError, MqttError, 'mqtt/portable must export the same MqttError class');
 
 /** @param {import('node:stream').Duplex} stream @returns {import('mqtt').ByteTransport} */
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- A Node Duplex has mutable stream state, and the adapter calls write, end and destroy on it.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `stream` is typed `Duplex`, and `Readonly<import('node:stream').Duplex>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `stream`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `Duplex` is declared in `node:stream`.
 function useDuplex(stream) {
   return {
     name: 'Duplex',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares this ByteInbound and OpenContext, and OpenContext holds a native AbortSignal.
-    async open(inbound, { timeoutMs }) {
+    async open(
+      /** @type {Readonly<import('mqtt').ByteInbound>} */ inbound,
+      /** @type {Readonly<{ timeoutMs: number }>} */ { timeoutMs },
+    ) {
       stream.on('data', inbound.bytes).on('end', inbound.end).on('error', inbound.fail);
       const closed = new Promise((resolve) => {
         stream.once('close', () => {
@@ -28,8 +30,10 @@ function useDuplex(stream) {
           return stream.writableLength;
         },
         write: promisify(
-          // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Writable.write in @types/node passes its callback a mutable Error.
-          (/** @type {Readonly<Uint8Array>} */ bytes, /** @type {(error?: Readonly<Error> | null) => void} */ done) => {
+          (
+            /** @type {Readonly<Uint8Array>} */ /** @type {Readonly<Uint8Array<Readonly<ArrayBufferLike>>>} */ bytes,
+            /** @type {(error?: Readonly<Error> | null) => void} */ done,
+          ) => {
             stream.write(bytes, done);
           },
         ),

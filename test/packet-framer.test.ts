@@ -2,12 +2,12 @@ import { readFileSync } from 'node:fs';
 import { expect, test, vi } from 'vitest';
 import { NodePacketDecoder } from '../src/nodePacketDecoder.js';
 import { PacketFramer } from '../src/packetFramer.js';
+import type { ReadonlyBytes } from '../src/util/bytes.js';
 
 // A QoS 0 PUBLISH to topic 't' with Correlation Data [7, 8] and payload 'xy'.
 const publication = Uint8Array.of(0x30, 11, 0, 1, 0x74, 5, 0x09, 0, 2, 7, 8, 0x78, 0x79);
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Both framers take native mutable byte views.
-function decodeWith(framer: (onPacket: (packet: unknown) => void) => Readonly<{ push(bytes: Readonly<Uint8Array>): void }>) {
+function decodeWith(framer: (onPacket: (packet: unknown) => void) => Readonly<{ push(bytes: ReadonlyBytes): void }>) {
   const received = vi.fn<(packet: unknown) => void>();
   framer(received).push(publication);
   expect(received).toHaveBeenCalledTimes(1);

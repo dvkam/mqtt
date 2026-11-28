@@ -2,6 +2,8 @@ import WebSocket from 'ws';
 import { expect, test, vi } from 'vitest';
 import { createWebSocketClient } from '../src/ws.js';
 import { startReceivePeer } from './experiments/receive-peer.js';
+import type { PublishMessage } from '../src/messageProperties.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 test.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2_147_483_648, 4_294_967_296])(
   'Node rejects receive capacity %s before WebSocket construction',
@@ -95,8 +97,7 @@ test.each(['exact', 'ws-fragments', 'mqtt-split', 'coalesced'])(
         url: peer.url + '/?mode=' + mode,
         clientId: mode,
         maxWebSocketMessageBytes: mode === 'mqtt-split' ? 4 : mode === 'coalesced' ? 16 : 8,
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The callback exercises the public mutable Node Buffer payload.
-        onMessage(packet) {
+        onMessage(packet: ReadonlyDeep<PublishMessage<Buffer>>) {
           messages.push(packet.payload.toString());
         },
       }).connect();

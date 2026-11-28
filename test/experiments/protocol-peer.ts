@@ -1,6 +1,7 @@
 import { once } from 'node:events';
 import { parser, generate, type Packet } from 'mqtt-packet';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, type RawData, type WebSocket } from 'ws';
+import type { ReadonlyDeep } from '../../src/util/bytes.js';
 
 export async function startProtocolPeer(receiveMaximum?: number) {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
@@ -9,19 +10,17 @@ export async function startProtocolPeer(receiveMaximum?: number) {
   if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
   const commands: string[] = [];
   const acknowledgments: { messageId: number | undefined; reasonCode: number }[] = [];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer drives the native mutable WebSocket object.
-  server.on('connection', (socket) => {
+  server.on('connection', (socket: Readonly<WebSocket>) => {
     const decoder = parser({ protocolVersion: 5 });
     let ignorePing = false;
     let pace: ReturnType<typeof setInterval> | undefined;
     socket.once('close', () => {
       clearInterval(pace);
     });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The external parser consumes native Buffer objects.
-    socket.on('message', (bytes) => {
+    socket.on('message', (bytes: ReadonlyDeep<RawData>) => {
       if (Buffer.isBuffer(bytes)) decoder.parse(bytes);
     });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The external encoder consumes its mutable Packet union.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `reply` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `reply` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
     const send = (reply: Packet) => {
       socket.send(generate(reply, { protocolVersion: 5 }));
     };
@@ -42,7 +41,7 @@ export async function startProtocolPeer(receiveMaximum?: number) {
         }
       }, 5);
     };
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The external codec preserves its mutable Packet contract.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type '{ readonly messageId?: number | undefined; readonly length?: number | undefined; readonly cmd: ), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
     decoder.on('packet', (packet: Packet) => {
       commands.push(packet.cmd);
       if (packet.cmd === 'connect')

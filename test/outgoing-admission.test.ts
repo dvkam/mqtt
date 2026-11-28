@@ -10,10 +10,11 @@ afterEach(() => {
 });
 import { connectPortable, type PacketTransport } from '../src/portable.js';
 import { PublicationAdmission } from '../src/publicationAdmission.js';
+import type { ClientPacket } from '../src/wireCodec.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 function peer() {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The scripted peer retains the packet transport callback contract.
-  let receive: (packet: ReceivedPacket) => void;
+  let receive: (packet: ReadonlyDeep<ReceivedPacket>) => void;
   const sent: string[] = [];
   const writes: { resolve: () => void; reject: (error: Readonly<Error>) => void }[] = [];
   const transport: PacketTransport = {
@@ -21,8 +22,7 @@ function peer() {
       receive = onPacket;
       return () => {};
     },
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native packet shapes remain mutable at the transport boundary.
-    async send(packet) {
+    async send(packet: ReadonlyDeep<ClientPacket>) {
       sent.push(packet.cmd);
       if (packet.cmd === 'publish')
         return new Promise<void>((resolve, reject) => {
@@ -128,8 +128,7 @@ test('reserves before reentrant transport work and snapshots configuration', asy
   options.maxPendingPublishes = 100;
   const original = broker.transport.send.bind(broker.transport);
   let nested: Promise<unknown> | undefined;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The scripted send keeps its mutable transport packet contract.
-  broker.transport.send = async (packet) => {
+  broker.transport.send = async (packet: ReadonlyDeep<ClientPacket>) => {
     if (packet.cmd === 'publish') nested = client.publish('a', 'nested').catch((reason: unknown) => reason);
     await original(packet);
   };
@@ -142,12 +141,11 @@ test('reserves before reentrant transport work and snapshots configuration', asy
 });
 
 test('timeout keeps the reservation until the actual send settles', async () => {
-  // oxlint-disable-next-line typescript/unbound-method -- The spy forwards the original instance method with its captured receiver.
+  // oxlint-disable-next-line typescript/unbound-method -- Removing it would cost developer experience. The spy forwards to the original `PublicationAdmission.reserve` with `reserve.call(this)`, which needs the method without a receiver. The form the rule accepts for that read is `Reflect.get`, which returns `any`, so the forwarded call would lose its receiver and result types.
   const reserve = PublicationAdmission.prototype.reserve;
   const released = vi.fn<() => void>();
   vi.spyOn(PublicationAdmission.prototype, 'reserve').mockImplementation(function (
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The ownership spy must forward the original mutable class receiver.
-    this: PublicationAdmission,
+    this: Readonly<PublicationAdmission>,
     topic,
     payloadBytes,
     propertyBytes,

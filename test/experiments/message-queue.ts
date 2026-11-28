@@ -1,4 +1,5 @@
 import type { BrowserMessage } from '../../src/browserClient.js';
+import type { ReadonlyDeep } from '../../src/util/bytes.js';
 
 export interface QueueLimits {
   maxMessages: number;
@@ -13,8 +14,7 @@ export interface QueueSnapshot {
 }
 
 export interface MessageQueue {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Incoming publications preserve the browser client's mutable native payload type.
-  push: (message: Readonly<BrowserMessage>) => void;
+  push: (message: ReadonlyDeep<BrowserMessage>) => void;
   close(): void;
   fail(reason: unknown): void;
   iterate(): AsyncIterableIterator<BrowserMessage, undefined, undefined>;
@@ -52,8 +52,7 @@ export function createMessageQueue(limits: Readonly<QueueLimits>): MessageQueue 
   let peakBytes = 0;
   let pending:
     | {
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Iterator results carry the consumer's owned mutable payload.
-        resolve: (result: IteratorResult<BrowserMessage, undefined>) => void;
+        resolve: (result: ReadonlyDeep<IteratorResult<BrowserMessage, undefined>>) => void;
         reject: (reason: unknown) => void;
       }
     | undefined;
@@ -108,14 +107,13 @@ export function createMessageQueue(limits: Readonly<QueueLimits>): MessageQueue 
       },
       async throw(reason: unknown) {
         cancel();
-        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- Iterator.throw preserves the consumer's rejection value.
+        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- Removing it would cost developer experience. `throw` hands back the consumer's own value, which may be of any type, and the rejection has to carry it unchanged. `throw reason` in this async method is reported by `require-await`, so it would trade this suppression for another.
         return Promise.reject(reason);
       },
     };
   };
   return {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Incoming publications preserve the browser client's mutable native payload type.
-    push(message) {
+    push(message: ReadonlyDeep<BrowserMessage>) {
       if (state !== 'open') return;
       const weight = weightOf(message);
       if (entries.length >= maxMessages || weight > maxBytes - bytes) {

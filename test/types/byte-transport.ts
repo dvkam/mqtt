@@ -19,12 +19,11 @@ type Same<Left, Right> =
 
 declare function openMyTunnel(): Promise<Duplex>;
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- A Node Duplex has mutable stream state, and the adapter calls write, end and destroy on it.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `stream` is typed `Duplex`, and `Readonly<Duplex>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `stream`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `Duplex` is declared in `node:stream`.
 function useDuplex(stream: Duplex): ByteTransport {
   return {
     name: 'Duplex',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares this ByteInbound and OpenContext, and OpenContext holds a native AbortSignal.
-    async open(inbound, { timeoutMs }) {
+    async open(inbound: Readonly<ByteInbound>, { timeoutMs }: Readonly<Pick<OpenContext, 'timeoutMs'>>) {
       stream.on('data', inbound.bytes).on('end', inbound.end).on('error', inbound.fail);
       const closed = new Promise<void>((resolve) => {
         stream.once('close', () => {
@@ -36,11 +35,9 @@ function useDuplex(stream: Duplex): ByteTransport {
         get bufferedBytes() {
           return stream.writableLength;
         },
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteWriter.write in src/byteTransport.ts declares a Uint8Array chunk, which has a mutable index signature.
-        async write(bytes) {
+        async write(bytes: Readonly<Uint8Array<Readonly<ArrayBufferLike>>>) {
           return new Promise<void>((resolve, reject) => {
-            // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Writable.write in @types/node passes its callback a mutable Error.
-            stream.write(bytes, (error) => {
+            stream.write(bytes, (error: Readonly<Error | null | undefined>) => {
               if (error) reject(error);
               else resolve();
             });

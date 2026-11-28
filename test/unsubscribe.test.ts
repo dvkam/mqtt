@@ -4,6 +4,7 @@ import { expect, test, vi } from 'vitest';
 import { encodePacket, PacketDecoder, type ClientPacket } from '../src/codec.js';
 import { PacketIdentifiers } from '../src/packetIdentifiers.js';
 import { connectPortable, type PacketTransport, type PortableOptions } from '../src/portable.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 test('encodes UNSUBSCRIBE without subscription option bytes and decodes split frames', () => {
   const packet = { cmd: 'unsubscribe', messageId: 1, topics: ['a', 'b'] } as const;
@@ -48,8 +49,7 @@ async function peer(limits: Readonly<Pick<PortableOptions, 'maxPendingSubscripti
   let retire!: Parameters<PacketTransport['listen']>[1];
   const packets: ClientPacket[] = [];
   const transport: PacketTransport = {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PacketTransport.send in src/portable.ts declares this ClientPacket. Its PUBLISH payload is a Uint8Array, which has no read-only form, so a parameter type the rule accepts could not carry the payload a transport has to write.
-    async send(packet) {
+    async send(packet: ReadonlyDeep<ClientPacket>) {
       packets.push(packet);
       if (packet.cmd === 'connect') receive({ cmd: 'connack', reasonCode: 0, sessionPresent: false, receiveMaximum: 1 });
       if (packet.cmd === 'pingreq') receive({ cmd: 'pingresp' });
@@ -70,11 +70,12 @@ test('preserves mixed-kind ACK ownership when the shared identifier range is exh
   const broker = await peer();
   expect(typeof broker.client.unsubscribe).toBe('function');
   const completed: string[] = [];
-  // oxlint-disable-next-line typescript/unbound-method -- The only read of a method that the rule accepts is Reflect.get, which returns any. reserve.call(this) below would then lose its receiver and result types.
+  // oxlint-disable-next-line typescript/unbound-method -- Removing it would cost developer experience. The spy forwards to the original `PacketIdentifiers.reserve` with `reserve.call(this)`, which needs the method without a receiver. The form the rule accepts for that read is `Reflect.get`, which returns `any`, so the forwarded call would lose its receiver and result types.
   const reserve = PacketIdentifiers.prototype.reserve;
   const held: ReturnType<PacketIdentifiers['reserve']>[] = [];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PacketIdentifiers.reserve in src/packetIdentifiers.ts changes the allocator it is called on, so reserve.call below does not accept a read-only receiver.
-  const allocator = vi.spyOn(PacketIdentifiers.prototype, 'reserve').mockImplementation(function (this: PacketIdentifiers) {
+  const allocator = vi.spyOn(PacketIdentifiers.prototype, 'reserve').mockImplementation(function (
+    this: Readonly<PacketIdentifiers>,
+  ) {
     const lease = reserve.call(this);
     if (lease.messageId === 3) {
       for (let index = 3; index < 65_535; index++) held.push(reserve.call(this));
@@ -143,8 +144,7 @@ test.each([
     expect(typeof broker.client.unsubscribe).toBe('function');
     const { promise: held, resolve: release } = Promise.withResolvers<void>();
     const original = broker.transport.send.bind(broker.transport);
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PacketTransport.send in src/portable.ts declares this ClientPacket. Its PUBLISH payload is a Uint8Array, which has no read-only form, so a parameter type the rule accepts could not carry the payload a transport has to write.
-    broker.transport.send = async (packet) => {
+    broker.transport.send = async (packet: ReadonlyDeep<ClientPacket>) => {
       await original(packet);
       if (packet.cmd === 'unsubscribe') await held;
     };

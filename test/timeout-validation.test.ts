@@ -5,6 +5,8 @@ import { connectPortable, type PacketTransport } from '../src/portable.js';
 import { createWebSocketClient } from '../src/websocketClient.js';
 import { openMqttWebSocket } from '../src/websocket.js';
 import { startCancellationPeer } from './experiments/node-cancellation-peer.js';
+import type { ClientPacket } from '../src/wireCodec.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -93,15 +95,13 @@ test.each(invalidTimeouts)('rejects Node WebSocket timeout %s before endpoint ac
 
 test.each([1, 3000, 2_147_483_647])('uses validated timeout %s for the active session after caller mutation', async (timeoutMs) => {
   vi.useFakeTimers();
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PacketTransport.listen in src/portable.ts declares this ReceivedPacket. Its PUBLISH payload is a Uint8Array, which has no read-only form, so a parameter type the rule accepts could not carry the payload the session delivers.
-  let receive: (packet: ReceivedPacket) => void;
+  let receive: (packet: ReadonlyDeep<ReceivedPacket>) => void;
   const transport: PacketTransport = {
     listen(onPacket) {
       receive = onPacket;
       return () => {};
     },
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PacketTransport.send in src/portable.ts declares this ClientPacket. Its PUBLISH payload is a Uint8Array, which has no read-only form, so a parameter type the rule accepts could not carry the payload a transport has to write.
-    async send(packet) {
+    async send(packet: ReadonlyDeep<ClientPacket>) {
       if (packet.cmd === 'connect') receive({ cmd: 'connack', reasonCode: 0, sessionPresent: false });
       return Promise.resolve();
     },

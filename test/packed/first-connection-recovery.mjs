@@ -16,13 +16,11 @@ function peer(connack) {
   /** @type {import('mqtt').ByteTransport} */
   const bytes = {
     name: 'Recovery fixture',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares these parameters. ByteInbound declares methods and OpenContext holds a native AbortSignal, and the rule counts both as mutable. A type the rule accepts would be a second copy of the public interfaces that every transport author would have to keep in step.
-    async open(inbound) {
+    async open(/** @type {Readonly<import('mqtt').ByteInbound>} */ inbound) {
       opens++;
       return Promise.resolve({
         bufferedBytes: 0,
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteWriter.write in src/byteTransport.ts declares this Uint8Array. A byte view has no read-only form, because Readonly<Uint8Array> keeps the writable index signature. A type the rule accepts would force a copy of every chunk before a native call takes it.
-        async write(packet) {
+        async write(/** @type {Readonly<Uint8Array<Readonly<ArrayBufferLike>>>} */ packet) {
           writes.push(packet[0] ?? -1);
           if (packet[0] === 0x10 && connack !== undefined)
             inbound.bytes(encodePacket({ cmd: 'connack', sessionPresent: false, reasonCode: connack }));
@@ -93,10 +91,9 @@ try {
   await once(broker, 'listening');
   const address = broker.address();
   assert.ok(address !== null && typeof address !== 'string');
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The ws server emits its WebSocket class. A read-only type for it would leave out on and send, which this handler calls.
-  broker.on('connection', (socket) => {
+  broker.on('connection', (/** @type {Readonly<import('ws').WebSocket>} */ socket) => {
     const decoder = new PacketDecoder();
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ws emits the message as a Buffer, an ArrayBuffer or a Buffer array, and none of them has a read-only form. A type the rule accepts would force a copy before PacketDecoder.push takes the bytes.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `bytes` is typed `RawData`, and `Readonly<import('ws').RawData>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `bytes`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `RawData` is declared in `ws`.
     socket.on('message', (bytes) => {
       assert.ok(Buffer.isBuffer(bytes));
       for (const packet of decoder.push(bytes)) {

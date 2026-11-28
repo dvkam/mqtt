@@ -5,6 +5,7 @@ import { PacketDecoder } from '../src/codec.js';
 import { NodePacketDecoder } from '../src/nodePacketDecoder.js';
 import { ProtocolInputError } from '../src/protocolInputError.js';
 import { decodeUtf8 } from '../src/wireProperties.js';
+import type { ReadonlyBytes } from '../src/util/bytes.js';
 
 function describeFailure(reason: unknown): string {
   if (reason instanceof ProtocolInputError) return 'ProtocolInputError 0x' + reason.reasonCode.toString(16) + ' ' + reason.message;
@@ -162,7 +163,7 @@ const valid: [string, Packet][] = [
 
 // Both decoders share one property reader, so this checks only that the two entry points agree. The decoded field
 // values are pinned against literal packets in test/node-portable-parse.test.ts and test/portable-properties.test.ts.
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture rows hold mqtt-packet input objects with mutable Buffers.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
 test.each(valid)('Node and browser decoders produce the same packet for %s', (_name, packet) => {
   const bytes = Array.from(generate(packet, { protocolVersion: 5 }));
   const node = nodeOutcome(bytes);
@@ -174,14 +175,12 @@ test.each(valid)('Node and browser decoders produce the same packet for %s', (_n
 const reference = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 /** The MQTT UTF-8 string rule stated independently: well-formed UTF-8 and no U+0000. */
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The helper reads native byte views.
-function referenceUtf8(bytes: Uint8Array): string | undefined {
+function referenceUtf8(bytes: ReadonlyBytes): string | undefined {
   if (!isUtf8(bytes) || bytes.includes(0)) return undefined;
   return reference.decode(bytes);
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- A generator is consumed by iterating it, which advances its state.
-function mismatches(sequences: Iterable<readonly number[]>): number[][] {
+function mismatches(sequences: Readonly<Iterable<readonly number[]>>): number[][] {
   const wrong: number[][] = [];
   for (const sequence of sequences) {
     const bytes = Uint8Array.from(sequence);

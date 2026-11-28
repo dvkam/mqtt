@@ -82,8 +82,7 @@ export function checkWillOptionTypes() {
   createTcpClient({ ...options, will: { topic: 'status', payload: 'offline', qos: 3 } });
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-export async function checkTcpDeclarations(signal: AbortSignal) {
+export async function checkTcpDeclarations(signal: Readonly<AbortSignal>) {
   const observer: DiagnosticObserver = (event: ClientDiagnostic) => {
     if (event.kind === 'connection') event.state.toUpperCase();
   };
@@ -95,7 +94,7 @@ export async function checkTcpDeclarations(signal: AbortSignal) {
     maxPendingSubscriptions: 4,
     maxPendingSubscriptionBytes: 4096,
     signal,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `PublishMessage<Buffer>`, and the published package exports no name for that type, so the accepted type would be a hand-written copy of it. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `PublishMessage` is declared in `src/messageProperties.ts`.
     onMessage(packet) {
       const payload: Buffer = packet.payload;
       payload[0] = packet.qos;
@@ -108,8 +107,7 @@ export async function checkTcpDeclarations(signal: AbortSignal) {
   await connected.disconnect();
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-export async function checkWebSocketDeclarations(signal: AbortSignal) {
+export async function checkWebSocketDeclarations(signal: Readonly<AbortSignal>) {
   const factory = createWebSocketClient({
     url: new URL('wss://localhost/mqtt'),
     clientId: 'consumer',
@@ -118,7 +116,7 @@ export async function checkWebSocketDeclarations(signal: AbortSignal) {
     maxWebSocketMessageBytes: 4096,
     maxPacketBytes: 4096,
     signal,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `PublishMessage<Buffer>`, and the published package exports no name for that type, so the accepted type would be a hand-written copy of it. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `PublishMessage` is declared in `src/messageProperties.ts`.
     onMessage(packet) {
       const payload: Buffer = packet.payload;
       payload[0] = packet.qos;
@@ -130,8 +128,7 @@ export async function checkWebSocketDeclarations(signal: AbortSignal) {
 }
 import { createBrowserClient } from 'mqtt/browser';
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-export async function checkBrowserClientDeclarations(signal: AbortSignal) {
+export async function checkBrowserClientDeclarations(signal: Readonly<AbortSignal>) {
   const client = await createBrowserClient({
     url: 'wss://localhost/mqtt',
     clientId: 'consumer',
@@ -139,7 +136,7 @@ export async function checkBrowserClientDeclarations(signal: AbortSignal) {
     maxPendingSubscriptionBytes: 4096,
     maxWebSocketMessageBytes: 4096,
     signal,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `message` is typed `BrowserMessage`, and the published package exports no name for that type, so the accepted type would be a hand-written copy of it. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `BrowserMessage` is declared in `src/browserClient.ts`.
     onMessage(message) {
       const bytes: Uint8Array = message.payload;
       bytes.byteLength.toFixed();

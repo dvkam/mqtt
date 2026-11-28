@@ -2,6 +2,7 @@ import { expect, test, vi } from 'vitest';
 import type { ByteInbound, ByteTransport } from '../src/byteTransport.js';
 import { encodePacket, PacketDecoder, type ClientPacket } from '../src/codec.js';
 import { createTransportClient } from '../src/portableClient.js';
+import type { ReadonlyBytes } from '../src/util/bytes.js';
 
 // A broker that sends `maximumPacketSize` in CONNACK and answers PINGREQ, and SUBSCRIBE, UNSUBSCRIBE and QoS 1 PUBLISH
 // unless `withhold` is set. It records the size and command of every write and the packet it decoded from it. The codec
@@ -10,13 +11,11 @@ function broker(maximumPacketSize: number | undefined, withhold = false) {
   const writes: { bytes: number; cmd: string; messageId?: number; packet?: ClientPacket }[] = [];
   const transport: ByteTransport = {
     name: 'Limited broker',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares these parameters. ByteInbound declares methods and OpenContext holds a native AbortSignal, and the rule counts both as mutable. A type the rule accepts would be a second copy of the public interfaces that every transport author would have to keep in step.
-    async open(inbound: ByteInbound) {
+    async open(inbound: Readonly<ByteInbound>) {
       const decoder = new PacketDecoder({ maxPacketBytes: 268_435_460 });
       return Promise.resolve({
         bufferedBytes: 0,
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteWriter.write in src/byteTransport.ts declares this Uint8Array. A byte view has no read-only form, because Readonly<Uint8Array> keeps the writable index signature. A type the rule accepts would force a copy of every chunk before a native call takes it.
-        async write(bytes: Uint8Array) {
+        async write(bytes: ReadonlyBytes) {
           const header = bytes[0];
           if (header === 0x82 || header === 0xa2) {
             let offset = 1;

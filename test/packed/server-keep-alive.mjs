@@ -9,15 +9,14 @@ let connection;
 /** @type {number[]} */
 const commands = [];
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- net.createServer passes a mutable net.Socket, which the peer writes to and destroys.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `socket` is typed `Socket`, and `Readonly<import('node:net').Socket>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `socket`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `Socket` is declared in `node:net`.
 const server = createServer((socket) => {
   connection = socket;
   let buffered = Buffer.alloc(0);
   socket.on('error', (/** @type {Readonly<Error>} */ error) => {
     peer.emit('error', error);
   });
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- net.Socket emits Buffer chunks, and Buffer has a mutable index signature.
-  socket.on('data', (chunk) => {
+  socket.on('data', (/** @type {string | Readonly<Buffer<Readonly<ArrayBufferLike>>>} */ chunk) => {
     assert.ok(Buffer.isBuffer(chunk));
     buffered = Buffer.concat([buffered, chunk]);
     while (buffered.length >= 2) {

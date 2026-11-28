@@ -34,8 +34,7 @@ function createDecoder(strategy: Strategy, onPacket: (packet: unknown) => void) 
     throw reason instanceof Error ? reason : new Error('Unexpected reference failure');
   });
   return {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The reference parser consumes native mutable byte views.
-    push(bytes: Readonly<Uint8Array>) {
+    push(bytes: Readonly<Uint8Array<Readonly<ArrayBufferLike>>>) {
       decoder.parse(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
     },
   };

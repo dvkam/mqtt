@@ -6,6 +6,7 @@ import { connectPortable, type PacketTransport, type PortableOptions } from '../
 import { PublicationAdmission } from '../src/publicationAdmission.js';
 import { PacketIdentifiers } from '../src/packetIdentifiers.js';
 import { MqttError } from '../src/mqttError.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 const qosOne = { qos: 1 } as const;
 
@@ -22,15 +23,14 @@ function gate() {
 async function peer(
   properties?: Readonly<{ receiveMaximum?: number; maximumQoS?: number }>,
   limits?: Readonly<Pick<PortableOptions, 'maxPendingPublishes' | 'maxPendingPublishBytes' | 'timeoutMs'>>,
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The callback mutates the delivered CONNACK to prove the session snapshots it.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. This function writes to `reply` (Cannot assign to 'receiveMaximum' because it is a read-only property), and the rule accepts no parameter that is written, so the code would have to copy the value first.
   afterConnack?: (reply: { receiveMaximum?: number; maximumQoS?: number }) => void,
 ) {
   let receive!: Parameters<PacketTransport['listen']>[0];
   let retire!: Parameters<PacketTransport['listen']>[1];
   const packets: ClientPacket[] = [];
   const transport: PacketTransport = {
-    // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- The fixture records mutable transport packets and delivers replies synchronously.
-    async send(packet) {
+    async send(packet: ReadonlyDeep<ClientPacket>) {
       packets.push(packet);
       if (packet.cmd === 'connect') {
         const reply = { cmd: 'connack' as const, sessionPresent: false, reasonCode: 0, ...properties };
@@ -38,6 +38,7 @@ async function peer(
         afterConnack?.(reply);
       }
       if (packet.cmd === 'pingreq') receive({ cmd: 'pingresp' });
+      return Promise.resolve();
     },
     listen(onPacket, onClose) {
       receive = onPacket;
@@ -56,8 +57,7 @@ test('holds quota one through send and matching PUBACK while subscription and pi
   const broker = await peer({ receiveMaximum: 1 });
   const write = gate();
   const original = broker.transport.send.bind(broker.transport);
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The held send forwards the fixture's mutable transport packet.
-  broker.transport.send = async (packet) => {
+  broker.transport.send = async (packet: ReadonlyDeep<ClientPacket>) => {
     await original(packet);
     if (packet.cmd === 'publish' && packet.topic === 'a') await write.promise;
   };
@@ -171,8 +171,7 @@ test('uncertain send failure retires active and queued publications even after a
   const broker = await peer({ receiveMaximum: 1 });
   const write = gate();
   const original = broker.transport.send.bind(broker.transport);
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The held send forwards the fixture's mutable transport packet.
-  broker.transport.send = async (packet) => {
+  broker.transport.send = async (packet: ReadonlyDeep<ClientPacket>) => {
     await original(packet);
     if (packet.cmd === 'publish') await write.promise;
   };
@@ -200,8 +199,7 @@ test('disconnect fences queued dispatch before sending DISCONNECT', async () => 
   const broker = await peer({ receiveMaximum: 1 });
   const closeWrite = gate();
   const original = broker.transport.send.bind(broker.transport);
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture holds the actual DISCONNECT send.
-  broker.transport.send = async (packet) => {
+  broker.transport.send = async (packet: ReadonlyDeep<ClientPacket>) => {
     await original(packet);
     if (packet.cmd === 'disconnect') await closeWrite.promise;
   };
@@ -321,8 +319,7 @@ test.each([0, 0x97])('drain expiry preserves PUBACK %i while the write callback 
   try {
     const broker = await peer(undefined, { timeoutMs: 100 });
     const original = broker.transport.send.bind(broker.transport);
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Hold the native writes for the original mutable packets.
-    broker.transport.send = async (packet) => {
+    broker.transport.send = async (packet: ReadonlyDeep<ClientPacket>) => {
       await original(packet);
       if (packet.cmd === 'publish') await publishWrite.promise;
       if (packet.cmd === 'disconnect') await disconnectWrite.promise;
@@ -459,11 +456,10 @@ test('holds actual-send bytes through terminal cleanup and removes the cancellat
   const removed = vi.spyOn(AbortSignal.prototype, 'removeEventListener');
   broker.transport.send = async () => write.promise;
   const released = vi.fn<() => void>();
-  // oxlint-disable-next-line typescript/unbound-method -- The spy forwards the original method with its original receiver.
+  // oxlint-disable-next-line typescript/unbound-method -- Removing it would cost developer experience. The spy forwards to the original `PublicationAdmission.reserve` with `reserve.call(this)`, which needs the method without a receiver. The form the rule accepts for that read is `Reflect.get`, which returns `any`, so the forwarded call would lose its receiver and result types.
   const reserve = PublicationAdmission.prototype.reserve;
   const admission = vi.spyOn(PublicationAdmission.prototype, 'reserve').mockImplementation(function (
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The original reservation updates the real budget.
-    this: PublicationAdmission,
+    this: Readonly<PublicationAdmission>,
     topic,
     payload,
     qos,
@@ -498,8 +494,7 @@ test('allocates before synchronous acknowledgments and keeps reentrant dispatch 
   const broker = await peer({ receiveMaximum: 2 });
   const original = broker.transport.send.bind(broker.transport);
   let nested: Promise<void> | undefined;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The reentrant fixture forwards the same mutable packet.
-  broker.transport.send = async (packet) => {
+  broker.transport.send = async (packet: ReadonlyDeep<ClientPacket>) => {
     if (packet.cmd === 'publish' && packet.topic === 'first') {
       nested = broker.client.publish('second', 'x', qosOne);
     }
@@ -521,11 +516,12 @@ test('allocates before synchronous acknowledgments and keeps reentrant dispatch 
 
 test('rejects a local publication when all shared IDs are held and can retry after release', async () => {
   const broker = await peer({ receiveMaximum: 1 });
-  // oxlint-disable-next-line typescript/unbound-method -- Forward the original allocator with its receiver to fill the actual shared namespace.
+  // oxlint-disable-next-line typescript/unbound-method -- Removing it would cost developer experience. The spy forwards to the original `PacketIdentifiers.reserve` with `reserve.call(this)`, which needs the method without a receiver. The form the rule accepts for that read is `Reflect.get`, which returns `any`, so the forwarded call would lose its receiver and result types.
   const reserve = PacketIdentifiers.prototype.reserve;
   const held: ReturnType<PacketIdentifiers['reserve']>[] = [];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture reserves IDs in the same mutable allocator as the session.
-  const allocator = vi.spyOn(PacketIdentifiers.prototype, 'reserve').mockImplementation(function (this: PacketIdentifiers) {
+  const allocator = vi.spyOn(PacketIdentifiers.prototype, 'reserve').mockImplementation(function (
+    this: Readonly<PacketIdentifiers>,
+  ) {
     for (let index = 0; index < 65_535; index++) held.push(reserve.call(this));
     return reserve.call(this);
   });
@@ -600,7 +596,7 @@ test.each([
 );
 
 test('snapshots broker limits before the transport can mutate the CONNACK object', async () => {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The callback mutates the delivered CONNACK to prove the session snapshots it.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. This function writes to `reply` (Cannot assign to 'receiveMaximum' because it is a read-only property), and the rule accepts no parameter that is written, so the code would have to copy the value first.
   const broker = await peer({ receiveMaximum: 1, maximumQoS: 1 }, undefined, (reply) => {
     reply.receiveMaximum = 2;
     reply.maximumQoS = 0;

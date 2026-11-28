@@ -1,5 +1,5 @@
 import { getEventListeners, once } from 'node:events';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, type WebSocket } from 'ws';
 import { afterEach, expect, test, vi } from 'vitest';
 import { createBrowserClient } from '../src/browserClient.js';
 import { PacketFramer } from '../src/packetFramer.js';
@@ -228,8 +228,7 @@ test.each([
     await once(server, 'listening');
     const address = server.address();
     if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The scripted peer uses its native mutable WebSocket object.
-    server.on('connection', (socket) => {
+    server.on('connection', (socket: Readonly<WebSocket>) => {
       socket.once('message', () => {
         socket.send(Uint8Array.from(bytes));
         socket.close();

@@ -38,7 +38,7 @@ interface Pair {
 }
 const pairs = new Set<Pair>();
 let opened = 0;
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The connection listener of createServer in node:net receives a native net.Socket, and the proxy calls its write and destroy methods.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `client` is typed `Socket`, and `Readonly<Socket>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `client`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `Socket` is declared in `node:net`.
 const proxy = createTcpServer((client) => {
   opened++;
   const upstream = connect(Number(brokerUrl.port), brokerUrl.hostname);
@@ -49,12 +49,10 @@ const proxy = createTcpServer((client) => {
     upstream.destroy();
     pairs.delete(pair);
   };
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- A net.Socket data event passes a native Buffer, which the proxy writes on unchanged.
-  client.on('data', (bytes: Buffer) => {
+  client.on('data', (bytes: Readonly<Buffer<Readonly<ArrayBufferLike>>>) => {
     if (!pair.stalled) upstream.write(bytes);
   });
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- A net.Socket data event passes a native Buffer, which the proxy writes on unchanged.
-  upstream.on('data', (bytes: Buffer) => {
+  upstream.on('data', (bytes: Readonly<Buffer<Readonly<ArrayBufferLike>>>) => {
     if (!pair.stalled) client.write(bytes);
   });
   client.on('error', close).on('close', close);
@@ -66,7 +64,7 @@ const proxyAddress = proxy.address();
 assert.ok(proxyAddress !== null && typeof proxyAddress !== 'string');
 const proxyUrl = `ws://127.0.0.1:${String(proxyAddress.port)}${brokerUrl.pathname}`;
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The request listener of createServer in node:http receives a native http.IncomingMessage and http.ServerResponse, and the fixture calls the response's writeHead and end methods.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `request` is typed `IncomingMessage`, and `Readonly<IncomingMessage>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `request`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `IncomingMessage` is declared in `node:http`. Removing it would cost developer experience. `response` is typed `ServerResponse<IncomingMessage> & { req: IncomingMessage; }`, and `Readonly<ServerResponse<IncomingMessage> & { req: IncomingMessage; }>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `response`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `ServerResponse` is declared in `node:http`.
 const server = createServer((request, response) => {
   if (request.url === '/lifecycle.js') response.writeHead(200, { 'Content-Type': 'text/javascript' }).end(code);
   else response.writeHead(200, { 'Content-Type': 'text/html' }).end('<!doctype html><title>' + String(request.url) + '</title>');

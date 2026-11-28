@@ -1,6 +1,7 @@
 import { generate, parser, type Packet } from 'mqtt-packet';
 import { expect, test } from 'vitest';
 import { encodePacket, PacketDecoder, type WirePacket } from '../src/codec.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 const vectors: [WirePacket, number[]][] = [
   [{ cmd: 'connect', clientId: 'c' }, [0x10, 14, 0, 4, 77, 81, 84, 84, 5, 2, 0, 0, 0, 0, 1, 99]],
@@ -13,21 +14,25 @@ const vectors: [WirePacket, number[]][] = [
   [{ cmd: 'disconnect' }, [0xe0, 0]],
 ];
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-test.each(vectors)('encodes independent MQTT 5 vector %j', (packet, bytes) => {
+test.each(vectors)('encodes independent MQTT 5 vector %j', (packet: ReadonlyDeep<WirePacket>, bytes: readonly number[]) => {
   expect(Array.from(encodePacket(packet))).toEqual(bytes);
 });
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-test.each(vectors)('decodes every split of the independent vector %j', (packet, bytes) => {
-  for (let split = 0; split <= bytes.length; split++) {
-    const decoder = new PacketDecoder();
-    const decoded = [...decoder.push(Uint8Array.from(bytes.slice(0, split))), ...decoder.push(Uint8Array.from(bytes.slice(split)))];
-    expect(decoded).toHaveLength(1);
-    expect(Array.from(encodePacket(requiredPacket(decoded[0])))).toEqual(bytes);
-    expect(decoded[0]?.cmd).toBe(packet.cmd);
-  }
-});
+test.each(vectors)(
+  'decodes every split of the independent vector %j',
+  (packet: ReadonlyDeep<WirePacket>, bytes: readonly number[]) => {
+    for (let split = 0; split <= bytes.length; split++) {
+      const decoder = new PacketDecoder();
+      const decoded = [
+        ...decoder.push(Uint8Array.from(bytes.slice(0, split))),
+        ...decoder.push(Uint8Array.from(bytes.slice(split))),
+      ];
+      expect(decoded).toHaveLength(1);
+      expect(Array.from(encodePacket(requiredPacket(decoded[0])))).toEqual(bytes);
+      expect(decoded[0]?.cmd).toBe(packet.cmd);
+    }
+  },
+);
 
 test('preserves repeated ordered user properties including empty keys and values', () => {
   const bytes = Uint8Array.of(0x30, 17, 0, 1, 97, 13, 0x26, 0, 1, 107, 0, 0, 0x26, 0, 1, 107, 0, 1, 118);
@@ -111,7 +116,7 @@ test('matches pinned mqtt-packet for the MQTT 5 preview operations', () => {
   for (const [packet, bytes] of vectors) {
     const decoded: Packet[] = [];
     const decoder = parser({ protocolVersion: 5 });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `value` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `value` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
     decoder.on('packet', (value) => {
       decoded.push(value);
     });
@@ -206,7 +211,7 @@ test('encodes Will properties before the topic, payload, and credentials', () =>
   expect(new PacketDecoder().push(bytes)).toMatchObject([packet]);
   const reference: Packet[] = [];
   const decoder = parser({ protocolVersion: 5 });
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Preserve the reference parser's packet and Buffer for the wire assertions.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `decoded` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `decoded` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
   decoder.on('packet', (decoded) => {
     reference.push(decoded);
   });

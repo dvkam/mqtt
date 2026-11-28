@@ -1,6 +1,7 @@
 import { createServer, type Socket } from 'node:net';
 import { once } from 'node:events';
-import { generate, parser } from 'mqtt-packet';
+import { generate, parser, type Packet } from 'mqtt-packet';
+import type { ReadonlyDeep } from '../../src/util/bytes.js';
 
 const publication = Uint8Array.of(0x30, 6, 0, 1, 97, 0, 104, 105);
 const connack = Uint8Array.of(0x20, 3, 0, 0, 0);
@@ -10,7 +11,7 @@ export async function startTcpPacketPeer(mode: string, pingReply?: readonly numb
   const sockets = new Set<Socket>();
   const commands: string[] = [];
   const disconnectReasons: number[] = [];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer owns a mutable native socket.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `socket` is typed `Socket`. `Readonly<Socket>` still fails the rule, and with `ReadonlyDeep<Socket>` this code stops compiling (TS2345, Argument of type '{ readonly [EventEmitter.captureRejectionSymbol]?: ((error: Error, event: string | symbol, ...args: ), so `socket` would need a copy or a second hand-written type before it is passed on. `Socket` is declared in `node:net`.
   const server = createServer((socket) => {
     sockets.add(socket);
     socket.setNoDelay(true);
@@ -20,15 +21,13 @@ export async function startTcpPacketPeer(mode: string, pingReply?: readonly numb
     // Rejecting an intentionally invalid response can reset the peer socket.
     socket.on('error', () => {});
     const decoder = parser({ protocolVersion: 5 });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The scripted peer consumes native mutable socket buffers.
-    socket.on('data', (bytes) => {
+    socket.on('data', (bytes: string | Readonly<Buffer<Readonly<ArrayBufferLike>>>) => {
       decoder.parse(typeof bytes === 'string' ? Buffer.from(bytes) : bytes);
     });
     decoder.on('error', () => {
       socket.destroy();
     });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The retained parser exposes mutable packet objects.
-    decoder.on('packet', (packet) => {
+    decoder.on('packet', (packet: ReadonlyDeep<Packet>) => {
       commands.push(packet.cmd);
       if (packet.cmd === 'connect') {
         if (mode === 'fixed-connect' && pingReply) socket.write(Uint8Array.from(pingReply));

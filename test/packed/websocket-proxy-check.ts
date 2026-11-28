@@ -11,12 +11,12 @@ assert.ok(consumerDirectory !== undefined && certificateAuthorityPath !== undefi
 const targets = new Set(['localhost:18885', 'localhost:18887']);
 const sockets = new Set<Duplex>();
 let tunnels = 0;
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The proxy writes and ends the native HTTP response.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `_request` is typed `IncomingMessage`, and `Readonly<IncomingMessage>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `_request`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `IncomingMessage` is declared in `node:http`. Removing it would cost developer experience. `response` is typed `ServerResponse<IncomingMessage> & { req: IncomingMessage; }`, and `Readonly<ServerResponse<IncomingMessage> & { req: IncomingMessage; }>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `response`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `ServerResponse` is declared in `node:http`.
 const proxy = createServer((_request, response) => {
   response.writeHead(405).end();
 });
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The proxy writes, pipes and destroys the original CONNECT socket, including its first buffered bytes.
-proxy.on('connect', (request, client, head) => {
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `request` is typed `IncomingMessage`, and `Readonly<IncomingMessage>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `request`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `IncomingMessage` is declared in `node:http`. Removing it would cost developer experience. `client` is typed `Duplex`, and `Readonly<Duplex>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `client`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `Duplex` is declared in `node:stream`.
+proxy.on('connect', (request, client, head: Readonly<Buffer<Readonly<ArrayBufferLike>>>) => {
   if (!targets.has(request.url ?? '')) {
     client.end('HTTP/1.1 403 Forbidden\r\n\r\n');
     return;

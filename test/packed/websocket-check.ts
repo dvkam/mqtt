@@ -36,15 +36,15 @@ assert.doesNotMatch(code, /__vite-browser-external|\bBuffer\b|\bnode:/);
 if (process.argv.includes('--bundle-only')) {
   console.log(JSON.stringify({ browserBytes: Buffer.byteLength(code), gzipBytes: gzipSync(code).length }));
 } else {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture writes and ends the native HTTP response.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `request` is typed `IncomingMessage`, and `Readonly<IncomingMessage>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `request`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `IncomingMessage` is declared in `node:http`. Removing it would cost developer experience. `response` is typed `ServerResponse<IncomingMessage> & { req: IncomingMessage; }`, and `Readonly<ServerResponse<IncomingMessage> & { req: IncomingMessage; }>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `response`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `ServerResponse` is declared in `node:http`.
   const server = createServer((request, response) => {
     if (request.url === '/probe.js') response.writeHead(200, { 'Content-Type': 'text/javascript' }).end(code);
     else response.writeHead(200, { 'Content-Type': 'text/html' }).end('<!doctype html>');
   });
   const broker = new WebSocketServer({ server, perMessageDeflate: false });
   const frames: { binary: boolean; bytes: number[] }[] = [];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The pressure peer pauses and terminates its native WebSocket.
-  broker.on('connection', (socket, request) => {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `request` is typed `IncomingMessage`, and `Readonly<IncomingMessage>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `request`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `IncomingMessage` is declared in `node:http`.
+  broker.on('connection', (socket: Readonly<WebSocket>, request) => {
     if (request.url === '/pressure') {
       socket.pause();
       const close = setTimeout(() => {
@@ -55,7 +55,7 @@ if (process.argv.includes('--bundle-only')) {
       });
       return;
     }
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer normalizes native WebSocket frame buffers and sends its reply.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `bytes` is typed `RawData`. With `Readonly<RawData>` this code stops compiling (TS2769, No overload matches this call), so `bytes` would need a copy or a second hand-written type before it is passed on. `RawData` is declared in `ws`.
     socket.on('message', (bytes, binary) => {
       const frame = Array.isArray(bytes) ? Buffer.concat(bytes) : bytes instanceof ArrayBuffer ? Buffer.from(bytes) : bytes;
       frames.push({ binary, bytes: Array.from(frame) });
