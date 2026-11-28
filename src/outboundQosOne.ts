@@ -338,12 +338,7 @@ export class OutboundQosOne<Item> {
   }
 
   private start(publication: Publication<Item>, identifier: IdentifierLease, resent: boolean): void {
-    let acknowledge!: Exchange<Item>['acknowledge'];
-    let rejectAck!: Exchange<Item>['rejectAck'];
-    const acknowledgment = new Promise<number>((resolve, reject) => {
-      acknowledge = resolve;
-      rejectAck = reject;
-    });
+    const { promise: acknowledgment, resolve: acknowledge, reject: rejectAck } = Promise.withResolvers<number>();
     const exchange: Exchange<Item> = { publication, identifier, resent, acknowledge, rejectAck, acknowledgmentCode: undefined };
     this.active.set(identifier.messageId, exchange);
     void this.complete(exchange, acknowledgment);
