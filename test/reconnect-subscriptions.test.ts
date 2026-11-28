@@ -100,7 +100,7 @@ test.each(modes)('subscribes on a resumed session whose SUBSCRIBE was never writ
   await client.disconnect();
 });
 
-test.each(modes)('makes no SUBSCRIBE on a resumed session that answered every intent, with %s', async (_name, mode) => {
+test.each(modes)('makes no SUBSCRIBE on a resumed session after a SUBACK for every intent, with %s', async (_name, mode) => {
   const { peer, client, events, reconnectAfter } = supervise(
     { sessionPresent: (connection) => connection > 1, suback: () => 1 },
     mode(),
