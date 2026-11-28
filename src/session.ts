@@ -13,10 +13,9 @@ export interface UncertainPublication {
   readonly qos: 1 | 2;
   /**
    * True when the broker accepted the publication. At QoS 1 that is a PUBACK with a reason below 0x80 that arrived before
-   * the write settled. At QoS 2 it is a PUBREC with a reason below 0x80. The broker then has the message, but the PUBCOMP
-   * that ends the exchange did not arrive, and a broker may wait for the PUBREL before it sends the message to
-   * subscribers. A resumed session sends that PUBREL again. False when no PUBACK or PUBREC arrived, or when it refused
-   * the publication.
+   * the write settled. At QoS 2 it is a PUBREC with a reason below 0x80. The broker then has the message, but the
+   * exchange did not finish, and a broker may wait for the PUBREL before it sends the message to subscribers. A resumed
+   * session sends that PUBREL again. False when no PUBACK or PUBREC arrived, or when it refused the publication.
    */
   readonly acknowledged: boolean;
 }

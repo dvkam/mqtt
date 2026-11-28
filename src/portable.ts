@@ -26,7 +26,7 @@ import { SubscriptionExchanges, type SubscriptionLimits } from './subscriptionEx
 import { PacketIdentifiers } from './packetIdentifiers.js';
 import { OutboundPublications, type Resumed } from './outboundPublications.js';
 import { QosZeroWrites } from './qosZeroWrites.js';
-import { isAcknowledgmentReason, isPubackReason } from './pubackReason.js';
+import { isPubackReason } from './pubackReason.js';
 import { takeNativeBudgetFailure } from './nativeWriteBudget.js';
 import type { WillMessage } from './will.js';
 import { copyUserProperties } from './userProperties.js';
@@ -274,9 +274,7 @@ class PortableClient<Bytes extends Uint8Array> {
               );
               return;
             }
-            this.receiveAcknowledged(
-              packet.qos === 1 ? { ...packet, qos: 1, messageId, dup } : { ...packet, qos: 2, messageId, dup },
-            );
+            this.receiveAcknowledged({ ...packet, messageId, dup });
           }
         },
         this.onDiagnostic,
@@ -534,10 +532,7 @@ class PortableClient<Bytes extends Uint8Array> {
         await this.sendPacket({ cmd: 'puback', messageId, reasonCode: 0 });
       }, 'inbound-publish');
     } catch (reason) {
-      if (!this.failure && !this.closing)
-        void this.abort(reason instanceof Error ? endingFailure(reason) : new Error('MQTT inbound delivery failed')).catch(
-          () => {},
-        );
+      this.failInbound(reason);
     } finally {
       this.inboundPhase = undefined;
       this.advanceInbound();
@@ -571,10 +566,7 @@ class PortableClient<Bytes extends Uint8Array> {
         return true;
       }, 'inbound-publish');
     } catch (reason) {
-      if (!this.failure && !this.closing)
-        void this.abort(reason instanceof Error ? endingFailure(reason) : new Error('MQTT inbound delivery failed')).catch(
-          () => {},
-        );
+      this.failInbound(reason);
     } finally {
       // After PUBREC the publication keeps the receive slot until its PUBREL arrives.
       if (!acknowledged) {
@@ -583,6 +575,12 @@ class PortableClient<Bytes extends Uint8Array> {
         this.advanceInbound();
       }
     }
+  }
+
+  /** A handler that failed, or an acknowledgment that could not be written, ends the session. */
+  private failInbound(reason: unknown): void {
+    if (!this.failure && !this.closing)
+      void this.abort(reason instanceof Error ? endingFailure(reason) : new Error('MQTT inbound delivery failed')).catch(() => {});
   }
 
   private advanceInbound(): void {
@@ -594,14 +592,6 @@ class PortableClient<Bytes extends Uint8Array> {
   /** PUBREC and PUBCOMP continue an outbound QoS 2 exchange. PUBREL ends an inbound one. */
   private receiveQosTwoControl(packet: Readonly<QosTwoControl>): void {
     const { cmd, messageId, reasonCode: code } = packet;
-    if (!Number.isInteger(messageId) || messageId < 1 || messageId > 65_535) {
-      void this.abort(new MqttError('ERR_MQTT_PROTOCOL', 'Invalid ' + cmd.toUpperCase() + ' packet identifier')).catch(() => {});
-      return;
-    }
-    if (!isAcknowledgmentReason(cmd, code)) {
-      void this.abort(new MqttError('ERR_MQTT_PROTOCOL', 'Invalid ' + cmd.toUpperCase() + ' reason code')).catch(() => {});
-      return;
-    }
     if (cmd === 'pubrel') {
       this.receiveRelease(messageId);
       return;
@@ -638,17 +628,7 @@ class PortableClient<Bytes extends Uint8Array> {
     }
     this.inboundExchange = undefined;
     this.inboundPhase = 'acknowledging';
-    void this.run(async () => this.sendPacket({ cmd: 'pubcomp', messageId, reasonCode: 0 }), 'inbound-publish')
-      .catch((reason: unknown) => {
-        if (!this.failure && !this.closing)
-          void this.abort(reason instanceof Error ? endingFailure(reason) : new Error('MQTT inbound release failed')).catch(
-            () => {},
-          );
-      })
-      .finally(() => {
-        this.inboundPhase = undefined;
-        this.advanceInbound();
-      });
+    this.answer({ cmd: 'pubcomp', messageId, reasonCode: 0 }, true);
   }
 
   /**
@@ -659,13 +639,19 @@ class PortableClient<Bytes extends Uint8Array> {
     return this.publications.packetLimit < 5 ? 0 : 0x92;
   }
 
-  /** Write a PUBREC, PUBREL or PUBCOMP that no exchange waits for. A failed write ends the session. */
-  private answer(packet: Readonly<Extract<ClientPacket, { cmd: 'pubrec' | 'pubrel' | 'pubcomp' }>>): void {
+  /**
+   * Write a PUBREC, PUBREL or PUBCOMP outside a handler call. A failed write ends the session. `freesSlot` marks the
+   * PUBCOMP that ends the publication in the receive slot, so the retained next PUBLISH starts once the write settled.
+   */
+  private answer(packet: Readonly<Extract<ClientPacket, { cmd: 'pubrec' | 'pubrel' | 'pubcomp' }>>, freesSlot = false): void {
     if (this.failure || this.writesEnded) return;
-    void this.run(async () => this.sendPacket(packet), 'inbound-publish').catch((reason: unknown) => {
-      if (!this.failure && !this.closing)
-        void this.abort(transportFailure(reason, 'MQTT acknowledgment send failed')).catch(() => {});
-    });
+    void this.run(async () => this.sendPacket(packet), 'inbound-publish')
+      .catch(this.failInbound.bind(this))
+      .finally(() => {
+        if (!freesSlot) return;
+        this.inboundPhase = undefined;
+        this.advanceInbound();
+      });
   }
 
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ClientSession.publish in src/session.ts takes the caller's Uint8Array payload and AbortSignal by identity.

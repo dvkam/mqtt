@@ -29,7 +29,7 @@ Six source faults remove string checks, local bounds, ACK validation, compact-fo
 
 AckPropertyLayout models the optional-versus-required validation decision for two ACK families and body sizes 2, 3 and 4. It checks validation before dispatch, no malformed property dispatch and preservation of compact forms. The existing property-reader model covers bounded reads with and without a trailing payload. UTF-8 classification, concrete offsets, packet identifiers and reason-code semantics remain concrete-test assumptions.
 
-Raw PUBREC, PUBREL and PUBCOMP fixtures prove decoder behavior only. They do not add public QoS 2 support. The supported public operations remain QoS 1 publish, subscribe and unsubscribe. Portable comparisons run through the existing profile and do not extend it.
+Raw PUBREC, PUBREL and PUBCOMP fixtures prove decoder behavior only. They do not add public QoS 2 support. The supported public operations remain QoS 1 publish, subscribe and unsubscribe. Update, 28 November 2026: the clients support [QoS 2](qos2.md), and the public codec encodes and decodes these three packets. Portable comparisons run through the existing profile and do not extend it.
 
 Duplicate singleton fields, scalar legality, DISCONNECT properties and the remaining negotiated behavior stay under #9, #16 and #17. The next string-validation slice is DISCONNECT, with its zero-length and reason-only forms preserved.
 

@@ -25,7 +25,7 @@ Malformed properties use the existing generic error/close path. The input retain
 
 The first test-first run failed 61 of 70 cases. The tests cover each string field at every split, field spans that try to borrow payload bytes, canonical lengths and identifiers, the QoS-dependent packet-identifier offset, and native buffer representations. Public TCP and Node WebSocket tests observe peer closure before fixture cleanup. Portable User Property comparisons preserve the existing browser profile.
 
-Positive raw-decoder fixtures include QoS 2 and Topic Alias 1 to check byte layout and native representation. They do not add QoS 2 client support or negotiate inbound aliases. The existing public alias limit and reason 0x94 behavior remain unchanged.
+Positive raw-decoder fixtures include QoS 2 and Topic Alias 1 to check byte layout and native representation. They do not add QoS 2 client support or negotiate inbound aliases. Update, 28 November 2026: the clients support [QoS 2](qos2.md). The existing public alias limit and reason 0x94 behavior remain unchanged.
 
 The model distinguishes propertyEnd from frameEnd and includes a fault that reads payload while staying inside the frame. It checks only the documented finite cursor and validation abstraction. Concrete tests check byte arithmetic, UTF-8, field tables, native representations and physical cleanup.
 

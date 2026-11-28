@@ -86,7 +86,7 @@ test('a QoS 0 PUBLISH with DUP set is a protocol error answered with DISCONNECT 
   });
 });
 
-test('a QoS 2 PUBLISH without a QoS 1 handler is dropped and the session goes on', async () => {
+test('a QoS 2 PUBLISH without a QoS 1 or QoS 2 handler is dropped and the session goes on', async () => {
   // Main failed the session on the QoS 2 header.
   vi.stubGlobal('WebSocket', ScriptedSocket);
   const onMessage = vi.fn<(message: unknown) => void>();
@@ -99,17 +99,18 @@ test('a QoS 2 PUBLISH without a QoS 1 handler is dropped and the session goes on
 });
 
 test.each([
-  ['PUBREC', 0x50],
-  ['PUBREL', 0x62],
-  ['PUBCOMP', 0x70],
-])('a %s is ignored as on Node, while QoS 2 is not supported', async (_name, header) => {
-  // Main failed the session on these packets.
+  ['PUBREC', 0x50, [[0x62, 3, 0, 1, 0x92]]],
+  ['PUBREL', 0x62, [[0x70, 3, 0, 1, 0x92]]],
+  ['PUBCOMP', 0x70, []],
+] as const)('a %s without an exchange keeps the session, as on Node', async (_name, header, answers) => {
+  // Main failed the session on these packets. The session answers the first two with reason 0x92.
   vi.stubGlobal('WebSocket', ScriptedSocket);
   const client = await createBrowserClient(options).connect();
   ScriptedSocket.instance.receive([header, 2, 0, 1]);
   const ping = client.ping();
   ScriptedSocket.instance.receive([0xd0, 0]);
   await expect(ping).resolves.toBeUndefined();
+  expect(ScriptedSocket.instance.sent.slice(1, -1)).toEqual(answers);
   await client.disconnect();
 });
 
