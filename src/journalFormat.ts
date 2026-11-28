@@ -32,6 +32,7 @@ const timeAt = 28;
 const maxUint32 = 0xffff_ffff;
 const twoToThe32 = 0x1_0000_0000;
 const megabyte = 1024 * 1024;
+const textEncoder = new TextEncoder();
 
 /** The process that wrote a segment. The storage reads it to decide whether that process still runs. */
 export interface SegmentOwner {
@@ -202,7 +203,7 @@ function textBytes(value: string, name: string): number {
   return 2 + utf8Length(text(value, name));
 }
 
-/** The PUBLISH that stores `publication`, as the session writes it first: with its Packet Identifier and without DUP. */
+/** The PUBLISH that stores `publication`, as the session first writes it, with its Packet Identifier and without DUP. */
 function storedPacket(publication: ReadonlyDeep<OutgoingPublication>, messageId: number): Uint8Array<ArrayBuffer> {
   const { topic, payload, retain, properties, qos = 1 } = publication;
   return encodePacket(
@@ -298,7 +299,6 @@ const identifierKinds = {
 class FrameWriter {
   readonly bytes: Uint8Array<ArrayBuffer>;
   private readonly view: DataView;
-  private readonly encoder = new TextEncoder();
   private offset = 0;
 
   constructor(size: number) {
@@ -328,7 +328,7 @@ class FrameWriter {
   }
 
   string(value: string): void {
-    const { written } = this.encoder.encodeInto(value, this.bytes.subarray(this.offset + 2));
+    const { written } = textEncoder.encodeInto(value, this.bytes.subarray(this.offset + 2));
     this.uint16(written);
     this.offset += written;
   }
@@ -429,7 +429,7 @@ export function encodeFrame(frame: JournalFrame): Uint8Array<ArrayBuffer> {
 }
 
 /**
- * The records of a snapshot: everything `state` holds, with the `segment` record first. Recovery of a segment that
+ * The records of a snapshot, which are everything `state` holds, with the `segment` record first. Recovery of a segment that
  * starts with them yields `state` again.
  */
 export function snapshotRecords(owner: SegmentOwner, state: JournalState): JournalRecord[] {
@@ -447,7 +447,7 @@ export function snapshotRecords(owner: SegmentOwner, state: JournalState): Journ
   return records;
 }
 
-/** The first bytes of a new segment: the prefix and the snapshot of `state` as frame 1. */
+/** The first bytes of a new segment, which are the prefix and the snapshot of `state` as frame 1. */
 export function encodeSegmentStart(
   generation: number,
   owner: SegmentOwner,
@@ -480,7 +480,10 @@ export function emptyJournalState(clientId: string, broker: string): JournalStat
   };
 }
 
-/** A writer compacts a segment that is larger than this many bytes: 1 MiB, or four times its snapshot when that is more. */
+/**
+ * A writer compacts a segment that is larger than this many bytes, which is 1 MiB, or four times its snapshot when that
+ * is more.
+ */
 export function compactionThreshold(snapshotBytes: number): number {
   return Math.max(megabyte, 4 * snapshotBytes);
 }
@@ -491,8 +494,8 @@ export function compactionDue(segmentBytes: number, snapshotBytes: number): bool
 }
 
 /**
- * The largest size a segment reaches when its writer applies `compactionDue` before each frame: the threshold and one
- * more frame.
+ * The largest size a segment reaches when its writer applies `compactionDue` before each frame, which is the threshold
+ * and one more frame.
  */
 export function segmentBytesBound(snapshotBytes: number, largestFrameBytes: number): number {
   return compactionThreshold(snapshotBytes) + largestFrameBytes;
@@ -506,7 +509,7 @@ function sameBytes(first: ReadonlyBytes, second: ReadonlyBytes): boolean {
 
 /**
  * Decode a stored PUBLISH with the session's own decoder. The result must encode to the stored bytes again, so a stored
- * packet is exactly what `storedPacket` writes: QoS 1 or 2, no DUP, the full topic name and no Topic Alias.
+ * packet is exactly what `storedPacket` writes. It has QoS 1 or 2, no DUP, the full topic name and no Topic Alias.
  */
 function storedPublication(packet: ReadonlyBytes): Readonly<{ messageId: number; publication: ReadonlyDeep<OutgoingPublication> }> {
   const header = packet[0];

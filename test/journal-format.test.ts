@@ -371,13 +371,13 @@ test('a damaged frame before a valid frame makes the segment unreadable', () => 
   expect(flipped(firstFrame + 5)).toMatchObject({ outcome: 'unreadable', reason: 'damaged', offset: firstFrame });
   expect(flipped(segmentPrefixBytes + 20)).toMatchObject({ outcome: 'unreadable', reason: 'damaged', offset: segmentPrefixBytes });
   expect(flipped(2)).toMatchObject({ outcome: 'unreadable', reason: 'damaged', offset: 0 });
-  // A frame that is missing: the frame after it has a batch number above the expected one.
+  // One frame is missing, so the frame after it has a batch number above the expected one.
   expect(recoverSegment(joined(bytes.subarray(0, firstFrame), bytes.subarray(secondFrame)), generation)).toMatchObject({
     outcome: 'unreadable',
     reason: 'damaged',
     offset: firstFrame,
   });
-  // The same frame twice: the second copy does not continue the batch numbers and nothing valid follows it.
+  // The last frame is there twice. The second copy does not continue the batch numbers, and nothing valid follows it.
   expect(recovered(joined(bytes, bytes.subarray(secondFrame)))).toMatchObject({ tail: 'torn', batches: 3, bytes: bytes.length });
 });
 
@@ -709,7 +709,7 @@ test('zeros, noise and frames of an older segment after a frame are a torn tail'
       }
     }
     if (segment.ends.length > 2) {
-      // Zeros in place of a frame in the middle: the frames after it prove that a commit covered it.
+      // Zeros stand in place of a frame in the middle. The frames after it prove that a commit covered it.
       const [first = 0, second = 0] = segment.ends;
       const holed = Uint8Array.from(segment.bytes);
       holed.fill(0, first, second);
