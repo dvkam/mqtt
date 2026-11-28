@@ -49,9 +49,9 @@ export interface SessionOptions {
    */
   sessionExpiryInterval?: number;
   /**
-   * The QoS 1 publications that a connection wrote and the broker did not acknowledge, kept for the next connection of
-   * the same session. Pass the object `createSessionState()` returns. A connection with Clean Start false that the broker
-   * answers with Session Present true sends them again before any new publication.
+   * The QoS 1 and QoS 2 exchanges that a connection did not finish, kept for the next connection of the same session.
+   * Pass the object `createSessionState()` returns. A connection with Clean Start false that the broker answers with
+   * Session Present true continues them before any new publication.
    */
   sessionState?: SessionState;
 }
@@ -121,7 +121,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
   platform: Readonly<BytePlatform<Bytes>>,
 ): Promise<ClientSession> {
   const { name, supportsSharedSubscriptions = true, supportsPassword = true } = transport;
-  const { onDiagnostic, onSessionEnd, onQosOneMessage, signal } = options;
+  const { onDiagnostic, onSessionEnd, onQosOneMessage, onQosTwoMessage, signal } = options;
   const isAborted = (): boolean => signal?.aborted === true;
   const abortReason = () => {
     const reason: unknown = signal?.reason;
@@ -256,7 +256,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
         }
       },
       listen(onPacket, onClose, onProtocolError) {
-        return input.listen(onPacket, onClose, onQosOneMessage !== undefined, onProtocolError);
+        return input.listen(onPacket, onClose, onQosOneMessage !== undefined, onProtocolError, onQosTwoMessage !== undefined);
       },
       async close(force) {
         input.detachCore();
@@ -288,6 +288,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
         ...subscriptionLimits,
         timeoutMs,
         onQosOneMessage,
+        onQosTwoMessage,
       });
       if (isAborted()) throw abortReason();
       return client;

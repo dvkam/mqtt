@@ -28,7 +28,7 @@ interface Entry {
   bytes: number;
   identifier: IdentifierLease;
   kind: SubscriptionAckKind;
-  requestedQos: 0 | 1;
+  requestedQos: 0 | 1 | 2;
   accepted: boolean;
   resolve: (acknowledgment: Acknowledgment) => void;
   reject: (reason: Readonly<Error>) => void;
@@ -58,7 +58,7 @@ export class SubscriptionExchanges {
     this.maximumPacketSize = Math.min(maximumPacketSize, maxMqttPacketBytes);
   }
 
-  reserve(topic: string, kind: SubscriptionAckKind = 'suback', requestedQos: 0 | 1 = 0) {
+  reserve(topic: string, kind: SubscriptionAckKind = 'suback', requestedQos: 0 | 1 | 2 = 0) {
     if (this.failure) throw this.failure;
     // Validation has already established valid Unicode and the MQTT string limit of 65,535 bytes.
     const remaining = (kind === 'suback' ? 6 : 5) + utf8Length(topic);

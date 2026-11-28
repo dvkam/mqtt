@@ -261,7 +261,7 @@ test('disconnect drain timeout reports an unknown delivery and still sends DISCO
     await expect(publication).resolves.toMatchObject({
       code: 'ERR_MQTT_TIMEOUT',
       fatal: true,
-      message: 'MQTT QoS 1 drain expired. Delivery outcome is unknown',
+      message: 'MQTT publish drain expired. Delivery outcome is unknown',
     });
     await closing;
     expect(broker.commands()).toEqual(['connect', 'publish', 'disconnect']);

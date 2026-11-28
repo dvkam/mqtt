@@ -23,6 +23,7 @@ export type {
   DisconnectOptions,
   PublishOptions,
   QosOneMessage,
+  QosTwoMessage,
   SessionEnd,
   SessionEndObserver,
   SubscribeOptions,

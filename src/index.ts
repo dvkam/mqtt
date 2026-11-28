@@ -23,6 +23,7 @@ export type {
   DisconnectOptions,
   PublishOptions,
   QosOneMessage,
+  QosTwoMessage,
   SessionEnd,
   SessionEndObserver,
   SubscribeOptions,
@@ -39,7 +40,7 @@ export type {
   SubscriptionIntent,
   SubscriptionRestore,
 } from './reconnect.js';
-export type { NodeMessage, NodeQosOneMessage } from './nodeMessage.js';
+export type { NodeMessage, NodeQosOneMessage, NodeQosTwoMessage } from './nodeMessage.js';
 export type { MessageProperties } from './messageProperties.js';
 export type { UserProperty } from './codec.js';
 export type { WillOptions } from './will.js';

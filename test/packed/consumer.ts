@@ -7,6 +7,8 @@ import {
   type DiagnosticObserver,
   type DisconnectOptions,
   type NodeQosOneMessage,
+  type NodeQosTwoMessage,
+  type ReconnectEvent,
   type SessionEnd,
   type SubscribeResult,
   type UnsubscribeResult,
@@ -46,6 +48,24 @@ export type QosOneHasIdentifier = RequireTrue<(NodeQosOne | BrowserQosOne)['mess
 export type QosOneIsOne = RequireTrue<(NodeQosOne | BrowserQosOne)['qos'] extends 1 ? true : false>;
 export type NodeQosOneCallbackUsesNamedMessage = RequireTrue<NodeQosOne extends NodeQosOneMessage ? true : false>;
 export type NamedNodeQosOneMatchesCallback = RequireTrue<NodeQosOneMessage extends NodeQosOne ? true : false>;
+type NodeQosTwo = Parameters<NonNullable<import('mqtt').TcpClientOptions['onQosTwoMessage']>>[0];
+type BrowserQosTwo = Parameters<NonNullable<import('mqtt/browser').BrowserClientOptions['onQosTwoMessage']>>[0];
+export type NodeQosTwoPayloadIsBuffer = RequireTrue<NodeQosTwo['payload'] extends Buffer ? true : false>;
+export type BrowserQosTwoPayloadIsSpecific = RequireFalse<IsAny<BrowserQosTwo['payload']>>;
+export type BrowserQosTwoPayloadIsBytes = RequireTrue<BrowserQosTwo['payload'] extends Uint8Array ? true : false>;
+export type QosTwoHasIdentifier = RequireTrue<(NodeQosTwo | BrowserQosTwo)['messageId'] extends number ? true : false>;
+export type QosTwoIsTwo = RequireTrue<(NodeQosTwo | BrowserQosTwo)['qos'] extends 2 ? true : false>;
+export type NodeQosTwoCallbackUsesNamedMessage = RequireTrue<NodeQosTwo extends NodeQosTwoMessage ? true : false>;
+export type NamedNodeQosTwoMatchesCallback = RequireTrue<NodeQosTwoMessage extends NodeQosTwo ? true : false>;
+export type BrowserQosTwoUsesNamedMessage = RequireTrue<
+  BrowserQosTwo extends import('mqtt/browser').BrowserQosTwoMessage ? true : false
+>;
+export type SubscribeGrantsUpToQosTwo = RequireTrue<0 | 1 | 2 extends SubscribeResult['grantedQos'] ? true : false>;
+type Uncertain = NonNullable<Extract<SessionEnd, { kind: 'error' }>['uncertain']>[number];
+export type UncertainNamesItsQos = RequireTrue<Uncertain['qos'] extends 1 | 2 ? true : false>;
+export type ReconnectReportsEachAcknowledgment = RequireTrue<
+  'puback' | 'pubrec' | 'pubcomp' extends ReconnectEvent['kind'] ? true : false
+>;
 export type ProtocolInputCodeIsSpecific = RequireFalse<IsAny<ProtocolInputCode>>;
 export type ProtocolInputCodeIsBounded = RequireTrue<ProtocolInputCode extends 0x81 | 0x82 | 0x94 ? true : false>;
 export type ProtocolInputCodeIsComplete = RequireTrue<0x81 | 0x82 | 0x94 extends ProtocolInputCode ? true : false>;
@@ -104,8 +124,31 @@ export async function checkTcpDeclarations(signal: AbortSignal) {
   const connected = await tcp.connect();
   await connected.subscribe('consumer/qos1', { qos: 1 });
   await connected.publish('consumer/qos1', 'hello', { qos: 1, signal });
+  await connected.publish('consumer/qos2', 'hello', { qos: 2, signal });
+  // @ts-expect-error MQTT has no QoS 3.
+  await connected.publish('consumer/qos3', 'hello', { qos: 3 });
+  const granted: 0 | 1 | 2 = (await connected.subscribe('consumer/qos2', { qos: 2 })).grantedQos;
   await connected.ping();
   await connected.disconnect();
+  return granted;
+}
+
+export function checkQosTwoHandlers() {
+  return createTcpClient({
+    host: '127.0.0.1',
+    clientId: 'consumer-qos2',
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+    onQosOneMessage(packet) {
+      const quality: 1 = packet.qos;
+      packet.payload[0] = quality;
+    },
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+    onQosTwoMessage(packet) {
+      const payload: Buffer = packet.payload;
+      const quality: 2 = packet.qos;
+      payload[0] = quality + packet.messageId;
+    },
+  });
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.

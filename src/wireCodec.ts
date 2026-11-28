@@ -1,7 +1,7 @@
 import { validateInboundTopic } from './inboundTopic.js';
 import { ProtocolInputError } from './protocolInputError.js';
 import { isSubscriptionReason } from './subscriptionReason.js';
-import { isPubackReason } from './pubackReason.js';
+import { isAcknowledgmentReason } from './pubackReason.js';
 import { captureWill, validateWillPayload, type WillMessage } from './will.js';
 import { isBytes, ownByteLength, variableByteIntegerSize } from './util/bytes.js';
 import { loneSurrogate, utf8Length } from './util/utf8.js';
@@ -30,6 +30,14 @@ type PublishFields = Properties & {
   responseTopic?: string;
   correlationData?: Uint8Array;
   subscriptionIdentifiers?: readonly number[];
+};
+
+/** PUBACK, and the three packets that follow a QoS 2 PUBLISH. They share one layout. */
+type Acknowledgment<Command extends string> = Properties & {
+  cmd: Command;
+  messageId: number;
+  reasonCode: number;
+  reasonString?: string;
 };
 
 export type WirePacket =
@@ -65,9 +73,12 @@ export type WirePacket =
       subscriptionIdentifiersAvailable?: boolean;
       sharedSubscriptionAvailable?: boolean;
     })
-  | (PublishFields & ({ qos?: 0; messageId?: never; dup?: never } | { qos: 1; messageId: number; dup?: boolean }))
-  | (Properties & { cmd: 'puback'; messageId: number; reasonCode: number; reasonString?: string })
-  | (Properties & { cmd: 'subscribe'; messageId: number; topics: readonly string[]; qos?: 0 | 1 })
+  | (PublishFields & ({ qos?: 0; messageId?: never; dup?: never } | { qos: 1 | 2; messageId: number; dup?: boolean }))
+  | Acknowledgment<'puback'>
+  | Acknowledgment<'pubrec'>
+  | Acknowledgment<'pubrel'>
+  | Acknowledgment<'pubcomp'>
+  | (Properties & { cmd: 'subscribe'; messageId: number; topics: readonly string[]; qos?: 0 | 1 | 2 })
   | (Properties & {
       cmd: 'suback';
       messageId: number;
@@ -85,17 +96,13 @@ export type WirePacket =
   | { cmd: 'pingreq' }
   | { cmd: 'pingresp' };
 
-type QosZeroFields = { qos?: 0; messageId?: never; dup?: never };
-
 /**
- * A broker packet as `decodeFramedPacket` returns it for the Node adapters. It adds QoS 2 PUBLISH, PUBREC, PUBREL,
- * PUBCOMP, AUTH and the Topic Alias, which the session ignores or rejects. The public `mqtt/codec` entry does not export it.
+ * A broker packet as `decodeFramedPacket` returns it for the clients. It adds AUTH and the Topic Alias, which the session
+ * rejects. The public `mqtt/codec` entry does not export it.
  */
 export type FramedPacket =
   | Exclude<WirePacket, { cmd: 'publish' }>
-  | (PublishFields & { topicAlias?: number } & (QosZeroFields | { qos: 1; messageId: number; dup?: boolean }))
-  | (PublishFields & { topicAlias?: number; qos: 2; messageId: number; dup?: boolean })
-  | (Properties & { cmd: 'pubrec' | 'pubrel' | 'pubcomp'; messageId: number; reasonCode: number; reasonString?: string })
+  | (Extract<WirePacket, { cmd: 'publish' }> & { topicAlias?: number })
   | { cmd: 'auth'; reasonCode: number };
 
 /** The packets only a client sends. A broker that sends one breaks the direction rule in MQTT 5 section 2.1.2. */
@@ -135,6 +142,7 @@ const disconnectReasons = new Set([
   0x04, 0x80, 0x81, 0x82, 0x83, 0x87, 0x89, 0x8b, 0x8d, 0x8e, 0x8f, 0x90, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b,
   0x9c, 0x9d, 0x9e, 0x9f, 0xa0, 0xa1, 0xa2,
 ]);
+const acknowledgmentFields = ['cmd', 'messageId', 'reasonCode', 'reasonString', 'userProperties'];
 const packetFields: Partial<Record<string, readonly string[]>> = {
   connect: [
     'cmd',
@@ -186,7 +194,10 @@ const packetFields: Partial<Record<string, readonly string[]>> = {
     'correlationData',
     'subscriptionIdentifiers',
   ],
-  puback: ['cmd', 'messageId', 'reasonCode', 'reasonString', 'userProperties'],
+  puback: acknowledgmentFields,
+  pubrec: acknowledgmentFields,
+  pubrel: acknowledgmentFields,
+  pubcomp: acknowledgmentFields,
   subscribe: ['cmd', 'messageId', 'topics', 'qos', 'userProperties'],
   suback: ['cmd', 'messageId', 'granted', 'reasonString', 'userProperties'],
   unsubscribe: ['cmd', 'messageId', 'topics', 'userProperties'],
@@ -406,6 +417,9 @@ function properties(
     (packet.cmd === 'suback' ||
       packet.cmd === 'unsuback' ||
       packet.cmd === 'puback' ||
+      packet.cmd === 'pubrec' ||
+      packet.cmd === 'pubrel' ||
+      packet.cmd === 'pubcomp' ||
       packet.cmd === 'connack' ||
       packet.cmd === 'disconnect') &&
     packet.reasonString !== undefined
@@ -474,11 +488,11 @@ export function encodePacket(
       } = packet;
       topic(name, false);
       header = 0x30 | (retain === true ? 1 : 0);
-      integer(qos ?? 0, 1);
-      if (qos === 1) header |= 2 | (dup === true ? 8 : 0);
+      integer(qos ?? 0, 2);
+      if (qos === 1 || qos === 2) header |= (qos << 1) | (dup === true ? 8 : 0);
       else if ('messageId' in packet || 'dup' in packet) throw new Error('Unsupported QoS 0 PUBLISH field');
       const topicSize = stringSize(name);
-      const messageId = qos === 1 ? integer(packet.messageId, 65_535, 1) : undefined;
+      const messageId = qos === 1 || qos === 2 ? integer(packet.messageId, 65_535, 1) : undefined;
       let propertySize = 0;
       // Key, value, key, value. Allocated only when the packet has User Properties. `??` treats a null from a JavaScript
       // caller as empty, as the other packets do.
@@ -547,10 +561,14 @@ export function encodePacket(
       writer.bytes(payload, payloadSize);
       return writer.frame;
     }
-    case 'puback': {
+    case 'puback':
+    case 'pubrec':
+    case 'pubrel':
+    case 'pubcomp': {
+      const { cmd, reasonCode } = packet;
       const identifier = uint16(integer(packet.messageId, 65_535, 1));
-      if (!isPubackReason(packet.reasonCode)) throw new Error('Invalid PUBACK reason code');
-      header = 0x40;
+      if (!isAcknowledgmentReason(cmd, reasonCode)) throw new Error('Invalid ' + cmd.toUpperCase() + ' reason code');
+      header = cmd === 'puback' ? 0x40 : cmd === 'pubrec' ? 0x50 : cmd === 'pubrel' ? 0x62 : 0x70;
       const encodedProperties = properties(packet);
       if (encodedProperties.length > 1) body = join([identifier, Uint8Array.of(packet.reasonCode), encodedProperties]);
       else body = packet.reasonCode === 0 ? identifier : join([identifier, Uint8Array.of(packet.reasonCode)]);
@@ -561,7 +579,7 @@ export function encodePacket(
       integer(packet.messageId, 65_535, 1);
       if (packet.topics.length === 0) throw new Error('Empty ' + packet.cmd.toUpperCase());
       header = packet.cmd === 'subscribe' ? 0x82 : 0xa2;
-      const subscriptionQos = packet.cmd === 'subscribe' ? integer(packet.qos ?? 0, 1) : 0;
+      const subscriptionQos = packet.cmd === 'subscribe' ? integer(packet.qos ?? 0, 2) : 0;
       body = join([
         uint16(packet.messageId),
         properties(packet),
@@ -664,8 +682,13 @@ class Reader {
   }
 }
 
+const publicHeaders: ReadonlySet<number> = new Set([
+  0x10, 0x20, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x3a, 0x3b, 0x3c, 0x3d, 0x40, 0x50, 0x62, 0x70, 0x82, 0x90, 0xa2, 0xb0, 0xc0,
+  0xd0, 0xe0,
+]);
+
 function validateHeader(header: number): void {
-  if (![0x10, 0x20, 0x30, 0x31, 0x32, 0x33, 0x3a, 0x3b, 0x40, 0x82, 0x90, 0xa2, 0xb0, 0xc0, 0xd0, 0xe0].includes(header)) {
+  if (!publicHeaders.has(header)) {
     throw new Error('Unsupported MQTT packet or invalid fixed-header flags');
   }
 }
@@ -683,9 +706,7 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
 function inPublicProfile(packet: FramedPacket): packet is WirePacket {
-  const { cmd } = packet;
-  if (cmd === 'pubrec' || cmd === 'pubrel' || cmd === 'pubcomp' || cmd === 'auth') return false;
-  return cmd !== 'publish' || packet.qos !== 2;
+  return packet.cmd !== 'auth';
 }
 
 /**
@@ -783,7 +804,7 @@ function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic:
     case 0x40: {
       const messageId = packetIdentifier(reader);
       const reasonCode = reader.remaining === 0 ? 0 : reader.byte();
-      if (!isPubackReason(reasonCode)) throw new Error('Invalid PUBACK reason code');
+      if (!isAcknowledgmentReason('puback', reasonCode)) throw new Error('Invalid PUBACK reason code');
       const props = reader.remaining === 0 ? {} : reader.properties('puback');
       packet = { cmd: 'puback', messageId, reasonCode, ...props };
       break;
@@ -794,20 +815,23 @@ function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic:
       const messageId = packetIdentifier(reader);
       const props = reader.properties(cmd);
       const topics = [];
-      let qos: 0 | 1 | undefined;
+      let qos: 0 | 1 | 2 | undefined;
       while (reader.remaining > 0) {
         const name = reader.string();
         topic(name, true);
         if (cmd === 'subscribe') {
           const options = reader.byte();
-          if ((options !== 0 && options !== 1) || (qos !== undefined && options !== qos))
+          if ((options !== 0 && options !== 1 && options !== 2) || (qos !== undefined && options !== qos))
             throw new Error('Unsupported subscription options');
           qos = options;
         }
         topics.push(name);
       }
       if (topics.length === 0) throw new Error('Empty ' + cmd.toUpperCase());
-      packet = cmd === 'subscribe' && qos === 1 ? { cmd, messageId, topics, qos, ...props } : { cmd, messageId, topics, ...props };
+      packet =
+        cmd === 'subscribe' && qos !== undefined && qos !== 0
+          ? { cmd, messageId, topics, qos, ...props }
+          : { cmd, messageId, topics, ...props };
       break;
     }
     case 0x90:
@@ -834,8 +858,7 @@ function decodeBody(header: number, reader: Readonly<Reader>, checkInboundTopic:
       const cmd = header === 0x50 ? 'pubrec' : header === 0x62 ? 'pubrel' : 'pubcomp';
       const messageId = packetIdentifier(reader);
       const reasonCode = reader.remaining === 0 ? 0 : reader.byte();
-      if (cmd === 'pubrec' ? !isPubackReason(reasonCode) : reasonCode !== 0 && reasonCode !== 0x92)
-        throw new Error('Invalid ' + cmd.toUpperCase() + ' reason code');
+      if (!isAcknowledgmentReason(cmd, reasonCode)) throw new Error('Invalid ' + cmd.toUpperCase() + ' reason code');
       const props = reader.remaining === 0 ? {} : reader.properties(cmd);
       packet = { cmd, messageId, reasonCode, ...props };
       break;

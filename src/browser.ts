@@ -1,5 +1,11 @@
 export { createBrowserClient } from './browserClient.js';
-export type { BrowserClientOptions, BrowserMessage, BrowserQosOneMessage, BrowserSession } from './browserClient.js';
+export type {
+  BrowserClientOptions,
+  BrowserMessage,
+  BrowserQosOneMessage,
+  BrowserQosTwoMessage,
+  BrowserSession,
+} from './browserClient.js';
 export type { MessageProperties } from './messageProperties.js';
 export type { UserProperty } from './codec.js';
 export type { WillOptions } from './will.js';
@@ -11,6 +17,7 @@ export type {
   DisconnectOptions,
   PublishOptions,
   QosOneMessage,
+  QosTwoMessage,
   SessionEnd,
   SessionEndObserver,
   SubscribeOptions,

@@ -24,10 +24,10 @@ export const maxMqttPacketBytes = 268_435_460;
 
 /**
  * The size of a PUBLISH, from the UTF-8 length of its topic, the length of its payload and its property section with
- * that section's own length. QoS 1 adds the two-byte Packet Identifier.
+ * that section's own length. QoS 1 and QoS 2 add the two-byte Packet Identifier.
  */
-export function publishSize(topicBytes: number, payloadBytes: number, propertyBytes: number, qos: 0 | 1): number {
-  const remaining = 2 + topicBytes + (qos === 1 ? 2 : 0) + propertyBytes + payloadBytes;
+export function publishSize(topicBytes: number, payloadBytes: number, propertyBytes: number, qos: 0 | 1 | 2): number {
+  const remaining = 2 + topicBytes + (qos === 0 ? 0 : 2) + propertyBytes + payloadBytes;
   let lengthBytes = 1;
   for (let value = remaining; value >= 128; value = Math.floor(value / 128)) lengthBytes++;
   return 1 + lengthBytes + remaining;
@@ -69,7 +69,7 @@ export class PublicationAdmission {
    * `propertyBytes` is the encoded property section with its length. An empty section is one byte. A publication larger
    * than the packet limit rejects before the slot and byte checks, because no later retry can send it.
    */
-  reserve(topic: string, payloadBytes: number, propertyBytes: number, qos: 0 | 1 = 0): () => void {
+  reserve(topic: string, payloadBytes: number, propertyBytes: number, qos: 0 | 1 | 2 = 0): () => void {
     const size = publishSize(utf8Length(topic, this.maximumPacketSize), payloadBytes, propertyBytes, qos);
     if (size > this.maximumPacketSize) throw oversizedPacket();
     if (this.items >= this.limits.maxPendingPublishes || size > this.limits.maxPendingPublishBytes - this.bytes)

@@ -8,21 +8,45 @@ interface Publication<Item> {
   readonly cancelIfAborted: () => boolean;
   readonly resolve: () => void;
   readonly reject: (reason: unknown) => void;
+  /** Present on a QoS 2 publication only, so QoS 1 publications share one object shape. */
+  readonly twoPhase?: true;
 }
+
+/**
+ * Where a QoS 2 exchange stands. `publish` waits for PUBREC, or for the PUBLISH write after an accepting PUBREC.
+ * `release` waits for PUBCOMP. `complete` has its PUBCOMP and waits for the PUBREL write.
+ */
+type Phase = 'publish' | 'release' | 'complete';
 
 interface Exchange<Item> {
   readonly publication: Publication<Item>;
   readonly identifier: IdentifierLease;
-  /** Whether a resumed session sends the publication again with DUP set. */
+  /** Whether a resumed session continues the exchange of an earlier connection. */
   readonly resent: boolean;
-  readonly acknowledge: (code: number) => void;
-  readonly rejectAck: (reason: Readonly<Error>) => void;
+  /** Settle the acknowledgment the exchange waits for: PUBACK at QoS 1, and PUBREC and then PUBCOMP at QoS 2. */
+  acknowledge: (code: number) => void;
+  rejectAck: (reason: Readonly<Error>) => void;
+  /** The PUBACK reason code at QoS 1 and the PUBREC reason code at QoS 2. */
   acknowledgmentCode: number | undefined;
+  /** Present on a QoS 2 exchange only, so QoS 1 exchanges share one object shape. */
+  phase?: Phase;
 }
 
 const noneInFlight: readonly never[] = [];
 
 type Transmit<Item> = (outgoing: Item, messageId: number, acknowledgment: Readonly<Promise<number>>) => Promise<number>;
+
+/**
+ * Write PUBREL and wait for the PUBCOMP reason code in `completion`. `resent` is true when a resumed session sends the
+ * PUBREL of an earlier connection again. It must observe `completion` even when it writes nothing.
+ */
+type Release = (messageId: number, completion: Readonly<Promise<number>>, resent: boolean) => Promise<number>;
+
+/**
+ * An exchange that a resumed session continues, with the Packet Identifier lease the caller claimed for it. `phase` is
+ * absent at QoS 1. At QoS 2, `publish` sends the PUBLISH again and `release` sends only the PUBREL.
+ */
+export type Resumed<Item> = readonly [outgoing: Item, identifier: IdentifierLease, phase?: 'publish' | 'release'];
 
 function ignore(): void {}
 
@@ -34,6 +58,7 @@ function resentPublication<Item>(outgoing: Item): Publication<Item> {
 interface Resend<Item> {
   readonly publication: Publication<Item>;
   readonly identifier: IdentifierLease;
+  readonly phase: 'publish' | 'release' | undefined;
 }
 
 function reportAcknowledgment<Item>(publication: Readonly<Publication<Item>>, code: number): void {
@@ -42,7 +67,11 @@ function reportAcknowledgment<Item>(publication: Readonly<Publication<Item>>, co
   else publication.resolve();
 }
 
-/** Ordered QoS 1 exchanges. `Item` is the publication the session hands to `transmit`; the queue never reads it. */
+/**
+ * Ordered QoS 1 and QoS 2 exchanges under one Receive Maximum quota. `Item` is the publication the session hands to
+ * `transmit`; the queue never reads it. A QoS 2 exchange keeps its quota slot and Packet Identifier until its PUBCOMP,
+ * or until a PUBREC with a reason code of 0x80 or above.
+ */
 export class OutboundPublications<Item> {
   private readonly queued = new Set<Publication<Item>>();
   private readonly resends: Resend<Item>[] = [];
@@ -53,6 +82,7 @@ export class OutboundPublications<Item> {
   private readonly identifiers: Readonly<Pick<PacketIdentifiers, 'reserve'>>;
   private readonly transmit: Transmit<Item>;
   private readonly dispatched: ((outgoing: Item, messageId: number) => void) | undefined;
+  private readonly release: Release;
   private retransmit: Transmit<Item>;
   private stopped?: Readonly<Error>;
   private activeSettled?: () => void;
@@ -66,16 +96,19 @@ export class OutboundPublications<Item> {
     quota: number,
     identifiers: Readonly<Pick<PacketIdentifiers, 'reserve'>>,
     transmit: Transmit<Item>,
+    release: Release,
     dispatched?: (outgoing: Item, messageId: number) => void,
   ) {
     this.quota = quota;
     this.identifiers = identifiers;
     this.transmit = transmit;
     this.retransmit = transmit;
+    this.release = release;
     this.dispatched = dispatched;
   }
 
-  async enqueue(outgoing: Item, releaseBudget: () => void, signal?: Readonly<AbortSignal>): Promise<void> {
+  /** `twoPhase` is true for a QoS 2 publication, whose exchange continues with PUBREL after an accepting PUBREC. */
+  async enqueue(outgoing: Item, releaseBudget: () => void, signal?: Readonly<AbortSignal>, twoPhase = false): Promise<void> {
     return new Promise((resolve, reject) => {
       if (this.stopped) {
         releaseBudget();
@@ -83,7 +116,9 @@ export class OutboundPublications<Item> {
         return;
       }
       let cancellation: AbortSignal | undefined;
-      const publication: Publication<Item> = { outgoing, releaseBudget, detach, cancelIfAborted, resolve, reject };
+      const publication: Publication<Item> = twoPhase
+        ? { outgoing, releaseBudget, detach, cancelIfAborted, resolve, reject, twoPhase }
+        : { outgoing, releaseBudget, detach, cancelIfAborted, resolve, reject };
       const queue = this.queued;
       function detach() {
         cancellation?.removeEventListener('abort', cancel);
@@ -117,27 +152,51 @@ export class OutboundPublications<Item> {
   }
 
   /**
-   * Send the publications of an earlier connection again with `retransmit`, in the order given. Each keeps the Packet
-   * Identifier lease the caller claimed for it. Queued publications stay queued, and so cancelable, until `release`.
+   * Continue the exchanges of an earlier connection in the order given. A PUBLISH goes out again through `retransmit`.
+   * Queued publications stay queued, and so cancelable, until `releaseQueued`.
    */
-  resume(entries: readonly (readonly [Item, IdentifierLease])[], retransmit: Transmit<Item>): void {
+  resume(entries: readonly Resumed<Item>[], retransmit: Transmit<Item>): void {
     this.retransmit = retransmit;
     this.holding = true;
-    for (const [outgoing, identifier] of entries) this.resends.push({ publication: resentPublication(outgoing), identifier });
+    for (const [outgoing, identifier, phase] of entries)
+      this.resends.push({ publication: resentPublication(outgoing), identifier, phase });
     this.drain();
   }
 
   /** Dispatch the queued publications that `resume` held back. */
-  release(): void {
+  releaseQueued(): void {
     this.holding = false;
     this.drain();
   }
 
-  /** Returns `resent` or `sent` when the PUBACK matches an active exchange, and undefined otherwise. */
+  /** Returns `resent` or `sent` when the PUBACK matches an active QoS 1 exchange, and undefined otherwise. */
   accept(messageId: number, code: number): 'resent' | 'sent' | undefined {
     const exchange = this.active.get(messageId);
-    if (exchange === undefined || exchange.acknowledgmentCode !== undefined) return undefined;
+    if (exchange === undefined || exchange.acknowledgmentCode !== undefined || exchange.phase !== undefined) return undefined;
     exchange.acknowledgmentCode = code;
+    exchange.acknowledge(code);
+    return exchange.resent ? 'resent' : 'sent';
+  }
+
+  /**
+   * A PUBREC arrived. Returns `resent` or `sent` when it is the first PUBREC of an active QoS 2 exchange. Returns
+   * `ignored` when the Packet Identifier belongs to another active exchange, which the PUBREC leaves as it is. Returns
+   * undefined when no active exchange has the Packet Identifier.
+   */
+  received(messageId: number, code: number): 'resent' | 'sent' | 'ignored' | undefined {
+    const exchange = this.active.get(messageId);
+    if (exchange === undefined) return undefined;
+    if (exchange.phase !== 'publish' || exchange.acknowledgmentCode !== undefined) return 'ignored';
+    exchange.acknowledgmentCode = code;
+    exchange.acknowledge(code);
+    return exchange.resent ? 'resent' : 'sent';
+  }
+
+  /** Returns `resent` or `sent` when the PUBCOMP answers the PUBREL of an active QoS 2 exchange, and undefined otherwise. */
+  completed(messageId: number, code: number): 'resent' | 'sent' | undefined {
+    const exchange = this.active.get(messageId);
+    if (exchange?.phase !== 'release') return undefined;
+    exchange.phase = 'complete';
     exchange.acknowledge(code);
     return exchange.resent ? 'resent' : 'sent';
   }
@@ -163,7 +222,7 @@ export class OutboundPublications<Item> {
 
   /**
    * Rejects every publication with `reason`. Returns what `report` makes of each publication that was written but not
-   * settled. `acknowledged` is true when a PUBACK below 0x80 arrived before the write settled.
+   * settled. `acknowledged` is true when a PUBACK or a PUBREC with a reason below 0x80 arrived.
    */
   retire<Report>(
     reason: Readonly<Error>,
@@ -178,9 +237,12 @@ export class OutboundPublications<Item> {
   }
 
   private finishActive(reason: Readonly<Error>, preserveAcknowledgments: boolean): void {
-    for (const { publication, identifier, rejectAck, acknowledgmentCode } of this.active.values()) {
+    for (const { publication, identifier, rejectAck, acknowledgmentCode, phase } of this.active.values()) {
       publication.detach();
-      if (preserveAcknowledgments && acknowledgmentCode !== undefined) reportAcknowledgment(publication, acknowledgmentCode);
+      // An accepting PUBREC does not settle a QoS 2 publication. Its PUBCOMP does.
+      const settled =
+        acknowledgmentCode !== undefined && (phase === undefined || phase === 'complete' || acknowledgmentCode >= 128);
+      if (preserveAcknowledgments && settled) reportAcknowledgment(publication, acknowledgmentCode);
       else publication.reject(reason);
       rejectAck(reason);
       identifier.release();
@@ -198,7 +260,7 @@ export class OutboundPublications<Item> {
         this.activeSettled = resolve;
         timer = setTimeout(() => {
           // disconnect() started the drain, so the session no longer accepts work.
-          const expired = new MqttError('ERR_MQTT_TIMEOUT', 'MQTT QoS 1 drain expired. Delivery outcome is unknown');
+          const expired = new MqttError('ERR_MQTT_TIMEOUT', 'MQTT publish drain expired. Delivery outcome is unknown');
           this.finishActive(expired, true);
         }, timeoutMs);
       });
@@ -221,7 +283,8 @@ export class OutboundPublications<Item> {
       while (!this.stopped && this.active.size < this.quota) {
         const resend = this.resends.length === 0 ? undefined : this.resends.shift();
         if (resend !== undefined) {
-          this.start(resend.publication, resend.identifier, true);
+          if (resend.phase === undefined) this.start(resend.publication, resend.identifier, true);
+          else this.startTwoPhase(resend.publication, resend.identifier, true, resend.phase === 'release');
           continue;
         }
         if (this.holding) break;
@@ -240,7 +303,8 @@ export class OutboundPublications<Item> {
           publication.reject(reason);
           continue;
         }
-        this.start(publication, identifier, false);
+        if (publication.twoPhase === true) this.startTwoPhase(publication, identifier, false, false);
+        else this.start(publication, identifier, false);
       }
     } finally {
       this.draining = false;
@@ -271,12 +335,69 @@ export class OutboundPublications<Item> {
     } catch (reason) {
       publication.reject(reason);
     } finally {
-      publication.detach();
-      publication.releaseBudget();
-      if (this.active.get(identifier.messageId) === exchange) this.active.delete(identifier.messageId);
-      identifier.release();
-      if (this.activeSettled !== undefined) this.reportActiveSettled();
-      this.drain();
+      this.finish(exchange);
     }
+  }
+
+  /** `released` is true when a resumed session continues an exchange that has its PUBREC, so only PUBREL goes out. */
+  private startTwoPhase(publication: Publication<Item>, identifier: IdentifierLease, resent: boolean, released: boolean): void {
+    const exchange: Exchange<Item> = {
+      publication,
+      identifier,
+      resent,
+      acknowledge: ignore,
+      rejectAck: ignore,
+      // An earlier connection received the PUBREC that accepted a released publication.
+      acknowledgmentCode: released ? 0 : undefined,
+      phase: 'publish',
+    };
+    this.active.set(identifier.messageId, exchange);
+    void this.completeTwoPhase(exchange, released ? undefined : this.awaited(identifier.messageId, 'publish'));
+  }
+
+  /** The promise of the next acknowledgment of the active QoS 2 exchange `messageId`, which enters `phase`. */
+  private async awaited(messageId: number, phase: Phase): Promise<number> {
+    return new Promise<number>((resolve, reject) => {
+      const exchange = this.active.get(messageId);
+      if (exchange === undefined) return;
+      exchange.phase = phase;
+      exchange.acknowledge = resolve;
+      exchange.rejectAck = reject;
+    });
+  }
+
+  private async completeTwoPhase(
+    exchange: Readonly<Exchange<Item>>,
+    received: Readonly<Promise<number>> | undefined,
+  ): Promise<void> {
+    const { publication, identifier } = exchange;
+    const { messageId } = identifier;
+    try {
+      const code =
+        received === undefined
+          ? 0
+          : await (exchange.resent ? this.retransmit : this.transmit)(publication.outgoing, messageId, received);
+      if (code >= 128) reportAcknowledgment(publication, code);
+      // A drain deadline rejects the publication and drops its exchange. It can pass while the PUBLISH write is pending.
+      else if (this.active.get(messageId) === exchange) {
+        await this.release(messageId, this.awaited(messageId, 'release'), received === undefined);
+        publication.resolve();
+      }
+    } catch (reason) {
+      publication.reject(reason);
+    } finally {
+      this.finish(exchange);
+    }
+  }
+
+  /** Return what a settled exchange held, and dispatch what waited for its quota slot. */
+  private finish(exchange: Readonly<Exchange<Item>>): void {
+    const { publication, identifier } = exchange;
+    publication.detach();
+    publication.releaseBudget();
+    if (this.active.get(identifier.messageId) === exchange) this.active.delete(identifier.messageId);
+    identifier.release();
+    if (this.activeSettled !== undefined) this.reportActiveSettled();
+    this.drain();
   }
 }

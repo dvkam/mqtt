@@ -5,11 +5,15 @@ import { nodePacketListener } from '../src/nodePacketListener.js';
 
 const publication: FramedPacket = { cmd: 'publish', topic: 'typed/message', payload: Buffer.from([0, 255]), retain: false };
 
-function listener(receiveQosOne = false) {
+function listener(receiveQosOne = false, receiveQosTwo = false) {
   const received: unknown[] = [];
-  const listen = nodePacketListener((packet: unknown) => {
-    received.push(packet);
-  }, receiveQosOne);
+  const listen = nodePacketListener(
+    (packet: unknown) => {
+      received.push(packet);
+    },
+    receiveQosOne,
+    receiveQosTwo,
+  );
   return { received, listen };
 }
 
@@ -85,10 +89,28 @@ test('drops QoS 1 and QoS 2 PUBLISH when the session receives only QoS 0', () =>
   expect(received).toEqual([]);
 });
 
-test('rejects a QoS 2 PUBLISH when the session receives QoS 1', () => {
+test('rejects a QoS 2 PUBLISH when the session receives QoS 1 only', () => {
   const { received, listen } = listener(true);
   expect(() => {
     listen({ ...publication, qos: 2, messageId: 2 });
+  }).toThrow('Unsupported incoming MQTT PUBLISH');
+  expect(received).toEqual([]);
+});
+
+test('delivers a QoS 2 PUBLISH with its identifier and DUP flag when the session receives QoS 2', () => {
+  const { received, listen } = listener(false, true);
+  listen({ ...publication, qos: 2, messageId: 9, dup: true });
+  listen({ ...publication, qos: 2, messageId: 10 });
+  expect(received).toStrictEqual([
+    { cmd: 'publish', topic: 'typed/message', payload: Buffer.from([0, 255]), qos: 2, dup: true, retain: false, messageId: 9 },
+    { cmd: 'publish', topic: 'typed/message', payload: Buffer.from([0, 255]), qos: 2, dup: false, retain: false, messageId: 10 },
+  ]);
+});
+
+test('rejects a QoS 1 PUBLISH when the session receives QoS 2 only', () => {
+  const { received, listen } = listener(false, true);
+  expect(() => {
+    listen({ ...publication, qos: 1, messageId: 2 });
   }).toThrow('Unsupported incoming MQTT PUBLISH');
   expect(received).toEqual([]);
 });
@@ -104,12 +126,15 @@ test('forwards the public broker packets unchanged', () => {
   expect(received[1]).toBe(puback);
 });
 
-test('drops PUBREC, PUBREL and PUBCOMP, which the session never handled', () => {
-  const { received, listen } = listener(true);
-  listen({ cmd: 'pubrec', messageId: 1, reasonCode: 0 });
-  listen({ cmd: 'pubrel', messageId: 1, reasonCode: 0 });
-  listen({ cmd: 'pubcomp', messageId: 1, reasonCode: 0 });
-  expect(received).toEqual([]);
+test('forwards PUBREC, PUBREL and PUBCOMP to the session', () => {
+  const { received, listen } = listener();
+  const packets: FramedPacket[] = [
+    { cmd: 'pubrec', messageId: 1, reasonCode: 0 },
+    { cmd: 'pubrel', messageId: 1, reasonCode: 0 },
+    { cmd: 'pubcomp', messageId: 1, reasonCode: 0x92 },
+  ];
+  for (const packet of packets) listen(packet);
+  expect(received).toEqual(packets);
 });
 
 test('rejects AUTH as a protocol error with code 0x82', () => {

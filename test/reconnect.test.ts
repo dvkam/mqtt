@@ -454,7 +454,7 @@ test('retries after a broker packet over maxPacketBytes', async () => {
 test.each([
   ['a topic that is not a string', (): Record<string, unknown> => ({ topic: 5 })],
   ['an invalid topic filter', (): Record<string, unknown> => ({ topic: 'a/#/b' })],
-  ['an unsupported QoS', (): Record<string, unknown> => ({ topic: 'a', qos: 2 })],
+  ['an unsupported QoS', (): Record<string, unknown> => ({ topic: 'a', qos: 3 })],
 ])('rejects a subscription with %s before any attempt', (_name, make) => {
   const peer = broker();
   // The test passes a value the types exclude, as a JavaScript caller could.

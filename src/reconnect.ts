@@ -40,7 +40,7 @@ export interface SubscriptionIntent {
   /** The topic filter. */
   readonly topic: string;
   /** The requested QoS. Defaults to 0. */
-  readonly qos?: 0 | 1;
+  readonly qos?: 0 | 1 | 2;
 }
 
 /** The outcome of one subscription after a CONNACK. A refused SUBACK keeps the session. */
@@ -49,7 +49,7 @@ export type SubscriptionRestore = Readonly<
     /** The topic filter of the intent. */
     topic: string;
     /** The QoS the intent requested, 0 when it set none. */
-    qos: 0 | 1;
+    qos: 0 | 1 | 2;
   } & (
     | {
         /** The SUBACK result. */
@@ -103,13 +103,21 @@ export type ReconnectEvent =
       dropped?: readonly UncertainPublication[];
     }>
   | Readonly<{
-      /** A PUBACK arrived for a QoS 1 publication that a resumed session sent again. */
-      kind: 'puback';
+      /**
+       * The broker answered a publication that a resumed session continued. `puback` ends a QoS 1 publication that the
+       * session sent again. `pubrec` answers a QoS 2 PUBLISH that the session sent again. Below 0x80 the broker has the
+       * message and the session sends PUBREL. From 0x80 the broker refused it and the exchange ended. `pubcomp` ends a QoS 2
+       * publication, after a PUBREL that followed that `pubrec` or that the session sent again.
+       */
+      kind: 'puback' | 'pubrec' | 'pubcomp';
       /** The topic it was published to. */
       topic: string;
       /** The Packet Identifier it was sent with. */
       messageId: number;
-      /** The PUBACK reason code. Below 0x80 means the broker accepted the publication. */
+      /**
+       * The reason code of the PUBACK, PUBREC or PUBCOMP. Below 0x80 means the broker accepted the publication. A PUBCOMP
+       * carries 0, or 0x92 when the broker no longer knew the Packet Identifier, and both end the exchange.
+       */
       reasonCode: number;
     }>
   | Readonly<{
@@ -273,7 +281,7 @@ export function createReconnectingClient<Options extends Reconnectable>(
   for (const intent of intents) {
     const { topic, qos }: Readonly<Partial<Record<'topic' | 'qos', unknown>>> = intent;
     if (typeof topic !== 'string' || !validateTopic(topic)) throw new RangeError('Invalid MQTT subscription topic filter');
-    if (qos !== undefined && qos !== 0 && qos !== 1) throw new RangeError('Invalid MQTT subscription QoS');
+    if (qos !== undefined && qos !== 0 && qos !== 1 && qos !== 2) throw new RangeError('Invalid MQTT subscription QoS');
   }
   const { onReconnect } = reconnect;
   const userSignal = options.signal;
@@ -315,8 +323,8 @@ export function createReconnectingClient<Options extends Reconnectable>(
 
   const shared = resume
     ? bindSessionState({
-        resent(topic, messageId, reasonCode) {
-          const event: ReconnectEvent = { kind: 'puback', topic, messageId, reasonCode };
+        resent(kind, topic, messageId, reasonCode) {
+          const event: ReconnectEvent = { kind, topic, messageId, reasonCode };
           if (held === undefined) report(event);
           else held.push(event);
         },

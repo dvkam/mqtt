@@ -4,7 +4,7 @@ import type { PublishMessage } from './messageProperties.js';
 import type { NativeWriteLimits } from './nativeWriteBudget.js';
 import { portablePlatform } from './portablePlatform.js';
 import type { PublicationLimits } from './publicationAdmission.js';
-import type { ClientFactory, ClientSession, QosOneMessage, SessionEndObserver } from './session.js';
+import type { ClientFactory, ClientSession, QosOneMessage, QosTwoMessage, SessionEndObserver } from './session.js';
 import type { SubscriptionLimits } from './subscriptionExchanges.js';
 import { createByteClient, type SessionOptions } from './transportCore.js';
 import { openMqttWebSocket } from './websocket.js';
@@ -15,6 +15,9 @@ import type { WillOptions } from './will.js';
 export type BrowserMessage = PublishMessage;
 
 export type BrowserQosOneMessage = QosOneMessage<BrowserMessage>;
+
+/** A received QoS 2 PUBLISH in the browser, with a Uint8Array payload. */
+export type BrowserQosTwoMessage = QosTwoMessage<BrowserMessage>;
 
 export type BrowserSession = ClientSession;
 
@@ -35,6 +38,12 @@ export interface BrowserClientOptions extends PublicationLimits, SubscriptionLim
   onMessage?: (message: BrowserMessage) => void;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser message retains its mutable Uint8Array payload.
   onQosOneMessage?: (message: BrowserQosOneMessage) => void | Promise<void>;
+  /**
+   * Receives each inbound QoS 2 publication once. The client sends PUBREC after the handler returns or its promise
+   * fulfills. A handler that throws or rejects ends the session without PUBREC.
+   */
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser message retains its mutable Uint8Array payload.
+  onQosTwoMessage?: (message: BrowserQosTwoMessage) => void | Promise<void>;
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
