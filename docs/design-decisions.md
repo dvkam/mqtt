@@ -51,6 +51,19 @@ Question: what does a resumed session do with the duplicate of a QoS 2 PUBLISH w
 | Send PUBREC at once, as before | The session moves on while the old handler runs. A handler that fails afterwards loses the message, and nothing reports it. In a fuzz run of the review, every lost message came through this path. |
 | Call the handler again at once | No wait, and two calls for one delivery run at the same time. |
 
+Question: is a QoS 2 PUBLISH without DUP a duplicate when an earlier connection stored its Packet Identifier?
+
+This question came from a reproduction on `main`. A broker loses its session, the CONNACK with Session Present false is lost with its connection, and the next CONNACK says Session Present true for the broker's new session. A new message under a stored identifier then got PUBREC and never reached the handler.
+
+| Option | Trade-off |
+| --- | --- |
+| No. It is a new message, and its delivery replaces the record (chosen) | No message is lost with a broker that follows MQTT-3.3.1-1, which makes DUP 1 mandatory on every PUBLISH that is sent again. A broker that breaks that clause on a resumed session gets its message delivered twice. MQTT-4.3.3-10 does not name the DUP flag, so the client relies on the sender's clause where the receiver's clause is silent. |
+| Yes, as before | The client never delivers twice, whatever the broker does. With a conforming broker it loses a message without an error in the case above. |
+| Drop the stored identifiers after a connection attempt that wrote CONNECT and read no CONNACK | It needs no DUP flag. Most such attempts fail for a network reason while the broker keeps its session. The broker then sends its PUBLISH again with DUP, and the client, which dropped the identifier, delivers the message a second time with a conforming broker. Another branch uses this rule for subscriptions, where making a subscription again does no harm. A second delivery does. |
+| End the session with a protocol error | It reports the mismatch. The broker did nothing wrong in the case above, and after the reconnect it sends the message again with DUP under the stored identifier, which loses it as before. |
+
+Reason given by the pull request author: section 3.3.1.1 defines DUP 0 as the first attempt to send the packet, and MQTT-2.2.1-4 and MQTT-4.4.0-1 leave a conforming sender no way to send DUP 0 under an identifier that the receiver recorded on an earlier connection of the same session. The rule applies only to identifiers of earlier connections, because a session cannot change within a connection. [QoS 2](qos2.md#a-publish-without-dup-for-a-stored-identifier) quotes the clauses and names the limit.
+
 Consequences, added by the pull request author:
 
 - A session that stalled now ends. A client without `onQosOneMessage` that received a QoS 1 PUBLISH kept running and got no further QoS 1 or QoS 2 message. It now ends with `ERR_MQTT_PROTOCOL`, and a reconnecting client stops with the reason `fatal`.
@@ -60,6 +73,7 @@ Consequences, added by the pull request author:
 - A PUBREL for a publication whose handler still runs is a protocol error with reason 0x82 on every connection of the session. Before, that held only for a handler of the current connection, and the PUBREL for a handler of an earlier connection got PUBCOMP.
 - The duplicate that waits takes the receive slot of its connection. A broker that sends a second QoS 1 or QoS 2 PUBLISH beside it gets DISCONNECT 0x93. Before, identifiers of earlier connections never held the slot.
 - The packet listener of a transport no longer filters by handler. It forwards a PUBLISH of every QoS, and the session decides.
+- The QoS 2 guide said that a duplicate is recognized "with or without the DUP flag". That now holds only on the connection that received the first PUBLISH.
 
 What follows: [Inbound QoS 1](qos1-receive.md#a-publish-the-client-cannot-acknowledge) states the rule for a PUBLISH above the handlers, and [QoS 2](qos2.md#handler-failures) the held PUBREC. A journal for #14 has to store the granted QoS with the session.
 

@@ -212,6 +212,7 @@ const models: readonly VerificationCase[] = [
   ['QosTwoInbound', 'QosTwoInboundImmediate', 'AcknowledgedIsFulfilled'],
   ['QosTwoInbound', 'QosTwoInboundRelease', 'AcknowledgedIsFulfilled'],
   ['QosTwoInbound', 'QosTwoInboundSilent', 'HeldWaitsForHandler'],
+  ['QosTwoInbound', 'QosTwoInboundStale', 'AcknowledgedIsDelivered'],
   ['ParserAckNotice', 'ParserAckNotice'],
   ['ParserAckNotice', 'ParserAckNoticeRead', 'InputFenced'],
   ['ParserAckNotice', 'ParserAckNoticeOpening', 'NoticeOnActiveOnly'],

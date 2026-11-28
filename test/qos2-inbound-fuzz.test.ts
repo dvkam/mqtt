@@ -4,9 +4,10 @@ import { exchangeBroker, settle } from './experiments/exchange-broker.js';
 
 // A seeded random walk of a conforming broker against the inbound QoS 2 path. The broker sends one message at a time,
 // because the client advertises Receive Maximum 1, and always uses Packet Identifier 1. After a resume it sends the
-// PUBLISH or the PUBREL again, whichever its exchange waits for, and after Session Present false it has forgotten the
-// exchange. Handlers return at once or settle at a random later step, also after their connection ended. Connections
-// drop and disconnect at random steps.
+// PUBLISH or the PUBREL again, whichever its exchange waits for. A broker that lost the session has forgotten the
+// exchange. It says so with Session Present false, or it answers Session Present true for the session that replaced the
+// lost one, as a client sees it that never read the CONNACK of the connection between. Handlers return at once or settle
+// at a random later step, also after their connection ended. Connections drop and disconnect at random steps.
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
@@ -47,7 +48,10 @@ interface Outcome {
   readonly held: number;
 }
 
-async function walk(seed: number, steps: number, mayLoseSession: boolean): Promise<Outcome> {
+/** Whether the broker loses the session at a reconnect, and whether the client learns of it. */
+type Loss = 'never' | 'told' | 'untold';
+
+async function walk(seed: number, steps: number, loss: Loss): Promise<Outcome> {
   const next = random(seed);
   const trace: string[] = [];
   const violations: string[] = [];
@@ -157,9 +161,10 @@ async function walk(seed: number, steps: number, mayLoseSession: boolean): Promi
   const reconnect = async (): Promise<void> => {
     await settle();
     seenEnds = ends.length;
-    sessionPresent = !mayLoseSession || next() < 0.8;
+    const lost = loss !== 'never' && next() >= 0.8;
+    sessionPresent = !lost || loss === 'untold';
     // A broker that lost the session forgot its open exchange, and that message is gone.
-    if (!sessionPresent) open = undefined;
+    if (lost) open = undefined;
     await connect(false);
     await settle();
     if (open?.awaits === 'pubrec') sendPublish(true);
@@ -222,15 +227,16 @@ async function walk(seed: number, steps: number, mayLoseSession: boolean): Promi
 
 // Two handlers run at once only after the broker lost the session, when the older one belongs to a forgotten message.
 test.each([
-  ['never loses the session', false, 0],
-  ['may lose the session', true, Number.POSITIVE_INFINITY],
+  ['never loses the session', 'never', 0],
+  ['may lose the session and says so', 'told', Number.POSITIVE_INFINITY],
+  ['may lose the session and still answers Session Present true', 'untold', Number.POSITIVE_INFINITY],
 ] as const)(
   'inbound QoS 2 loses and repeats no message against a conforming broker that %s',
-  async (_name, mayLoseSession, concurrentLimit) => {
+  async (_name, loss, concurrentLimit) => {
     const violations: (readonly string[])[] = [];
     const totals = { completed: 0, calls: 0, concurrent: 0, held: 0 };
     for (let seed = 1; seed <= 200; seed++) {
-      const outcome = await walk(seed * 7919 + (mayLoseSession ? 1 : 0), 50, mayLoseSession);
+      const outcome = await walk(seed * 7919 + ['never', 'told', 'untold'].indexOf(loss), 50, loss);
       if (outcome.violations.length > 0) violations.push(outcome.violations);
       totals.completed += outcome.completed;
       totals.calls += outcome.calls;
@@ -246,5 +252,5 @@ test.each([
 );
 
 test('a seed names one walk', async () => {
-  expect(await walk(7919, 50, true)).toEqual(await walk(7919, 50, true));
+  expect(await walk(7919, 50, 'untold')).toEqual(await walk(7919, 50, 'untold'));
 });

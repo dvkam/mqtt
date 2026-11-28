@@ -233,6 +233,52 @@ test('a QoS 0 PUBLISH still flows while the PUBREC is held, and a second duplica
   await session.disconnect();
 });
 
+test('a PUBLISH without DUP on the connection that holds the PUBREC of its identifier is still a duplicate', async () => {
+  const { peer, calls, ends, connect, interrupted, fulfill } = setup();
+  await interrupted();
+  const session = await connect();
+  const second = peer.connection(1);
+  second.deliver(message('A', 1, true));
+  await settle();
+  // A session cannot change within one connection, so this PUBLISH repeats the one that holds the slot.
+  second.deliver(message('A', 1, false));
+  await settle();
+  expect(calls).toEqual(['A']);
+  expect(ends[1]).toEqual([]);
+  fulfill('A');
+  await settle();
+  expect(second.frames).toEqual([pubrecOne]);
+  await session.disconnect();
+});
+
+test.each(['fulfills', 'fails'] as const)(
+  'a PUBLISH without DUP is a new message while the handler of an earlier connection runs for its identifier, and that handler %s later',
+  async (outcome) => {
+    const { peer, calls, ends, connect, interrupted, fulfill, fail } = setup();
+    await interrupted();
+    const session = await connect();
+    const second = peer.connection(1);
+    // The broker sets DUP when it sends a PUBLISH again (MQTT-3.3.1-1), so this one is a message of a broker session
+    // that replaced the one the client remembers. It does not wait for the handler of A.
+    second.deliver(message('B', 1, false));
+    await settle();
+    expect(calls).toEqual(['A', 'B']);
+    expect(second.frames).toEqual([]);
+    if (outcome === 'fulfills') fulfill('A');
+    else fail('A');
+    await settle();
+    expect(calls).toEqual(['A', 'B']);
+    expect(second.frames).toEqual([]);
+    fulfill('B');
+    await settle();
+    second.deliver(pubrel(1));
+    await settle();
+    expect(second.frames).toEqual([pubrecOne, pubcompOne]);
+    expect(ends[1]).toEqual([]);
+    await session.disconnect();
+  },
+);
+
 test.each([
   ['QoS 1', { cmd: 'publish', topic: 'B', payload: 'B', qos: 1, messageId: 2 }],
   ['QoS 2', { cmd: 'publish', topic: 'B', payload: 'B', qos: 2, messageId: 2 }],

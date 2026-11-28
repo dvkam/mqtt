@@ -528,7 +528,12 @@ class PortableClient<Bytes extends Uint8Array> {
     // The session state says which Packet Identifiers name a publication only once the session is active.
     if (packet.qos === 2 && this.activation === 'active') {
       const phase = this.inbound?.phase(packet.messageId);
-      if (phase !== undefined) {
+      // A sender sets DUP on every PUBLISH it sends again (MQTT-3.3.1-1) and gives a new PUBLISH an identifier that no
+      // open exchange has (MQTT-2.2.1-4). A PUBLISH without DUP whose identifier an earlier connection recorded therefore
+      // belongs to a broker session that replaced the recorded one, for example behind a CONNACK that this client never
+      // read. It is a new message, and its delivery replaces the record. A session cannot change within a connection, so
+      // a PUBLISH with the identifier of the publication in the slot is a duplicate with or without DUP.
+      if (phase !== undefined && (packet.dup || this.inboundExchange === packet.messageId)) {
         // MQTT-4.3.3-10: the PUBLISH is a duplicate until PUBREL, so it starts no second delivery. Once the handler
         // fulfilled it gets PUBREC again.
         if (phase === 'delivered') {
