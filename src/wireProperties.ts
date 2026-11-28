@@ -98,7 +98,8 @@ export function decodeUtf8(bytes: ReadonlyBytes, start: number, end: number): st
     let text = '';
     let index = start;
     for (; index < end; index++) {
-      const byte = bytes[index]!;
+      // A read past the end of bytes yields 0, which the next line rejects like any other zero byte.
+      const byte = bytes[index] ?? 0;
       // In well-formed UTF-8 a zero byte is always U+0000.
       if (byte === 0) return undefined;
       if (byte > 127) break;
@@ -142,7 +143,8 @@ class Section {
 
   byte(): number {
     this.need(1);
-    return this.bytes[this.offset++]!;
+    // need(1) proved that offset is before end, and end never exceeds the length of bytes, so the fallback never applies.
+    return this.bytes[this.offset++] ?? 0;
   }
 
   flag(): 0 | 1 {
@@ -153,7 +155,8 @@ class Section {
 
   uint16(): number {
     this.need(2);
-    const value = this.bytes[this.offset]! * 256 + this.bytes[this.offset + 1]!;
+    // need(2) proved that both offsets are before end, and end never exceeds the length of bytes, so the fallbacks never apply.
+    const value = (this.bytes[this.offset] ?? 0) * 256 + (this.bytes[this.offset + 1] ?? 0);
     this.offset += 2;
     return value;
   }

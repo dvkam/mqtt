@@ -618,8 +618,11 @@ class Reader {
     return value;
   }
   byte(): number {
-    if (this.offset >= this.bytes.length) throw new Error('Truncated MQTT field');
-    return this.bytes[this.offset++]!;
+    const value = this.bytes[this.offset];
+    // A byte view yields undefined only past its end, so this is the bounds check.
+    if (value === undefined) throw new Error('Truncated MQTT field');
+    this.offset++;
+    return value;
   }
   uint16(): number {
     return this.byte() * 256 + this.byte();
@@ -896,7 +899,8 @@ export class PacketDecoder {
     try {
       while (index < bytes.length) {
         if (!this.frame) {
-          const digit = bytes[index++]!;
+          // The loop condition proved that index is inside bytes, so the fallback never applies.
+          const digit = bytes[index++] ?? 0;
           this.header.push(digit);
           if (this.header.length === 1) {
             validateHeader(digit);
