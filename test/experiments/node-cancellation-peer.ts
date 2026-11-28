@@ -27,7 +27,8 @@ export async function startCancellationPeer(kind: 'tcp' | 'websocket') {
   };
   const server = kind === 'tcp' ? createServer() : new WebSocketServer({ host: '127.0.0.1', port: 0 });
   if (server instanceof WebSocketServer) {
-    server.on('connection', (socket: Readonly<WebSocket>) => {
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler calls `send` on `socket`, which is how this scripted peer answers, stalls or cuts off the client under test. The rule accepts only a read-only type, and that would be false for this parameter.
+    server.on('connection', (socket) => {
       sockets.add(socket);
       socket.on('error', () => {});
       socket.on('close', sawClose);
@@ -39,7 +40,7 @@ export async function startCancellationPeer(kind: 'tcp' | 'websocket') {
       });
     });
   } else {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `socket` is typed `Socket`. `Readonly<Socket>` still fails the rule, and with `ReadonlyDeep<Socket>` this code stops compiling (TS2345, Argument of type '{ readonly [EventEmitter.captureRejectionSymbol]?: ((error: Error, event: string | symbol, ...args: ), so `socket` would need a copy or a second hand-written type before it is passed on. `Socket` is declared in `node:net`.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler writes its replies to `socket` and adds it to `sockets`, which the peer uses later to reach the connection. The rule accepts only a read-only type, and that would be false for this parameter.
     server.on('connection', (socket) => {
       sockets.add(socket);
       socket.on('error', () => {});

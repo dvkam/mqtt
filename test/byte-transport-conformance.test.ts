@@ -28,7 +28,7 @@ type Peer = {
   received: string[];
   opens: () => number;
   /** Send a broker packet one byte per chunk. */
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. Each implementation of `send` hands `packet` to `generate` of mqtt-packet, which declares the writable `Packet`. `ReadonlyDeep<Packet>` is not assignable to it (TS2345), so the fixture would have to copy the packet first.
   send(packet: Packet): void;
   /** The broker finishes sending. */
   end(): void;
@@ -40,10 +40,11 @@ type Peer = {
   closes: boolean[];
 };
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
-type Script = (packet: Packet, peer: ReadonlyDeep<Peer>) => void;
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. A script calls `send` on `peer`, which writes the broker's reply to the transport under test. The rule accepts only a read-only type, and that would be false for this parameter.
+type Script = (packet: ReadonlyDeep<Packet>, peer: Peer) => void;
 
-const broker: Script = (packet: ReadonlyDeep<Packet>, peer: ReadonlyDeep<Peer>) => {
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The script calls `send` on `peer`, which writes the broker's reply to the transport under test. The rule accepts only a read-only type, and that would be false for this parameter.
+const broker: Script = (packet: ReadonlyDeep<Packet>, peer) => {
   if (packet.cmd === 'connect') peer.send({ cmd: 'connack', reasonCode: 0, sessionPresent: false });
   if (packet.cmd === 'subscribe') peer.send({ cmd: 'suback', messageId: packet.messageId, granted: [0] });
   if (packet.cmd === 'pingreq') peer.send({ cmd: 'pingresp' });
@@ -85,7 +86,7 @@ function memoryPeer(script: Script = broker) {
     },
     received: [],
     opens: () => opens,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is handed to `generate` of mqtt-packet, which declares the writable `Packet`. `ReadonlyDeep<Packet>` is not assignable to it (TS2345), so the fixture would have to copy the packet first.
     send(packet) {
       // Deliver after the write that caused the reply has returned, as a socket would.
       const bytes = generate(packet, codec);
@@ -104,8 +105,7 @@ function memoryPeer(script: Script = broker) {
     },
     closes: [],
   };
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
-  decoder.on('packet', (packet: Packet) => {
+  decoder.on('packet', (packet: ReadonlyDeep<Packet>) => {
     peer.received.push(packet.cmd);
     script(packet, peer);
   });
@@ -113,8 +113,8 @@ function memoryPeer(script: Script = broker) {
 }
 
 /** Adapt a Node Duplex to the byte transport contract. */
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The returned writer pushes the force flag of each close onto `closes`, which is how a case reads what the core requested, and the rule accepts no parameter that is written. The helper would have to return the list and every caller would have to merge it into its `Peer`.
-function adaptDuplex(stream: ReadonlyDeep<Duplex>, inbound: Readonly<ByteInbound>, closes: boolean[]): ByteWriter {
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The returned writer pushes the force flag of each close onto `closes`, which is how a case reads what the core requested, and the rule accepts no parameter that is written. The helper would have to return the list and every caller would have to merge it into its `Peer`. Removing it would cost developer experience. The adapter calls `end`, `destroy` and `write` on `stream`. It writes the client's bytes to the stream and destroys the stream on a forced close, which is what the conformance cases observe. The rule accepts only a read-only type, and that would be false for this parameter.
+function adaptDuplex(stream: Duplex, inbound: Readonly<ByteInbound>, closes: boolean[]): ByteWriter {
   stream.on('data', (chunk: Readonly<Buffer<Readonly<ArrayBufferLike>>>) => {
     inbound.bytes(chunk);
   });
@@ -167,7 +167,7 @@ function duplexPeer(script: Script = broker) {
     },
     received: [],
     opens: () => opens,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is handed to `generate` of mqtt-packet, which declares the writable `Packet`. `ReadonlyDeep<Packet>` is not assignable to it (TS2345), so the fixture would have to copy the packet first.
     send(packet) {
       for (const byte of generate(packet, codec)) server.write(Buffer.of(byte));
     },
@@ -189,8 +189,7 @@ function duplexPeer(script: Script = broker) {
     server.end();
   });
   server.on('error', () => {});
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
-  decoder.on('packet', (packet: Packet) => {
+  decoder.on('packet', (packet: ReadonlyDeep<Packet>) => {
     peer.received.push(packet.cmd);
     script(packet, peer);
   });
@@ -359,7 +358,8 @@ describe('the core over a transport that controls its write budget', () => {
 });
 
 describe('the core over a transport it closes', () => {
-  const refusing: Script = (packet: ReadonlyDeep<Packet>, peer: ReadonlyDeep<Peer>) => {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The script calls `send` on `peer`, which writes the broker's reply to the transport under test. The rule accepts only a read-only type, and that would be false for this parameter.
+  const refusing: Script = (packet: ReadonlyDeep<Packet>, peer) => {
     if (packet.cmd === 'connect') peer.send({ cmd: 'connack', reasonCode: 0x87, sessionPresent: false });
   };
 
@@ -581,9 +581,9 @@ test('the packet limit getter can abort without opening, sending CONNECT, or del
 });
 
 test('captures Will bytes and user properties before opening the transport', async () => {
-  const packets: Packet[] = [];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
-  const { peer } = memoryPeer((packet, target: ReadonlyDeep<Peer>) => {
+  const packets: ReadonlyDeep<Packet>[] = [];
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The script hands `target` to `broker`, which calls `send` on it to write the broker's reply to the transport under test. The rule accepts only a read-only type, and that would be false for this parameter.
+  const { peer } = memoryPeer((packet, target) => {
     packets.push(packet);
     broker(packet, target);
   });
@@ -620,7 +620,8 @@ test.each([
   [0x9a, 'MQTT broker does not support a retained Will'],
   [0x9b, 'MQTT broker does not support the requested Will QoS'],
 ] as const)('keeps Will refusal %s as the opening error', async (code, message) => {
-  const { peer } = memoryPeer((packet: ReadonlyDeep<Packet>, target: ReadonlyDeep<Peer>) => {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The script calls `send` on `target`, which writes the broker's reply to the transport under test. The rule accepts only a read-only type, and that would be false for this parameter.
+  const { peer } = memoryPeer((packet: ReadonlyDeep<Packet>, target) => {
     if (packet.cmd === 'connect') target.send({ cmd: 'connack', reasonCode: code, sessionPresent: false });
   });
   const { ended, onSessionEnd } = sessionEnd();
@@ -681,7 +682,7 @@ describe('the core and passwords', () => {
 
 describe('the core while it opens a transport', () => {
   function scriptedTransport(open: (inbound: Readonly<ByteInbound>, context: ReadonlyDeep<OpenContext>) => Promise<ByteWriter>) {
-    const calls: OpenContext[] = [];
+    const calls: ReadonlyDeep<OpenContext>[] = [];
     const transport: ByteTransport = {
       name: 'Scripted',
       async open(inbound: Readonly<ByteInbound>, context: ReadonlyDeep<OpenContext>) {

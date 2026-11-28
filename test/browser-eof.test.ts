@@ -1,5 +1,5 @@
 import { getEventListeners, once } from 'node:events';
-import { WebSocketServer, type WebSocket } from 'ws';
+import { WebSocketServer } from 'ws';
 import { afterEach, expect, test, vi } from 'vitest';
 import { createBrowserClient } from '../src/browserClient.js';
 import { PacketFramer } from '../src/packetFramer.js';
@@ -228,7 +228,8 @@ test.each([
     await once(server, 'listening');
     const address = server.address();
     if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
-    server.on('connection', (socket: Readonly<WebSocket>) => {
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler calls `close` and `send` on `socket`, which is how this scripted peer answers, stalls or cuts off the client under test. The rule accepts only a read-only type, and that would be false for this parameter.
+    server.on('connection', (socket) => {
       socket.once('message', () => {
         socket.send(Uint8Array.from(bytes));
         socket.close();

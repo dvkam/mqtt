@@ -3,6 +3,7 @@ import type { ByteTransport } from '../src/byteTransport.js';
 import { MqttError } from '../src/mqttError.js';
 import { createTransportClient } from '../src/portableClient.js';
 import { createReconnectingClient, type ReconnectEvent, type ReconnectOptions } from '../src/reconnect.js';
+import type { ByteClientOptions } from '../src/transportCore.js';
 import { broker } from './experiments/scripted-broker.js';
 import type { ReadonlyDeep } from '../src/util/bytes.js';
 
@@ -19,15 +20,7 @@ function reconnecting(
 ) {
   const events: ReconnectEvent[] = [];
   const client = createReconnectingClient(
-    (
-      options: ReadonlyDeep<{
-        signal?: AbortSignal | undefined;
-        timeoutMs?: number | undefined;
-        maxPacketBytes?: number | undefined;
-        clientId: string;
-        onQosOneMessage(): void;
-      }>,
-    ) => createTransportClient(transport, options),
+    (options: ReadonlyDeep<ByteClientOptions>) => createTransportClient(transport, options),
     { clientId: 'reconnect', onQosOneMessage() {}, ...factory },
     {
       random: () => 0,

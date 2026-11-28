@@ -11,15 +11,15 @@ async function peer(earlyPublish = false, subscriptionReply?: readonly number[])
   await once(server, 'listening');
   const address = server.address();
   if (address === null || typeof address === 'string') throw new Error('Expected a TCP address');
-  const packets: Packet[] = [];
-  server.on('connection', (socket: Readonly<WebSocket>) => {
+  const packets: ReadonlyDeep<Packet>[] = [];
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler calls `send` and `terminate` on `socket`, which is how this scripted peer answers, stalls or cuts off the client under test. The rule accepts only a read-only type, and that would be false for this parameter.
+  server.on('connection', (socket) => {
     const codec = { protocolVersion: 5 };
     const decoder = parser(codec);
     socket.on('message', (data: ReadonlyDeep<RawData>) => {
       if (Buffer.isBuffer(data)) decoder.parse(data);
     });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
-    decoder.on('packet', (packet) => {
+    decoder.on('packet', (packet: ReadonlyDeep<Packet>) => {
       packets.push(packet);
       if (packet.cmd === 'connect') {
         if (earlyPublish)

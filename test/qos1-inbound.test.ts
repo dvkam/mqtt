@@ -59,7 +59,7 @@ async function peer(
 ) {
   let receive!: Parameters<PacketTransport['listen']>[0];
   let retire!: Parameters<PacketTransport['listen']>[1];
-  const sent: ClientPacket[] = [];
+  const sent: ReadonlyDeep<ClientPacket>[] = [];
   const closes: Array<boolean | undefined> = [];
   const transport: PacketTransport = {
     async send(packet: ReadonlyDeep<ClientPacket>) {

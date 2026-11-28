@@ -1,5 +1,5 @@
 import { once } from 'node:events';
-import { createServer, type Socket } from 'node:net';
+import { createServer } from 'node:net';
 import { generate, parser, type Packet } from 'mqtt-packet';
 import { expect, test } from 'vitest';
 import { encodePacket, type ClientPacket } from '../src/codec.js';
@@ -79,11 +79,10 @@ function comparable(packet: unknown): unknown {
   return { ...packet, length: undefined, properties: undefined, reasonCode: reasonCode ?? 0 };
 }
 
-function parse(bytes: readonly number[]): Packet[] {
-  const packets: Packet[] = [];
+function parse(bytes: readonly number[]): ReadonlyDeep<Packet>[] {
+  const packets: ReadonlyDeep<Packet>[] = [];
   const decoder = parser({ protocolVersion: 5 });
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
-  decoder.on('packet', (packet) => {
+  decoder.on('packet', (packet: ReadonlyDeep<Packet>) => {
     packets.push(packet);
   });
   decoder.parse(Buffer.from(bytes));
@@ -92,7 +91,7 @@ function parse(bytes: readonly number[]): Packet[] {
 
 test.each(sessionPackets)(
   'mqtt-packet reads the portable encoding of %s as the same packet',
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `legacy` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `legacy` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `legacy` is handed to `generate` of mqtt-packet, which declares the writable `Packet`. `ReadonlyDeep<Packet>` is not assignable to it (TS2345), so the fixture would have to copy the packet first.
   (_name, packet: ReadonlyDeep<ClientPacket>, legacy) => {
     const portable = parse(Array.from(encodePacket(packet, { sharedSubscriptions: true })));
     const reference = parse(Array.from(generate(legacy, { protocolVersion: 5 })));
@@ -144,7 +143,8 @@ test('encodes a shared filter only when the caller allows shared subscriptions',
 
 test('TCP client writes the portable encoding for a connect, subscribe, publish and disconnect exchange', async () => {
   const written: number[] = [];
-  const server = createServer((socket: ReadonlyDeep<Socket>) => {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler calls `write` on `socket`, which is how this scripted peer answers, stalls or cuts off the client under test. The rule accepts only a read-only type, and that would be false for this parameter.
+  const server = createServer((socket) => {
     const decoder = parser({ protocolVersion: 5 });
     socket.on('data', (chunk: string | Readonly<Buffer<Readonly<ArrayBufferLike>>>) => {
       if (typeof chunk === 'string') throw new Error('Expected bytes');

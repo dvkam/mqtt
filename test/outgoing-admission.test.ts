@@ -13,11 +13,14 @@ import { PublicationAdmission } from '../src/publicationAdmission.js';
 import type { ClientPacket } from '../src/wireCodec.js';
 import type { ReadonlyDeep } from '../src/util/bytes.js';
 
+/** The scripted transport. Its `send` only reads the packet, so an override may forward the read-only view to it. */
+type ReadingTransport = Omit<PacketTransport, 'send'> & { send: (packet: ReadonlyDeep<ClientPacket>) => Promise<void> };
+
 function peer() {
   let receive: (packet: ReadonlyDeep<ReceivedPacket>) => void;
   const sent: string[] = [];
   const writes: { resolve: () => void; reject: (error: Readonly<Error>) => void }[] = [];
-  const transport: PacketTransport = {
+  const transport: ReadingTransport = {
     listen(onPacket) {
       receive = onPacket;
       return () => {};
@@ -145,7 +148,8 @@ test('timeout keeps the reservation until the actual send settles', async () => 
   const reserve = PublicationAdmission.prototype.reserve;
   const released = vi.fn<() => void>();
   vi.spyOn(PublicationAdmission.prototype, 'reserve').mockImplementation(function (
-    this: Readonly<PublicationAdmission>,
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The spy calls the original `PublicationAdmission.reserve` on `this` with `reserve.call(this)`, and `reserve` changes the object it is called on, which is the state this test fills. The rule accepts only a read-only type, and that would be false for this parameter.
+    this: PublicationAdmission,
     topic,
     payloadBytes,
     propertyBytes,

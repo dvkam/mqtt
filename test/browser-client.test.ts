@@ -5,7 +5,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { createBrowserClient } from '../src/browserClient.js';
 import * as portable from '../src/portable.js';
 import type { SessionEnd } from '../src/session.js';
-import type { PacketTransport, PortableOptions, ReceivedPacket } from '../src/portable.js';
+import type { PacketTransport, PortableOptions } from '../src/portable.js';
 import type { ReadonlyBytes, ReadonlyDeep } from '../src/util/bytes.js';
 
 afterEach(() => {
@@ -37,10 +37,10 @@ async function peer(
     socket.on('message', (bytes: ReadonlyDeep<RawData>) => {
       if (Buffer.isBuffer(bytes)) decoder.parse(bytes);
     });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler stores `packet` and spreads a PUBLISH into the echo it passes to `send`, which hands it to `generate` of mqtt-packet. `generate` declares the writable `Packet`, and `ReadonlyDeep<Packet>` is not assignable to it (TS2345), so the peer would have to copy every packet.
     decoder.on('packet', (packet) => {
       packets.push(packet);
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `value` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `value` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `value` is handed to `generate` of mqtt-packet, which declares the writable `Packet`. `ReadonlyDeep<Packet>` is not assignable to it (TS2345), so the fixture would have to copy the packet first.
       const send = (value: Packet) => {
         socket.send(generate(value, { protocolVersion: 5 }));
       };
@@ -98,7 +98,8 @@ test('forwards broker limits and PUBACK to the portable session', async () => {
   vi.spyOn(portable, 'connectPortable').mockImplementation(async (transport, options: ReadonlyDeep<PortableOptions>) => {
     const listen = transport.listen.bind(transport);
     transport.listen = (onPacket, onClose) =>
-      listen((packet: ReadonlyDeep<ReceivedPacket>) => {
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The fixture hands `packet` to the session's packet listener, which becomes its owner and delivers it to the application, where the fields are writable (`PacketTopicIsWritable` in test/types/mutable-contracts.ts). The rule accepts only a read-only type, and that would be false for this parameter.
+      listen((packet) => {
         if (packet.cmd === 'connack' || packet.cmd === 'puback') received.push(packet);
         onPacket(packet);
       }, onClose);

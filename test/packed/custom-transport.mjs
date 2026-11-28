@@ -30,10 +30,7 @@ function useDuplex(stream) {
           return stream.writableLength;
         },
         write: promisify(
-          (
-            /** @type {Readonly<Uint8Array>} */ /** @type {Readonly<Uint8Array<Readonly<ArrayBufferLike>>>} */ bytes,
-            /** @type {(error?: Readonly<Error> | null) => void} */ done,
-          ) => {
+          (/** @type {import('mqtt').ReadonlyBytes} */ bytes, /** @type {(error?: Readonly<Error> | null) => void} */ done) => {
             stream.write(bytes, done);
           },
         ),

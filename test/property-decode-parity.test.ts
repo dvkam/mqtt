@@ -163,7 +163,7 @@ const valid: [string, Packet][] = [
 
 // Both decoders share one property reader, so this checks only that the two entry points agree. The decoded field
 // values are pinned against literal packets in test/node-portable-parse.test.ts and test/portable-properties.test.ts.
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is handed to `generate` of mqtt-packet, which declares the writable `Packet`. `ReadonlyDeep<Packet>` is not assignable to it (TS2345), so the fixture would have to copy the packet first.
 test.each(valid)('Node and browser decoders produce the same packet for %s', (_name, packet) => {
   const bytes = Array.from(generate(packet, { protocolVersion: 5 }));
   const node = nodeOutcome(bytes);

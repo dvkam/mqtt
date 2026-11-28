@@ -46,7 +46,7 @@ export type SessionIsNamed = RequireTrue<Awaited<ReturnType<ClientFactory['conne
 const tcpOptions: TcpClientOptions = {
   host: '127.0.0.1',
   clientId: 'named-tcp-types',
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `message` is typed `PublishMessage<Buffer>`, which this file cannot write in a read-only form by name, so the accepted type would be a hand-written copy of it. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `PublishMessage` is declared in `src/messageProperties.ts`.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler assigns the payload to a `Buffer` constant and the QoS to `0` to pin the types the TCP client delivers. A parameter type written here would replace the delivered type, and the assignments would check nothing.
   onMessage(message) {
     const payload: Buffer = message.payload;
     const qualityOfService: 0 = message.qos;
@@ -56,7 +56,7 @@ const tcpOptions: TcpClientOptions = {
 const websocketOptions: WebSocketClientOptions = {
   url: 'wss://localhost/mqtt',
   clientId: 'named-ws-types',
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `message` is typed `PublishMessage<Buffer>`, which this file cannot write in a read-only form by name, so the accepted type would be a hand-written copy of it. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `PublishMessage` is declared in `src/messageProperties.ts`.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler fills the delivered payload on purpose, to check that the published types keep the consumer's bytes writable. A read-only parameter type would be false and would remove that check.
   onMessage(message) {
     message.payload.subarray(0, 1).fill(0);
   },

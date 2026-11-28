@@ -1,7 +1,7 @@
 import { once } from 'node:events';
 import { createServer, type Socket } from 'node:net';
-import { generate, parser, type ISubscribePacket } from 'mqtt-packet';
-import { WebSocketServer, type RawData, type WebSocket } from 'ws';
+import { generate, parser, type ISubscribePacket, type Packet } from 'mqtt-packet';
+import { WebSocketServer, type RawData } from 'ws';
 import { expect, test, vi } from 'vitest';
 import { createTcpClient } from '../src/tcpClient.js';
 import { createWebSocketClient } from '../src/websocketClient.js';
@@ -54,22 +54,21 @@ test.each([
     const tcp = createServer();
 
     const peers = new Set<Socket>();
-    const subscriptions: ISubscribePacket[] = [];
+    const subscriptions: ReadonlyDeep<ISubscribePacket>[] = [];
     let acceptConnect!: () => void;
     const connected = new Promise<void>((resolve) => {
       acceptConnect = resolve;
     });
     let reply!: () => void;
     if (kind === 'tcp') {
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `socket` is typed `Socket`. `Readonly<Socket>` still fails the rule, and with `ReadonlyDeep<Socket>` this code stops compiling (TS2345, Argument of type '{ readonly [EventEmitter.captureRejectionSymbol]?: ((error: Error, event: string | symbol, ...args: ), so `socket` would need a copy or a second hand-written type before it is passed on. `Socket` is declared in `node:net`.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler writes its replies to `socket` and adds it to `peers`, whose sockets the peer destroys when it closes. The rule accepts only a read-only type, and that would be false for this parameter.
       tcp.on('connection', (socket) => {
         peers.add(socket);
         const decoder = parser({ protocolVersion: 5 });
         socket.on('data', (bytes: string | Readonly<Buffer<Readonly<ArrayBufferLike>>>) => {
           decoder.parse(typeof bytes === 'string' ? Buffer.from(bytes) : bytes);
         });
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type '{ readonly messageId?: number | undefined; readonly length?: number | undefined; readonly cmd: ), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
-        decoder.on('packet', (packet) => {
+        decoder.on('packet', (packet: ReadonlyDeep<Packet>) => {
           if (packet.cmd === 'connect') {
             reply = () => {
               socket.write(Buffer.from([0x20, 3, 0, 0, 0]));
@@ -85,13 +84,13 @@ test.each([
     }
     const server = kind === 'tcp' ? undefined : new WebSocketServer({ host: '127.0.0.1', port: 0 });
     if (server) {
-      server.on('connection', (socket: Readonly<WebSocket>) => {
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler calls `send` on `socket`, which is how this scripted peer answers, stalls or cuts off the client under test. The rule accepts only a read-only type, and that would be false for this parameter.
+      server.on('connection', (socket) => {
         const decoder = parser({ protocolVersion: 5 });
         socket.on('message', (bytes: ReadonlyDeep<RawData>) => {
           if (Buffer.isBuffer(bytes)) decoder.parse(bytes);
         });
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type '{ readonly messageId?: number | undefined; readonly length?: number | undefined; readonly cmd: ), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
-        decoder.on('packet', (packet) => {
+        decoder.on('packet', (packet: ReadonlyDeep<Packet>) => {
           if (packet.cmd === 'connect') {
             reply = () => {
               socket.send(Buffer.from([0x20, 3, 0, 0, 0]));

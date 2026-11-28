@@ -1,6 +1,6 @@
 import { once } from 'node:events';
 import { generate, parser, type Packet } from 'mqtt-packet';
-import { WebSocketServer, type RawData, type WebSocket } from 'ws';
+import { WebSocketServer, type RawData } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import type { ReadonlyDeep } from '../../src/util/bytes.js';
 
@@ -12,7 +12,8 @@ export async function startReceivePeer() {
   await once(server, 'listening');
   const address = server.address();
   if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
-  server.on('connection', (socket: Readonly<WebSocket>, request: ReadonlyDeep<IncomingMessage>) => {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler calls `send` and `pause` on `socket`, which is how this scripted peer answers, stalls or cuts off the client under test. The rule accepts only a read-only type, and that would be false for this parameter.
+  server.on('connection', (socket, request: ReadonlyDeep<IncomingMessage>) => {
     const mode = new URL(request.url ?? '/', 'http://localhost').searchParams.get('mode');
     const decoder = parser({ protocolVersion: 5 });
     socket.on('message', (bytes: ReadonlyDeep<RawData>) => {

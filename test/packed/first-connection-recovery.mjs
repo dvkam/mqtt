@@ -20,7 +20,7 @@ function peer(connack) {
       opens++;
       return Promise.resolve({
         bufferedBytes: 0,
-        async write(/** @type {Readonly<Uint8Array<Readonly<ArrayBufferLike>>>} */ packet) {
+        async write(/** @type {import('mqtt').ReadonlyBytes} */ packet) {
           writes.push(packet[0] ?? -1);
           if (packet[0] === 0x10 && connack !== undefined)
             inbound.bytes(encodePacket({ cmd: 'connack', sessionPresent: false, reasonCode: connack }));
@@ -91,7 +91,8 @@ try {
   await once(broker, 'listening');
   const address = broker.address();
   assert.ok(address !== null && typeof address !== 'string');
-  broker.on('connection', (/** @type {Readonly<import('ws').WebSocket>} */ socket) => {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler calls `send` on `socket`, which is how this scripted broker answers the client under test. The rule accepts only a read-only type, and that would be false for this parameter.
+  broker.on('connection', (socket) => {
     const decoder = new PacketDecoder();
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `bytes` is typed `RawData`, and `Readonly<import('ws').RawData>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `bytes`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `RawData` is declared in `ws`.
     socket.on('message', (bytes) => {

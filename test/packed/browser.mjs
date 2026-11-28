@@ -18,7 +18,7 @@ export async function trace() {
       let release = () => {};
       return Promise.resolve({
         bufferedBytes: 0,
-        async write(/** @type {Readonly<Uint8Array<Readonly<ArrayBufferLike>>>} */ bytes) {
+        async write(/** @type {import('mqtt/portable').ReadonlyBytes} */ bytes) {
           const [packet] = decoder.push(bytes);
           if (packet === undefined) throw new Error('Missing request packet');
           packets.push(packet.cmd);
@@ -40,9 +40,7 @@ export async function trace() {
   /** @type {Parameters<typeof createTransportClient>[1]} */
   const options = {
     clientId: 'browser-ci',
-    onMessage: (
-      /** @type {Readonly<{payload: Uint8Array}>} */ /** @type {Readonly<{ payload: Readonly<Uint8Array<Readonly<ArrayBufferLike>>>; }>} */ packet,
-    ) => {
+    onMessage: (/** @type {Readonly<{ payload: import('mqtt/portable').ReadonlyBytes }>} */ packet) => {
       messages.push(new TextDecoder().decode(packet.payload));
     },
   };

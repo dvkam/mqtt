@@ -7,7 +7,7 @@ import type { ReadonlyDeep } from '../src/util/bytes.js';
 // Accepts CONNECT and answers every QoS 1 PUBLISH with a successful PUBACK. Records the packets the session sends.
 async function connected(limits: Readonly<{ maxPendingPublishBytes?: number }> = {}, retainAvailable = true) {
   let deliver: Parameters<PacketTransport['listen']>[0] | undefined;
-  const sent: ClientPacket[] = [];
+  const sent: ReadonlyDeep<ClientPacket>[] = [];
   const transport: PacketTransport = {
     async send(packet: ReadonlyDeep<ClientPacket>) {
       sent.push(packet);

@@ -4,6 +4,7 @@ import { availableParallelism, cpus, release } from 'node:os';
 import { generate, parser } from 'mqtt-packet';
 import { StreamingNodeDecoder } from '../experiments/streaming-node-decoder.ts';
 import { NodePacketDecoder } from '../../src/nodePacketDecoder.ts';
+import type { ReadonlyBytes } from '../../src/util/bytes.ts';
 
 type Strategy = 'reference' | 'compact' | 'streaming';
 const strategies: readonly Strategy[] = ['reference', 'compact', 'streaming'];
@@ -34,7 +35,7 @@ function createDecoder(strategy: Strategy, onPacket: (packet: unknown) => void) 
     throw reason instanceof Error ? reason : new Error('Unexpected reference failure');
   });
   return {
-    push(bytes: Readonly<Uint8Array<Readonly<ArrayBufferLike>>>) {
+    push(bytes: ReadonlyBytes) {
       decoder.parse(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
     },
   };

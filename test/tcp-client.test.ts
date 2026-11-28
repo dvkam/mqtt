@@ -14,7 +14,7 @@ async function broker(reply: (packet: ReadonlyDeep<Packet>) => Packet | undefine
   const commands: string[] = [];
   const events = new EventEmitter();
   let opened = 0;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `socket` is typed `Socket`. `Readonly<Socket>` still fails the rule, and with `ReadonlyDeep<Socket>` this code stops compiling (TS2345, Argument of type '{ readonly [EventEmitter.captureRejectionSymbol]?: ((error: Error, event: string | symbol, ...args: ), so `socket` would need a copy or a second hand-written type before it is passed on. `Socket` is declared in `node:net`.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler writes its replies to `socket` and adds it to `sockets`, whose sockets the peer destroys when it closes. The rule accepts only a read-only type, and that would be false for this parameter.
   const server = createServer((socket) => {
     sockets.add(socket);
     socket.on('error', () => {});

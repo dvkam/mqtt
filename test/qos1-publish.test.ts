@@ -8,6 +8,9 @@ import { PacketIdentifiers } from '../src/packetIdentifiers.js';
 import { MqttError } from '../src/mqttError.js';
 import type { ReadonlyDeep } from '../src/util/bytes.js';
 
+/** The scripted transport. Its `send` only reads the packet, so an override may forward the read-only view to it. */
+type ReadingTransport = Omit<PacketTransport, 'send'> & { send: (packet: ReadonlyDeep<ClientPacket>) => Promise<void> };
+
 const qosOne = { qos: 1 } as const;
 
 function gate() {
@@ -28,8 +31,8 @@ async function peer(
 ) {
   let receive!: Parameters<PacketTransport['listen']>[0];
   let retire!: Parameters<PacketTransport['listen']>[1];
-  const packets: ClientPacket[] = [];
-  const transport: PacketTransport = {
+  const packets: ReadonlyDeep<ClientPacket>[] = [];
+  const transport: ReadingTransport = {
     async send(packet: ReadonlyDeep<ClientPacket>) {
       packets.push(packet);
       if (packet.cmd === 'connect') {
@@ -459,7 +462,8 @@ test('holds actual-send bytes through terminal cleanup and removes the cancellat
   // oxlint-disable-next-line typescript/unbound-method -- Removing it would cost developer experience. The spy forwards to the original `PublicationAdmission.reserve` with `reserve.call(this)`, which needs the method without a receiver. The form the rule accepts for that read is `Reflect.get`, which returns `any`, so the forwarded call would lose its receiver and result types.
   const reserve = PublicationAdmission.prototype.reserve;
   const admission = vi.spyOn(PublicationAdmission.prototype, 'reserve').mockImplementation(function (
-    this: Readonly<PublicationAdmission>,
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The spy calls the original `PublicationAdmission.reserve` on `this` with `reserve.call(this)`, and `reserve` changes the object it is called on, which is the state this test fills. The rule accepts only a read-only type, and that would be false for this parameter.
+    this: PublicationAdmission,
     topic,
     payload,
     qos,
@@ -520,7 +524,8 @@ test('rejects a local publication when all shared IDs are held and can retry aft
   const reserve = PacketIdentifiers.prototype.reserve;
   const held: ReturnType<PacketIdentifiers['reserve']>[] = [];
   const allocator = vi.spyOn(PacketIdentifiers.prototype, 'reserve').mockImplementation(function (
-    this: Readonly<PacketIdentifiers>,
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The spy calls the original `PacketIdentifiers.reserve` on `this` with `reserve.call(this)`, and `reserve` changes the object it is called on, which is the state this test fills. The rule accepts only a read-only type, and that would be false for this parameter.
+    this: PacketIdentifiers,
   ) {
     for (let index = 0; index < 65_535; index++) held.push(reserve.call(this));
     return reserve.call(this);

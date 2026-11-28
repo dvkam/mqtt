@@ -148,7 +148,7 @@ function peer() {
   let receive: (packet: ReadonlyDeep<ReceivedPacket>) => void;
   let closed: (error: Readonly<Error>) => void;
   let rejectProtocolInput: NonNullable<Parameters<PacketTransport['listen']>[2]> | undefined;
-  const packets: ClientPacket[] = [];
+  const packets: ReadonlyDeep<ClientPacket>[] = [];
   const sent: PacketTransport['send'] = async (packet: ReadonlyDeep<ClientPacket>) => {
     packets.push(packet);
     if (packet.cmd === 'connect') receive({ cmd: 'connack', sessionPresent: false, reasonCode: 0 });
@@ -169,7 +169,8 @@ function peer() {
   return {
     transport,
     packets,
-    receive: (packet: ReadonlyDeep<ReceivedPacket>) => {
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The fixture hands `packet` to the session's packet listener, which becomes its owner and delivers it to the application, where the fields are writable (`PacketTopicIsWritable` in test/types/mutable-contracts.ts). The rule accepts only a read-only type, and that would be false for this parameter.
+    receive: (packet: ReceivedPacket) => {
       receive(packet);
     },
     close: (error: Readonly<Error>) => {

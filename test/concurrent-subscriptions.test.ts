@@ -4,6 +4,9 @@ import { expect, test, vi } from 'vitest';
 import { connectPortable, type PacketTransport } from '../src/portable.js';
 import type { ReadonlyDeep } from '../src/util/bytes.js';
 
+/** The scripted transport. Its `send` only reads the packet, so an override may forward the read-only view to it. */
+type ReadingTransport = Omit<PacketTransport, 'send'> & { send: (packet: ReadonlyDeep<ClientPacket>) => Promise<void> };
+
 function deferred() {
   return Promise.withResolvers<void>();
 }
@@ -11,8 +14,8 @@ function deferred() {
 async function peer(options = {}) {
   let receive!: Parameters<PacketTransport['listen']>[0];
   let retire!: Parameters<PacketTransport['listen']>[1];
-  const packets: ClientPacket[] = [];
-  const transport: PacketTransport = {
+  const packets: ReadonlyDeep<ClientPacket>[] = [];
+  const transport: ReadingTransport = {
     async send(packet: ReadonlyDeep<ClientPacket>) {
       packets.push(packet);
       if (packet.cmd === 'connect') receive({ cmd: 'connack', sessionPresent: false, reasonCode: 0 });

@@ -51,7 +51,7 @@ export async function startMixedTrafficPeer(options: Readonly<PeerOptions>) {
   ) {
     const decoder = parser({ protocolVersion: 5 });
     let resumeTimer: ReturnType<typeof setTimeout> | undefined;
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is handed to `generate` of mqtt-packet, which declares the writable `Packet`. `ReadonlyDeep<Packet>` is not assignable to it (TS2345), so the fixture would have to copy the packet first.
     const send = (packet: Packet) => {
       write(generate(packet, { protocolVersion: 5 }));
     };
@@ -84,7 +84,7 @@ export async function startMixedTrafficPeer(options: Readonly<PeerOptions>) {
       }, options.echoDelayMs);
     }
     decoder.on('error', fail);
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type '{ readonly messageId?: number | undefined; readonly length?: number | undefined; readonly cmd: ), so `packet` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is queued in `echoes` and written back later through `send`, which hands it to `generate` of mqtt-packet, which declares the writable `Packet`. `ReadonlyDeep<Packet>` is not assignable to it (TS2345), so the fixture would have to copy the packet first.
     decoder.on('packet', (packet: Packet) => {
       try {
         switch (packet.cmd) {
@@ -166,7 +166,8 @@ export async function startMixedTrafficPeer(options: Readonly<PeerOptions>) {
     };
   }
   if (server instanceof WebSocketServer) {
-    server.on('connection', (socket: Readonly<WebSocket>) => {
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler calls `terminate`, `resume`, `pause` and `send` on `socket`, which is how this scripted peer answers, stalls or cuts off the client under test. The rule accepts only a read-only type, and that would be false for this parameter.
+    server.on('connection', (socket) => {
       sockets.add(socket);
 
       const input = attach(
@@ -194,7 +195,7 @@ export async function startMixedTrafficPeer(options: Readonly<PeerOptions>) {
       });
     });
   } else {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `socket` is typed `Socket`. `Readonly<Socket>` still fails the rule, and with `ReadonlyDeep<Socket>` this code stops compiling (TS2345, Argument of type '{ readonly [EventEmitter.captureRejectionSymbol]?: ((error: Error, event: string | symbol, ...args: ), so `socket` would need a copy or a second hand-written type before it is passed on. `Socket` is declared in `node:net`.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler writes its replies to `socket` and adds it to `sockets`, which the peer uses later to reach the connection. The rule accepts only a read-only type, and that would be false for this parameter.
     server.on('connection', (socket) => {
       sockets.add(socket);
       socket.setNoDelay(true);

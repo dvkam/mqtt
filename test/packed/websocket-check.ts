@@ -43,8 +43,8 @@ if (process.argv.includes('--bundle-only')) {
   });
   const broker = new WebSocketServer({ server, perMessageDeflate: false });
   const frames: { binary: boolean; bytes: number[] }[] = [];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `request` is typed `IncomingMessage`, and `Readonly<IncomingMessage>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `request`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `IncomingMessage` is declared in `node:http`.
-  broker.on('connection', (socket: Readonly<WebSocket>, request) => {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `request` is typed `IncomingMessage`, and `Readonly<IncomingMessage>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `request`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `IncomingMessage` is declared in `node:http`. Removing it would cost developer experience. The handler calls `send`, `terminate` and `pause` on `socket`, which is how this scripted peer answers, stalls or cuts off the client under test. The rule accepts only a read-only type, and that would be false for this parameter.
+  broker.on('connection', (socket, request) => {
     if (request.url === '/pressure') {
       socket.pause();
       const close = setTimeout(() => {
@@ -55,7 +55,7 @@ if (process.argv.includes('--bundle-only')) {
       });
       return;
     }
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `bytes` is typed `RawData`. With `Readonly<RawData>` this code stops compiling (TS2769, No overload matches this call), so `bytes` would need a copy or a second hand-written type before it is passed on. `RawData` is declared in `ws`.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `bytes` is the `RawData` that ws emits, a `Buffer`, an `ArrayBuffer` or a list of buffers. With `Readonly<RawData>` the call that joins the fragments no longer compiles (TS2769), and the deep read-only type is not part of the published package, which is all this file imports.
     socket.on('message', (bytes, binary) => {
       const frame = Array.isArray(bytes) ? Buffer.concat(bytes) : bytes instanceof ArrayBuffer ? Buffer.from(bytes) : bytes;
       frames.push({ binary, bytes: Array.from(frame) });

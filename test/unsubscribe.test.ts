@@ -6,6 +6,9 @@ import { PacketIdentifiers } from '../src/packetIdentifiers.js';
 import { connectPortable, type PacketTransport, type PortableOptions } from '../src/portable.js';
 import type { ReadonlyDeep } from '../src/util/bytes.js';
 
+/** The scripted transport. Its `send` only reads the packet, so an override may forward the read-only view to it. */
+type ReadingTransport = Omit<PacketTransport, 'send'> & { send: (packet: ReadonlyDeep<ClientPacket>) => Promise<void> };
+
 test('encodes UNSUBSCRIBE without subscription option bytes and decodes split frames', () => {
   const packet = { cmd: 'unsubscribe', messageId: 1, topics: ['a', 'b'] } as const;
   const bytes = Uint8Array.of(0xa2, 9, 0, 1, 0, 0, 1, 97, 0, 1, 98);
@@ -47,8 +50,8 @@ test.each([
 async function peer(limits: Readonly<Pick<PortableOptions, 'maxPendingSubscriptions' | 'maxPendingSubscriptionBytes'>> = {}) {
   let receive!: Parameters<PacketTransport['listen']>[0];
   let retire!: Parameters<PacketTransport['listen']>[1];
-  const packets: ClientPacket[] = [];
-  const transport: PacketTransport = {
+  const packets: ReadonlyDeep<ClientPacket>[] = [];
+  const transport: ReadingTransport = {
     async send(packet: ReadonlyDeep<ClientPacket>) {
       packets.push(packet);
       if (packet.cmd === 'connect') receive({ cmd: 'connack', reasonCode: 0, sessionPresent: false, receiveMaximum: 1 });
@@ -74,7 +77,8 @@ test('preserves mixed-kind ACK ownership when the shared identifier range is exh
   const reserve = PacketIdentifiers.prototype.reserve;
   const held: ReturnType<PacketIdentifiers['reserve']>[] = [];
   const allocator = vi.spyOn(PacketIdentifiers.prototype, 'reserve').mockImplementation(function (
-    this: Readonly<PacketIdentifiers>,
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The spy calls the original `PacketIdentifiers.reserve` on `this` with `reserve.call(this)`, and `reserve` changes the object it is called on, which is the state this test fills. The rule accepts only a read-only type, and that would be false for this parameter.
+    this: PacketIdentifiers,
   ) {
     const lease = reserve.call(this);
     if (lease.messageId === 3) {

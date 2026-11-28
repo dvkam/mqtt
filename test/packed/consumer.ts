@@ -7,6 +7,7 @@ import {
   type DiagnosticObserver,
   type DisconnectOptions,
   type NodeQosOneMessage,
+  type ReadonlyBytes,
   type SessionEnd,
   type SubscribeResult,
   type UnsubscribeResult,
@@ -30,6 +31,11 @@ export type WebSocketEndNoticeUsesNamedType = RequireTrue<WebSocketEndNotice ext
 type Received = Parameters<NonNullable<import('mqtt').TcpClientOptions['onMessage']>>[0];
 export type PackedPayloadIsSpecific = RequireFalse<IsAny<Received['payload']>>;
 export type PackedPayloadIsBuffer = RequireTrue<Received['payload'] extends Buffer ? true : false>;
+// A transport passes a Buffer or any other Uint8Array to ByteInbound.bytes, whose parameter type the package exports by name.
+export type PackedInboundTakesReadonlyBytes = RequireTrue<
+  Parameters<Parameters<ByteTransport['open']>[0]['bytes']>[0] extends ReadonlyBytes ? true : false
+>;
+export type PackedReadonlyBytesAcceptsBuffer = RequireTrue<Buffer extends ReadonlyBytes ? true : false>;
 export type PackedQosIsZero = RequireTrue<Received['qos'] extends 0 ? true : false>;
 export type PackedMessageIsFlat = RequireFalse<'properties' extends keyof Received ? true : false>;
 export type PackedMessageNamesItsProperties = RequireTrue<Received extends import('mqtt').MessageProperties ? true : false>;
@@ -94,7 +100,7 @@ export async function checkTcpDeclarations(signal: Readonly<AbortSignal>) {
     maxPendingSubscriptions: 4,
     maxPendingSubscriptionBytes: 4096,
     signal,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `PublishMessage<Buffer>`, and the published package exports no name for that type, so the accepted type would be a hand-written copy of it. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `PublishMessage` is declared in `src/messageProperties.ts`.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. This consumer writes into the delivered payload on purpose, to check that the published types keep the consumer's `Buffer` writable. A read-only parameter type would be false and would remove that check.
     onMessage(packet) {
       const payload: Buffer = packet.payload;
       payload[0] = packet.qos;
@@ -116,7 +122,7 @@ export async function checkWebSocketDeclarations(signal: Readonly<AbortSignal>) 
     maxWebSocketMessageBytes: 4096,
     maxPacketBytes: 4096,
     signal,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `PublishMessage<Buffer>`, and the published package exports no name for that type, so the accepted type would be a hand-written copy of it. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `PublishMessage` is declared in `src/messageProperties.ts`.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. This consumer writes into the delivered payload on purpose, to check that the published types keep the consumer's `Buffer` writable. A read-only parameter type would be false and would remove that check.
     onMessage(packet) {
       const payload: Buffer = packet.payload;
       payload[0] = packet.qos;
@@ -136,7 +142,7 @@ export async function checkBrowserClientDeclarations(signal: Readonly<AbortSigna
     maxPendingSubscriptionBytes: 4096,
     maxWebSocketMessageBytes: 4096,
     signal,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `message` is typed `BrowserMessage`, and the published package exports no name for that type, so the accepted type would be a hand-written copy of it. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `BrowserMessage` is declared in `src/browserClient.ts`.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler assigns the payload to a `Uint8Array` constant to pin the type the browser client delivers. A parameter type written here would replace the delivered type, and the assignment would check nothing.
     onMessage(message) {
       const bytes: Uint8Array = message.payload;
       bytes.byteLength.toFixed();

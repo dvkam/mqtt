@@ -116,7 +116,7 @@ test('matches pinned mqtt-packet for the MQTT 5 preview operations', () => {
   for (const [packet, bytes] of vectors) {
     const decoded: Packet[] = [];
     const decoder = parser({ protocolVersion: 5 });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `value` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `value` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The test hands the decoded packet back to `generate` of mqtt-packet, which declares the writable `Packet`. `ReadonlyDeep<Packet>` is not assignable to it (TS2345), so the test would have to copy the packet first.
     decoder.on('packet', (value) => {
       decoded.push(value);
     });
@@ -209,10 +209,9 @@ test('encodes Will properties before the topic, payload, and credentials', () =>
   );
   expect(encodePacket(packet)).toEqual(bytes);
   expect(new PacketDecoder().push(bytes)).toMatchObject([packet]);
-  const reference: Packet[] = [];
+  const reference: ReadonlyDeep<Packet>[] = [];
   const decoder = parser({ protocolVersion: 5 });
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `decoded` is typed `Packet`. `Readonly<Packet>` still fails the rule, and with `ReadonlyDeep<Packet>` this code stops compiling (TS2345, Argument of type 'ReadonlyDeep<Packet>' is not assignable to parameter of type 'Packet'), so `decoded` would need a copy or a second hand-written type before it is passed on. `Packet` is declared in `mqtt-packet`.
-  decoder.on('packet', (decoded) => {
+  decoder.on('packet', (decoded: ReadonlyDeep<Packet>) => {
     reference.push(decoded);
   });
   decoder.parse(Buffer.from(bytes));

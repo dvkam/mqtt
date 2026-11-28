@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { Session } from 'node:inspector/promises';
-import { createTransportClient, type ByteTransport, type PublishOptions, type ByteInbound } from 'mqtt';
+import { createTransportClient, type ByteTransport, type PublishOptions, type ByteInbound, type ReadonlyBytes } from 'mqtt';
 import { summarizeLatencies } from '../experiments/latencies.ts';
 
 const iterations = Number(process.env['MQTT_TEST_ITERATIONS'] ?? 200_000);
@@ -43,8 +43,8 @@ const transport: ByteTransport = {
   async open(inbound: Readonly<ByteInbound>) {
     return Promise.resolve({
       bufferedBytes: 0,
-      // oxlint-disable-next-line typescript/promise-function-async -- Removing it would cost performance. An async writer allocates one promise for every published packet, which the benchmark would report as the client's cost. test/bench/promise-forwarding.ts measures about 97 bytes and 50 ns more per awaited call for the async form, and docs/measurements.md records the runs.
-      write(bytes: Readonly<Uint8Array<Readonly<ArrayBufferLike>>>) {
+      // oxlint-disable-next-line typescript/promise-function-async -- Removing it would cost performance. An async writer allocates one promise for every published packet, which the benchmark would report as the client's cost. test/bench/promise-forwarding.ts measures about 97 bytes and 41 to 57 ns more per awaited call for the async form, and docs/measurements.md records the runs.
+      write(bytes: ReadonlyBytes) {
         const header = bytes[0];
         if (header === 0x10) inbound.bytes(Uint8Array.of(0x20, 3, 0, 0, 0));
         else if (header === 0x30) {
