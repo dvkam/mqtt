@@ -84,6 +84,8 @@ What follows: Firefox and WebKit lifecycle tests, and the playground panel in #1
 
 Update, 28 November 2026: [#195](https://github.com/dvkam/mqtt/pull/195) merged this work on 26 November 2026.
 
+Update, 28 November 2026: the `browsers` CI job runs the lifecycle check in Chromium, Firefox and WebKit, and the hidden tab check hides, throttles, freezes and discards a Chromium tab. No check failed in the adapter, so the adapter did not change. Playwright's Firefox and WebKit builds do not use the back-forward cache, so their cache stays a manual check. One measured limit follows from this decision. When a return finds an attempt open, the adapter does nothing, and after the overdue deadline ended that attempt the client waits its backoff delay. Whether the next attempt should start at once in that case is an open question for the owner, and this pull request does not answer it. The reviewer sketched a one-shot flag in the reconnecting client, which `retryNow()` sets when it is called while an attempt opens and which the client uses once to skip the delay after that attempt fails. It would change the documented contract of `retryNow()`, and a tab that flaps while the broker is down would use up `maxAttempts` faster. [Page lifecycle](page-lifecycle.md) has the measurements and the manual checks.
+
 ## Leave the connection open when the page enters the back-forward cache
 
 Decided on 26 November 2026 (UTC), for [#32](https://github.com/dvkam/mqtt/issues/32), together with the previous entry and accepted the same way. Status: in the pull request for `feat/page-lifecycle`, not merged when this entry was written.

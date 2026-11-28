@@ -27,7 +27,7 @@ Use scripted peers for exact packet assertions and deliberate faults. Use the pa
 
 [AGENTS.md](../AGENTS.md) holds the rules for commits, branch names, pull request bodies, prose, lint suppressions and performance. This section adds what those rules leave out.
 
-For every pull request, compare the diff with the model coverage in the [verification guide](../.agents/skills/verify-mqtt-lifecycle/SKILL.md), run `node verification/check.ts` and state the result in the body. When a covered transition changes, compare the implementation with each model's scope, run positive and deliberately broken cases, and report limitations. A model check does not establish conformance for unmodeled protocol behavior.
+For every pull request, follow the [verification skill](../.agents/skills/verify-mqtt-lifecycle/SKILL.md) to decide whether the diff changes a rule that a model header in `verification/` names. Change the model when it does, and state in the body which models the diff touches or that it touches none. The `models` CI job runs every positive model and every expected fault. A model check does not establish conformance for unmodeled protocol behavior, and the [model notes](../verification/README.md) list what no model covers.
 
 Keep commits focused. The pull request body has the three sections that AGENTS.md defines: Summary, Evidence and Merge danger. Put the tests and the remaining limits under Evidence. Run separate standards and specification reviews, challenge the conclusions, address findings and rerun affected checks. Report unavailable checks and review limitations. Merge only after required CI checks pass.
 

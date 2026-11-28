@@ -11,7 +11,7 @@
 - A commit message and a pull request body describe only the change. The author adds no AI or tool attribution, no `Co-Authored-By` line and no session link to either. A pull request body may still end with a footer, because the service that opens the pull request appends it after the author sends the body. The author cannot remove it, so the report to the owner says that the body carries it.
 - Name a branch for its change, with a prefix that names the kind of work, such as `feat/`, `fix/`, `docs/`, `test/`, `refactor/`, `perf/`, `chore/`, `ci/`, `deps/`, `types/`, `research/` or `spike/`. A branch name contains no tool or agent name.
 - A pull request body has three sections: Summary, Evidence and Merge danger. Merge danger has a `Door` line and a `Blast radius` line. `Door` says one-way or two-way, which means whether the change can be reversed after release. `Blast radius` says who and what a mistake would affect.
-- Compare every pull request's diff with the model coverage in `.agents/skills/verify-mqtt-lifecycle/SKILL.md`, run `node verification/check.ts`, and state the result in the body.
+- Every pull request follows `.agents/skills/verify-mqtt-lifecycle/SKILL.md` to decide whether its diff changes a rule that a model header in `verification/` names. It changes the model when it does, and its body states which models the diff touches or that it touches none. The `models` CI job runs all cases.
 
 # Prose
 

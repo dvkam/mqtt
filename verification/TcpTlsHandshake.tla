@@ -1,4 +1,16 @@
 ---------------------------- MODULE TcpTlsHandshake --------------------------
+\* Rule: MQTT starts on a TLS connection only after Node verified the certificate. The first opening failure stays
+\* the cause. A failed opening has closed the socket, cleared the timer and removed the abort listener.
+\* Source: src/tcpClient.ts (openTcpSocket, connectionEvent, settle)
+\* Source: src/transportCore.ts (connectOverBytes)
+\* Source: src/packetInput.ts (PacketInput, retire)
+\* Tests: test/tcp-tls.test.ts
+\* Mapping: TcpConnected is the TCP connect, which resolves nothing when TLS is on. Authenticate is the
+\* secureConnect event with rejectUnauthorized true. StartMqtt is connected resolving the writer, after which the
+\* core calls connectPortable. Reject is an abort, a socket error or the opening timer destroying the socket, where
+\* retire keeps the first cause. NativeClose is the close event. SettleFailure is failed calling settle and
+\* rejecting the open.
+\* Not modeled: The certificate checks, which Node performs, the server name, and the CONNACK result.
 EXTENDS Naturals
 CONSTANT Fault
 VARIABLE state
