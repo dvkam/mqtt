@@ -7,7 +7,7 @@ export interface Connection {
   /** Records each packet and answers none while true, as a connection that died without a close does. */
   silent: boolean;
   /** Sends a broker packet on this connection at once, even after it ended. */
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- encodePacket in src/wireCodec.ts takes the codec's BrokerPacket, whose PUBLISH payload is a native Uint8Array.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- encodePacket in src/wireCodec.ts takes this BrokerPacket. Its PUBLISH payload is a Uint8Array, which has no read-only form, so a parameter type the rule accepts could not carry a payload to encode.
   deliver(packet: BrokerPacket): void;
   end(): void;
 }
@@ -33,15 +33,15 @@ export function broker(script: Readonly<Script> = {}) {
   const connections: Connection[] = [];
   const transport: ByteTransport = {
     name: 'Scripted broker',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- ByteTransport.open in src/byteTransport.ts takes the mutable ByteInbound and returns a promise, and promise-function-async requires an async function for that. This opener settles without waiting for anything.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares these parameters. ByteInbound declares methods and OpenContext holds a native AbortSignal, and the rule counts both as mutable. A type the rule accepts would be a second copy of the public interfaces that every transport author would have to keep in step.
     async open(inbound: ByteInbound) {
       const decoder = new PacketDecoder();
       const index = connections.length + 1;
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- encodePacket in src/wireCodec.ts takes the codec's BrokerPacket, whose PUBLISH payload is a native Uint8Array.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- encodePacket in src/wireCodec.ts takes this BrokerPacket. Its PUBLISH payload is a Uint8Array, which has no read-only form, so a parameter type the rule accepts could not carry a payload to encode.
       const deliver = (packet: BrokerPacket): void => {
         inbound.bytes(encodePacket(packet));
       };
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- deliver takes the codec's BrokerPacket for encodePacket in src/wireCodec.ts, whose PUBLISH payload is a native Uint8Array.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- encodePacket in src/wireCodec.ts takes this BrokerPacket. Its PUBLISH payload is a Uint8Array, which has no read-only form, so a parameter type the rule accepts could not carry a payload to encode.
       const reply = (packet: BrokerPacket): void => {
         // Deliver after the write that caused the reply has returned, as a socket would.
         queueMicrotask(() => {
@@ -58,9 +58,9 @@ export function broker(script: Readonly<Script> = {}) {
       };
       connections.push(connection);
       if (script.refuse === true) throw new MqttError('ERR_MQTT_TRANSPORT', 'connect ECONNREFUSED');
-      return {
+      return Promise.resolve({
         bufferedBytes: 0,
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteWriter.write in src/byteTransport.ts takes the encoded Uint8Array by identity.
+        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteWriter.write in src/byteTransport.ts declares this Uint8Array. A byte view has no read-only form, because Readonly<Uint8Array> keeps the writable index signature. A type the rule accepts would force a copy of every chunk before a native call takes it.
         async write(bytes: Uint8Array) {
           for (const packet of decoder.push(bytes)) {
             if (packet.cmd === 'connack' || packet.cmd === 'suback' || packet.cmd === 'unsuback' || packet.cmd === 'pingresp')
@@ -88,7 +88,7 @@ export function broker(script: Readonly<Script> = {}) {
           }
         },
         async close() {},
-      };
+      });
     },
   };
   /** The commands, and the filters of each SUBSCRIBE, that the broker read on the nth connection, counted from 0. */

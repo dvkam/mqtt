@@ -93,16 +93,17 @@ test.each(invalidTimeouts)('rejects Node WebSocket timeout %s before endpoint ac
 
 test.each([1, 3000, 2_147_483_647])('uses validated timeout %s for the active session after caller mutation', async (timeoutMs) => {
   vi.useFakeTimers();
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The injected transport retains the mutable packet callback contract.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PacketTransport.listen in src/portable.ts declares this ReceivedPacket. Its PUBLISH payload is a Uint8Array, which has no read-only form, so a parameter type the rule accepts could not carry the payload the session delivers.
   let receive: (packet: ReceivedPacket) => void;
   const transport: PacketTransport = {
     listen(onPacket) {
       receive = onPacket;
       return () => {};
     },
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- The transport supplies its acknowledgment synchronously through the callback contract.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PacketTransport.send in src/portable.ts declares this ClientPacket. Its PUBLISH payload is a Uint8Array, which has no read-only form, so a parameter type the rule accepts could not carry the payload a transport has to write.
     async send(packet) {
       if (packet.cmd === 'connect') receive({ cmd: 'connack', reasonCode: 0, sessionPresent: false });
+      return Promise.resolve();
     },
     async close() {},
   };

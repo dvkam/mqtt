@@ -40,11 +40,11 @@ let publications = 0;
 let byteCount = 0;
 const transport: ByteTransport = {
   name: 'benchmark writer',
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- The packed writer retains the inbound interface and opens synchronously.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares these parameters. ByteInbound declares methods and OpenContext holds a native AbortSignal, and the rule counts both as mutable. A type the rule accepts would be a second copy of the public interfaces that every transport author would have to keep in step.
   async open(inbound) {
-    return {
+    return Promise.resolve({
       bufferedBytes: 0,
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/promise-function-async -- Return one settled write promise so the fixture adds no promise allocation per packet.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/promise-function-async -- An async writer allocates one promise per published packet, 96 bytes and about 58 ns per call under Node 26, and the benchmark would report that as the client's cost. The bytes are the Uint8Array that ByteWriter.write in src/byteTransport.ts declares, which has no read-only form.
       write(bytes) {
         const header = bytes[0];
         if (header === 0x10) inbound.bytes(Uint8Array.of(0x20, 3, 0, 0, 0));
@@ -56,12 +56,11 @@ const transport: ByteTransport = {
         else throw new Error('Unexpected packet');
         return completed;
       },
-      // oxlint-disable-next-line typescript/promise-function-async -- Reuse the settled fixture promise to close.
-      close: (force) => {
+      close: async (force) => {
         assert.equal(force, false);
         return completed;
       },
-    };
+    });
   },
 };
 
@@ -73,7 +72,7 @@ try {
   for (let index = 0; index < warmup; index++) await client.publish(topic, payload, options);
   if (countTimers) {
     globalThis.setTimeout = new Proxy(originalTimer, {
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The proxy forwards a native timer call with its original receiver and arguments.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ProxyHandler.apply declares its target as the native setTimeout function type, which the rule does not accept. Reflect.apply below needs that same function as its target.
       apply(schedule, receiver: unknown, args: readonly unknown[]) {
         timerCalls++;
         const result: unknown = Reflect.apply(schedule, receiver, args);

@@ -48,11 +48,12 @@ async function peer(limits: Readonly<Pick<PortableOptions, 'maxPendingSubscripti
   let retire!: Parameters<PacketTransport['listen']>[1];
   const packets: ClientPacket[] = [];
   const transport: PacketTransport = {
-    // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- The fixture records mutable packets and can reply synchronously.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PacketTransport.send in src/portable.ts declares this ClientPacket. Its PUBLISH payload is a Uint8Array, which has no read-only form, so a parameter type the rule accepts could not carry the payload a transport has to write.
     async send(packet) {
       packets.push(packet);
       if (packet.cmd === 'connect') receive({ cmd: 'connack', reasonCode: 0, sessionPresent: false, receiveMaximum: 1 });
       if (packet.cmd === 'pingreq') receive({ cmd: 'pingresp' });
+      return Promise.resolve();
     },
     listen(onPacket, onClose) {
       receive = onPacket;
@@ -69,10 +70,10 @@ test('preserves mixed-kind ACK ownership when the shared identifier range is exh
   const broker = await peer();
   expect(typeof broker.client.unsubscribe).toBe('function');
   const completed: string[] = [];
-  // oxlint-disable-next-line typescript/unbound-method -- Invoke the original allocator on the session receiver.
+  // oxlint-disable-next-line typescript/unbound-method -- The only read of a method that the rule accepts is Reflect.get, which returns any. reserve.call(this) below would then lose its receiver and result types.
   const reserve = PacketIdentifiers.prototype.reserve;
   const held: ReturnType<PacketIdentifiers['reserve']>[] = [];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Fill the actual mutable session allocator after the three live exchanges reserve IDs.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PacketIdentifiers.reserve in src/packetIdentifiers.ts changes the allocator it is called on, so reserve.call below does not accept a read-only receiver.
   const allocator = vi.spyOn(PacketIdentifiers.prototype, 'reserve').mockImplementation(function (this: PacketIdentifiers) {
     const lease = reserve.call(this);
     if (lease.messageId === 3) {
@@ -140,12 +141,9 @@ test.each([
   async (limits: Readonly<Pick<PortableOptions, 'maxPendingSubscriptions' | 'maxPendingSubscriptionBytes'>>) => {
     const broker = await peer(limits);
     expect(typeof broker.client.unsubscribe).toBe('function');
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    const { promise: held, resolve: release } = Promise.withResolvers<void>();
     const original = broker.transport.send.bind(broker.transport);
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture holds the original mutable UNSUBSCRIBE packet send.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PacketTransport.send in src/portable.ts declares this ClientPacket. Its PUBLISH payload is a Uint8Array, which has no read-only form, so a parameter type the rule accepts could not carry the payload a transport has to write.
     broker.transport.send = async (packet) => {
       await original(packet);
       if (packet.cmd === 'unsubscribe') await held;

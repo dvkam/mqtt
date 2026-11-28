@@ -16,7 +16,7 @@ import type { ClientSession } from '../src/session.js';
 
 const codec = { protocolVersion: 5 } as const;
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The core keeps native signals and Buffer payloads by identity.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport in src/byteTransport.ts declares a method, and ByteClientOptions in src/transportCore.ts holds a native AbortSignal and callbacks. createByteClient takes the same types, so a type the rule accepts would be a second copy of both public declarations.
 function nodeClient(transport: ByteTransport, options: ByteClientOptions<Buffer>) {
   return createByteClient(transport, options, nodePlatform);
 }
@@ -27,7 +27,7 @@ type Peer = {
   received: string[];
   opens: () => number;
   /** Send a broker packet one byte per chunk. */
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- mqtt-packet generates from mutable packets.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Packet comes from mqtt-packet and carries Buffer payloads, which have no read-only form. A parameter type the rule accepts could not be passed to generate from mqtt-packet.
   send(packet: Packet): void;
   /** The broker finishes sending. */
   end(): void;
@@ -39,14 +39,22 @@ type Peer = {
   closes: boolean[];
 };
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The script answers with mutable mqtt-packet packets.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Packet comes from mqtt-packet and carries Buffer payloads, which have no read-only form, and the script calls send on the Peer, which declares methods. A parameter type the rule accepts could not be passed to generate from mqtt-packet.
 type Script = (packet: Packet, peer: Peer) => void;
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The script answers with mutable mqtt-packet packets.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Packet comes from mqtt-packet and carries Buffer payloads, which have no read-only form, and the script calls send on the Peer, which declares methods. A parameter type the rule accepts could not be passed to generate from mqtt-packet.
 const broker: Script = (packet, peer) => {
   if (packet.cmd === 'connect') peer.send({ cmd: 'connack', reasonCode: 0, sessionPresent: false });
   if (packet.cmd === 'subscribe') peer.send({ cmd: 'suback', messageId: packet.messageId, granted: [0] });
   if (packet.cmd === 'pingreq') peer.send({ cmd: 'pingresp' });
+};
+
+/** The memory writer. Its members are writable so that a case can replace one. */
+type MemoryWriter = {
+  bufferedBytes: number;
+  frameOverhead: ((length: number) => number) | undefined;
+  write: ByteWriter['write'];
+  close: ByteWriter['close'];
 };
 
 /** A transport held in memory. Its writer exposes `bufferedBytes` and `frameOverhead` for the budget cases. */
@@ -54,31 +62,32 @@ function memoryPeer(script: Script = broker) {
   const decoder = parser(codec);
   let inbound: ByteInbound | undefined;
   let opens = 0;
-  const writer = {
+  const writer: MemoryWriter = {
     bufferedBytes: 0,
-    frameOverhead: undefined as ((length: number) => number) | undefined,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- The writer receives the encoded bytes by identity and consumes them before its promise settles.
-    async write(chunk: Uint8Array) {
+    frameOverhead: undefined,
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteWriter.write in src/byteTransport.ts declares this Uint8Array. A byte view has no read-only form, because Readonly<Uint8Array> keeps the writable index signature. A type the rule accepts would force a copy of every chunk before a native call takes it.
+    async write(chunk) {
       decoder.parse(Buffer.from(chunk));
+      return Promise.resolve();
     },
-    // oxlint-disable-next-line typescript/require-await -- The memory writer closes at once.
-    async close(force: boolean) {
+    async close(force) {
       peer.closes.push(force);
+      return Promise.resolve();
     },
   };
   const peer: Peer = {
     transport: {
       name: 'Memory',
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- The opener keeps the inbound object by identity and opens at once.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares these parameters. ByteInbound declares methods and OpenContext holds a native AbortSignal, and the rule counts both as mutable. A type the rule accepts would be a second copy of the public interfaces that every transport author would have to keep in step.
       async open(next) {
         opens++;
         inbound = next;
-        return writer;
+        return Promise.resolve(writer);
       },
     },
     received: [],
     opens: () => opens,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- mqtt-packet generates from mutable packets.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Packet comes from mqtt-packet and carries Buffer payloads, which have no read-only form. A parameter type the rule accepts could not be passed to generate from mqtt-packet.
     send(packet) {
       // Deliver after the write that caused the reply has returned, as a socket would.
       const bytes = generate(packet, codec);
@@ -97,7 +106,7 @@ function memoryPeer(script: Script = broker) {
     },
     closes: [],
   };
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- mqtt-packet emits mutable packets.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Packet comes from mqtt-packet and carries Buffer payloads, which have no read-only form. A parameter type the rule accepts could not be passed to generate from mqtt-packet.
   decoder.on('packet', (packet: Packet) => {
     peer.received.push(packet.cmd);
     script(packet, peer);
@@ -106,9 +115,9 @@ function memoryPeer(script: Script = broker) {
 }
 
 /** Adapt a Node Duplex to the byte transport contract. */
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The adapter keeps the native stream and the inbound object by identity.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Duplex is a Node stream class with writable members, ByteInbound in src/byteTransport.ts declares methods, and the helper pushes onto closes. No read-only type lets the helper listen on the stream or record a close.
 function adaptDuplex(stream: Duplex, inbound: ByteInbound, closes: boolean[]): ByteWriter {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The stream delivers native Buffers.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The stream emits a Buffer, which has no read-only form, because Readonly<Buffer> keeps the writable index signature. A type the rule accepts would force a copy of every chunk before the decoder takes it.
   stream.on('data', (chunk: Buffer) => {
     inbound.bytes(chunk);
   });
@@ -131,7 +140,7 @@ function adaptDuplex(stream: Duplex, inbound: ByteInbound, closes: boolean[]): B
     get bufferedBytes() {
       return stream.writableLength;
     },
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The stream keeps the encoded bytes by identity.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteWriter.write in src/byteTransport.ts declares this Uint8Array. A byte view has no read-only form, because Readonly<Uint8Array> keeps the writable index signature. A type the rule accepts would force a copy of every chunk before a native call takes it.
     async write(chunk) {
       return new Promise((resolve, reject) => {
         stream.write(chunk, (error?: Readonly<Error> | null) => {
@@ -155,15 +164,15 @@ function duplexPeer(script: Script = broker) {
   const peer: Peer = {
     transport: {
       name: 'Duplex',
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- The opener keeps the inbound object by identity and the stream is open already.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares these parameters. ByteInbound declares methods and OpenContext holds a native AbortSignal, and the rule counts both as mutable. A type the rule accepts would be a second copy of the public interfaces that every transport author would have to keep in step.
       async open(inbound) {
         opens++;
-        return adaptDuplex(client, inbound, peer.closes);
+        return Promise.resolve(adaptDuplex(client, inbound, peer.closes));
       },
     },
     received: [],
     opens: () => opens,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- mqtt-packet generates from mutable packets.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Packet comes from mqtt-packet and carries Buffer payloads, which have no read-only form. A parameter type the rule accepts could not be passed to generate from mqtt-packet.
     send(packet) {
       for (const byte of generate(packet, codec)) server.write(Buffer.of(byte));
     },
@@ -178,7 +187,7 @@ function duplexPeer(script: Script = broker) {
     },
     closes: [],
   };
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The stream delivers native Buffers.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The stream emits a Buffer, which has no read-only form, because Readonly<Buffer> keeps the writable index signature. A type the rule accepts would force a copy of every chunk before the decoder takes it.
   server.on('data', (chunk: Buffer) => {
     decoder.parse(chunk);
   });
@@ -186,7 +195,7 @@ function duplexPeer(script: Script = broker) {
     server.end();
   });
   server.on('error', () => {});
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- mqtt-packet emits mutable packets.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Packet comes from mqtt-packet and carries Buffer payloads, which have no read-only form. A parameter type the rule accepts could not be passed to generate from mqtt-packet.
   decoder.on('packet', (packet: Packet) => {
     peer.received.push(packet.cmd);
     script(packet, peer);
@@ -217,7 +226,7 @@ const platforms: ReadonlyArray<readonly [string, (script?: Script) => Peer, Byte
 ];
 
 describe.each(platforms)('the core over %s', (_name, makePeer, platform, buffers) => {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The core keeps native signals and payload views by identity.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport in src/byteTransport.ts declares a method, and ByteClientOptions in src/transportCore.ts holds a native AbortSignal and callbacks. createByteClient takes the same types, so a type the rule accepts would be a second copy of both public declarations.
   const connectWith = (transport: ByteTransport, options: ByteClientOptions) => createByteClient(transport, options, platform);
 
   test('connects, receives a publication split into single bytes and disconnects gracefully', async () => {
@@ -226,7 +235,7 @@ describe.each(platforms)('the core over %s', (_name, makePeer, platform, buffers
     const payloadsAreBuffers: boolean[] = [];
     const client = await connectWith(peer.transport, {
       clientId: 'conformance',
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Messages carry mutable Buffer payloads.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The message is the public PublishMessage of src/messageProperties.ts with a Uint8Array or Buffer payload, which has no read-only form. Consumers may also write its fields, which browserFactory in test/types/mutable-contracts.ts checks.
       onMessage(message) {
         messages.push(message.topic + '=' + Buffer.from(message.payload).toString());
         payloadsAreBuffers.push(Buffer.isBuffer(message.payload));
@@ -357,7 +366,7 @@ describe('the core over a transport that controls its write budget', () => {
 });
 
 describe('the core over a transport it closes', () => {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The script answers with mutable mqtt-packet packets.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Packet comes from mqtt-packet and carries Buffer payloads, which have no read-only form, and the script calls send on the Peer, which declares methods. A parameter type the rule accepts could not be passed to generate from mqtt-packet.
   const refusing: Script = (packet, peer) => {
     if (packet.cmd === 'connect') peer.send({ cmd: 'connack', reasonCode: 0x87, sessionPresent: false });
   };
@@ -376,10 +385,7 @@ describe('the core over a transport it closes', () => {
 
   test('keeps the refusal as the outcome when the writer close rejects', async () => {
     const { peer, writer } = memoryPeer(refusing);
-    // oxlint-disable-next-line typescript/require-await -- The close fails as an async function would, by rejecting.
-    writer.close = async () => {
-      throw new Error('close rejected');
-    };
+    writer.close = async () => Promise.reject(new Error('close rejected'));
     await expect(nodeClient(peer.transport, { clientId: 'refused' }).connect()).rejects.toMatchObject({
       message: 'MQTT acknowledgment refused',
       code: 'ERR_MQTT_REFUSED',
@@ -429,7 +435,7 @@ describe('the core over a transport it closes', () => {
       releaseClose = resolve;
     });
     const close = writer.close.bind(writer);
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The writer receives the encoded bytes by identity.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteWriter.write in src/byteTransport.ts declares this Uint8Array. A byte view has no read-only form, because Readonly<Uint8Array> keeps the writable index signature. A type the rule accepts would force a copy of every chunk before a native call takes it.
     writer.write = async (bytes) => {
       expect(bytes[0]).toBe(0xe0);
       await closed;
@@ -471,10 +477,7 @@ describe('the core over a transport it closes', () => {
     const { peer, writer } = memoryPeer();
     const client = await nodeClient(peer.transport, { clientId: 'write-failure' }).connect();
     const failure = new Error('write failed');
-    // oxlint-disable-next-line typescript/require-await -- The writer fails as an async function would, by rejecting.
-    writer.write = async () => {
-      throw failure;
-    };
+    writer.write = async () => Promise.reject(failure);
     await expect(client.publish('t', 'x')).rejects.toBe(failure);
   });
 
@@ -588,7 +591,7 @@ test('the packet limit getter can abort without opening, sending CONNECT, or del
 
 test('captures Will bytes and user properties before opening the transport', async () => {
   const packets: Packet[] = [];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The reference parser and peer use mutable packet and transport objects.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Packet comes from mqtt-packet and carries Buffer payloads, which have no read-only form, and the script calls send on the Peer, which declares methods. A parameter type the rule accepts could not be passed to generate from mqtt-packet.
   const { peer } = memoryPeer((packet, target) => {
     packets.push(packet);
     broker(packet, target);
@@ -598,7 +601,7 @@ test('captures Will bytes and user properties before opening the transport', asy
   const userProperties: [string, string][] = [['origin', 'original']];
   const transport: ByteTransport = {
     ...peer.transport,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Forward the native inbound interface and abort signal by identity.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares these parameters. ByteInbound declares methods and OpenContext holds a native AbortSignal, and the rule counts both as mutable. A type the rule accepts would be a second copy of the public interfaces that every transport author would have to keep in step.
     async open(inbound, context) {
       payload.fill(4);
       correlationData.fill(5);
@@ -627,7 +630,7 @@ test.each([
   [0x9a, 'MQTT broker does not support a retained Will'],
   [0x9b, 'MQTT broker does not support the requested Will QoS'],
 ] as const)('keeps Will refusal %s as the opening error', async (code, message) => {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The scripted peer uses the reference parser's mutable packet contract.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Packet comes from mqtt-packet and carries Buffer payloads, which have no read-only form, and the script calls send on the Peer, which declares methods. A parameter type the rule accepts could not be passed to generate from mqtt-packet.
   const { peer } = memoryPeer((packet, target) => {
     if (packet.cmd === 'connect') target.send({ cmd: 'connack', reasonCode: code, sessionPresent: false });
   });
@@ -688,12 +691,12 @@ describe('the core and passwords', () => {
 });
 
 describe('the core while it opens a transport', () => {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The opener keeps the inbound object and the native abort signal by identity.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares these parameters. ByteInbound declares methods and OpenContext holds a native AbortSignal, and the rule counts both as mutable. A type the rule accepts would be a second copy of the public interfaces that every transport author would have to keep in step.
   function scriptedTransport(open: (inbound: ByteInbound, context: OpenContext) => Promise<ByteWriter>) {
     const calls: OpenContext[] = [];
     const transport: ByteTransport = {
       name: 'Scripted',
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The opener keeps the inbound object and the native abort signal by identity.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares these parameters. ByteInbound declares methods and OpenContext holds a native AbortSignal, and the rule counts both as mutable. A type the rule accepts would be a second copy of the public interfaces that every transport author would have to keep in step.
       async open(inbound, context) {
         calls.push(context);
         return open(inbound, context);
@@ -703,10 +706,7 @@ describe('the core while it opens a transport', () => {
   }
 
   test('does not open the transport when the caller aborted already', async () => {
-    // oxlint-disable-next-line typescript/require-await -- The opener fails as an async function would, by rejecting.
-    const { transport, calls } = scriptedTransport(async () => {
-      throw new Error('not reached');
-    });
+    const { transport, calls } = scriptedTransport(async () => Promise.reject(new Error('not reached')));
     const reason = new Error('aborted first');
     await expect(nodeClient(transport, { clientId: 'open', signal: AbortSignal.abort(reason) }).connect()).rejects.toBe(reason);
     expect(calls).toEqual([]);
@@ -714,7 +714,7 @@ describe('the core while it opens a transport', () => {
 
   test('aborts the open when the caller aborts, and rejects with the caller reason', async () => {
     const { transport, calls } = scriptedTransport(
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The opener keeps the native abort signal by identity.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares these parameters. ByteInbound declares methods and OpenContext holds a native AbortSignal, and the rule counts both as mutable. A type the rule accepts would be a second copy of the public interfaces that every transport author would have to keep in step.
       async (_inbound, context) =>
         new Promise<ByteWriter>((_resolve, reject) => {
           context.signal.addEventListener('abort', () => {
@@ -735,19 +735,13 @@ describe('the core while it opens a transport', () => {
   });
 
   test('passes the operation timeout to the opener', async () => {
-    // oxlint-disable-next-line typescript/require-await -- The opener fails as an async function would, by rejecting.
-    const { transport, calls } = scriptedTransport(async () => {
-      throw new Error('refused');
-    });
+    const { transport, calls } = scriptedTransport(async () => Promise.reject(new Error('refused')));
     await expect(nodeClient(transport, { clientId: 'open', timeoutMs: 1234 }).connect()).rejects.toThrow('refused');
     expect(calls[0]?.timeoutMs).toBe(1234);
   });
 
   test('removes its abort listener when the open rejects', async () => {
-    // oxlint-disable-next-line typescript/require-await -- The opener fails as an async function would, by rejecting.
-    const { transport } = scriptedTransport(async () => {
-      throw new Error('refused');
-    });
+    const { transport } = scriptedTransport(async () => Promise.reject(new Error('refused')));
     const controller = new AbortController();
     await expect(nodeClient(transport, { clientId: 'open', signal: controller.signal }).connect()).rejects.toThrow('refused');
     expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
@@ -755,11 +749,11 @@ describe('the core while it opens a transport', () => {
 
   test('rejects with the first failure the transport delivered before its open rejected', async () => {
     const failure = new Error('handshake broke');
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- The opener keeps the inbound object by identity and settles at once.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares these parameters. ByteInbound declares methods and OpenContext holds a native AbortSignal, and the rule counts both as mutable. A type the rule accepts would be a second copy of the public interfaces that every transport author would have to keep in step.
     const { transport } = scriptedTransport(async (inbound) => {
       inbound.fail(failure);
       inbound.end(new Error('closed after the failure'));
-      throw new Error('socket closed before connecting');
+      return Promise.reject(new Error('socket closed before connecting'));
     });
     const controller = new AbortController();
     await expect(nodeClient(transport, { clientId: 'open', signal: controller.signal }).connect()).rejects.toBe(failure);
@@ -768,12 +762,12 @@ describe('the core while it opens a transport', () => {
 
   test('closes a writer that arrives after the transport already ended', async () => {
     const close = vi.fn<(force: boolean) => Promise<void>>(async () => {});
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The writer receives the encoded bytes by identity.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteWriter.write in src/byteTransport.ts declares this Uint8Array. A byte view has no read-only form, because Readonly<Uint8Array> keeps the writable index signature. A type the rule accepts would force a copy of every chunk before a native call takes it.
     const write = vi.fn<(chunk: Uint8Array) => Promise<void>>(async () => {});
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- The opener keeps the inbound object by identity and settles at once.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares these parameters. ByteInbound declares methods and OpenContext holds a native AbortSignal, and the rule counts both as mutable. A type the rule accepts would be a second copy of the public interfaces that every transport author would have to keep in step.
     const { transport } = scriptedTransport(async (inbound) => {
       inbound.end(new Error('ended while opening'));
-      return { bufferedBytes: 0, write, close };
+      return Promise.resolve({ bufferedBytes: 0, write, close });
     });
     await expect(nodeClient(transport, { clientId: 'open' }).connect()).rejects.toThrow('ended while opening');
     expect(close).toHaveBeenCalledWith(true);
@@ -782,10 +776,10 @@ describe('the core while it opens a transport', () => {
 
   test('rejects with invalid input the transport delivered while it opened', async () => {
     const close = vi.fn<(force: boolean) => Promise<void>>(async () => {});
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- The opener keeps the inbound object by identity and settles at once.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares these parameters. ByteInbound declares methods and OpenContext holds a native AbortSignal, and the rule counts both as mutable. A type the rule accepts would be a second copy of the public interfaces that every transport author would have to keep in step.
     const { transport, calls } = scriptedTransport(async (inbound) => {
       inbound.bytes(Uint8Array.of(0x21));
-      return { bufferedBytes: 0, write: async () => {}, close };
+      return Promise.resolve({ bufferedBytes: 0, write: async () => {}, close });
     });
     await expect(nodeClient(transport, { clientId: 'open' }).connect()).rejects.toThrow(
       'Invalid header flag bits, must be 0x0 for connack packet',
@@ -811,7 +805,7 @@ describe('the core while it opens a transport', () => {
     const factory = createTransportClient(
       {
         name: 'Reentrant transport',
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares these parameters, and OpenContext holds a native AbortSignal.
+        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares these parameters. ByteInbound declares methods and OpenContext holds a native AbortSignal, and the rule counts both as mutable. A type the rule accepts would be a second copy of the public interfaces that every transport author would have to keep in step.
         async open(inbound, context) {
           if (reentered) return secondPeer.transport.open(inbound, context);
           reentered = true;

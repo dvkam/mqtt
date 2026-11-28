@@ -8,11 +8,12 @@ async function connected(limits: Readonly<{ maxPendingPublishBytes?: number }> =
   let deliver: Parameters<PacketTransport['listen']>[0] | undefined;
   const sent: ClientPacket[] = [];
   const transport: PacketTransport = {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- PacketTransport.send in src/portable.ts receives the session's ClientPacket, whose PUBLISH payload is a native Uint8Array. send must return a promise, and promise-function-async requires an async function for that, so this fixture, which replies synchronously, has no await.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PacketTransport.send in src/portable.ts declares this ClientPacket. Its PUBLISH payload is a Uint8Array, which has no read-only form, so a parameter type the rule accepts could not carry the payload a transport has to write.
     async send(packet) {
       sent.push(packet);
       if (packet.cmd === 'connect') deliver?.({ cmd: 'connack', sessionPresent: false, reasonCode: 0, retainAvailable });
       if (packet.cmd === 'publish' && packet.qos === 1) deliver?.({ cmd: 'puback', messageId: packet.messageId, reasonCode: 0 });
+      return Promise.resolve();
     },
     listen(onPacket) {
       deliver = onPacket;

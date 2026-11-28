@@ -4,13 +4,7 @@ import { expect, test, vi } from 'vitest';
 import { connectPortable, type PacketTransport } from '../src/portable.js';
 
 function deferred() {
-  let resolve!: () => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<void>((accept, refuse) => {
-    resolve = accept;
-    reject = refuse;
-  });
-  return { promise, resolve, reject };
+  return Promise.withResolvers<void>();
 }
 
 async function peer(options = {}) {
@@ -18,10 +12,11 @@ async function peer(options = {}) {
   let retire!: Parameters<PacketTransport['listen']>[1];
   const packets: ClientPacket[] = [];
   const transport: PacketTransport = {
-    // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- The scripted transport delivers mutable packets synchronously before its send promise settles.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PacketTransport.send in src/portable.ts declares this ClientPacket. Its PUBLISH payload is a Uint8Array, which has no read-only form, so a parameter type the rule accepts could not carry the payload a transport has to write.
     async send(packet) {
       packets.push(packet);
       if (packet.cmd === 'connect') receive({ cmd: 'connack', sessionPresent: false, reasonCode: 0 });
+      return Promise.resolve();
     },
     listen(onPacket, onClose) {
       receive = onPacket;
@@ -112,7 +107,7 @@ test('retains count and byte capacity after SUBACK until actual send settlement'
   const broker = await peer({ maxPendingSubscriptions: 1, maxPendingSubscriptionBytes: 9 });
   const sent = deferred();
   const original = broker.transport.send.bind(broker.transport);
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The held-send fixture preserves mutable protocol packets.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PacketTransport.send in src/portable.ts declares this ClientPacket. Its PUBLISH payload is a Uint8Array, which has no read-only form, so a parameter type the rule accepts could not carry the payload a transport has to write.
   broker.transport.send = async (packet) => (packet.cmd === 'subscribe' ? sent.promise : original(packet));
   const first = broker.client.subscribe('a');
   const outcome = Promise.allSettled([first]);
@@ -192,7 +187,7 @@ test('a legal SUBACK refusal waits for send settlement and ignores a later malfo
   const broker = await peer({ maxPendingSubscriptions: 1 });
   const sent = deferred();
   const original = broker.transport.send.bind(broker.transport);
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The held-send fixture preserves mutable protocol packets.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PacketTransport.send in src/portable.ts declares this ClientPacket. Its PUBLISH payload is a Uint8Array, which has no read-only form, so a parameter type the rule accepts could not carry the payload a transport has to write.
   broker.transport.send = async (packet) => (packet.cmd === 'subscribe' ? sent.promise : original(packet));
   let settled = false;
   const first = broker.client.subscribe('a').catch((reason: unknown) => {
@@ -294,7 +289,7 @@ test.each([
   const write = deferred();
   const original = broker.transport.send.bind(broker.transport);
   const close = vi.spyOn(broker.transport, 'close');
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture retains the original mutable subscription packet.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PacketTransport.send in src/portable.ts declares this ClientPacket. Its PUBLISH payload is a Uint8Array, which has no read-only form, so a parameter type the rule accepts could not carry the payload a transport has to write.
   broker.transport.send = async (packet) => {
     await original(packet);
     if (packet.cmd === 'subscribe' || packet.cmd === 'unsubscribe') await write.promise;
@@ -332,7 +327,7 @@ test('retires a malformed subscription reply during closing without sending anot
   const write = deferred();
   const original = broker.transport.send.bind(broker.transport);
   const close = vi.spyOn(broker.transport, 'close');
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Hold the original DISCONNECT write after recording it.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PacketTransport.send in src/portable.ts declares this ClientPacket. Its PUBLISH payload is a Uint8Array, which has no read-only form, so a parameter type the rule accepts could not carry the payload a transport has to write.
   broker.transport.send = async (packet) => {
     await original(packet);
     if (packet.cmd === 'disconnect') await write.promise;

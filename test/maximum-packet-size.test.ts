@@ -10,12 +10,12 @@ function broker(maximumPacketSize: number | undefined, withhold = false) {
   const writes: { bytes: number; cmd: string; messageId?: number; packet?: ClientPacket }[] = [];
   const transport: ByteTransport = {
     name: 'Limited broker',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- ByteTransport.open in src/byteTransport.ts takes the mutable ByteInbound and returns a promise, and promise-function-async requires an async function for that. This opener settles without waiting for anything.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares these parameters. ByteInbound declares methods and OpenContext holds a native AbortSignal, and the rule counts both as mutable. A type the rule accepts would be a second copy of the public interfaces that every transport author would have to keep in step.
     async open(inbound: ByteInbound) {
       const decoder = new PacketDecoder({ maxPacketBytes: 268_435_460 });
-      return {
+      return Promise.resolve({
         bufferedBytes: 0,
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- ByteWriter.write in src/byteTransport.ts takes the encoded Uint8Array by identity and returns a promise. This writer replies synchronously.
+        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteWriter.write in src/byteTransport.ts declares this Uint8Array. A byte view has no read-only form, because Readonly<Uint8Array> keeps the writable index signature. A type the rule accepts would force a copy of every chunk before a native call takes it.
         async write(bytes: Uint8Array) {
           const header = bytes[0];
           if (header === 0x82 || header === 0xa2) {
@@ -25,7 +25,7 @@ function broker(maximumPacketSize: number | undefined, withhold = false) {
             const cmd = header === 0x82 ? 'subscribe' : 'unsubscribe';
             writes.push({ bytes: bytes.byteLength, cmd, messageId });
             if (!withhold) inbound.bytes(encodePacket({ cmd: header === 0x82 ? 'suback' : 'unsuback', messageId, granted: [0] }));
-            return;
+            return Promise.resolve();
           }
           for (const packet of decoder.push(bytes)) {
             if (packet.cmd === 'connack' || packet.cmd === 'suback' || packet.cmd === 'unsuback' || packet.cmd === 'pingresp')
@@ -44,9 +44,10 @@ function broker(maximumPacketSize: number | undefined, withhold = false) {
               reply = { cmd: 'puback', messageId: packet.messageId, reasonCode: 0 };
             if (reply !== undefined) inbound.bytes(encodePacket(reply));
           }
+          return Promise.resolve();
         },
         async close() {},
-      };
+      });
     },
   };
   const connect = async (
