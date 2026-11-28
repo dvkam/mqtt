@@ -18,6 +18,7 @@ export async function openMqttWebSocket(
 
   const socket = new WebSocket(url, 'mqtt');
   socket.binaryType = 'arraybuffer';
+  let abortReason: unknown;
   const outcome = await new Promise<Opening>((resolve) => {
     const cleanup = () => {
       clearTimeout(timer);
@@ -35,6 +36,7 @@ export async function openMqttWebSocket(
       fail('handshake failed');
     };
     const aborted = () => {
+      abortReason = signal?.reason;
       fail('aborted');
     };
     const opened = () => {
@@ -54,7 +56,7 @@ export async function openMqttWebSocket(
     signal?.addEventListener('abort', aborted, { once: true });
   });
   if (outcome === 'open') return socket;
-  // The caller's own abort reason passes through unchanged, whatever its type.
-  if (outcome === 'aborted') throw signal?.reason;
+  // The caller's own abort reason, read when the abort was observed, passes through unchanged, whatever its type.
+  if (outcome === 'aborted') throw abortReason;
   throw new MqttError(outcome === 'handshake timed out' ? 'ERR_MQTT_TIMEOUT' : 'ERR_MQTT_TRANSPORT', 'MQTT WebSocket ' + outcome);
 }
