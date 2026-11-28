@@ -7,9 +7,10 @@
 
 # Commits, branches and pull requests
 
-- Commit as the repository owner's configured Git identity. A commit message and a pull request body describe only the change. They carry no AI or tool attribution, no co-author line and no session link.
-- Name a branch for its change, with a `feat/`, `fix/`, `chore/`, `ci/` or `docs/` prefix and no tool name.
-- A pull request body has three sections: Summary, Evidence and Merge danger.
+- Commits use the identity in `git config user.name` and `git config user.email` of the owner's checkout. An agent sets no other identity. In a fresh clone that has no identity, ask the owner before the first commit.
+- A commit message and a pull request body describe only the change. The author adds no AI or tool attribution, no `Co-Authored-By` line and no session link to either. A hosted agent session may append a footer to the pull request body in transit. The author cannot remove it from there, so the report to the owner says that the body carries it.
+- Name a branch for its change, with a prefix that names the kind of work, such as `feat/`, `fix/`, `docs/`, `test/`, `refactor/`, `perf/`, `chore/`, `ci/`, `deps/`, `types/`, `research/` or `spike/`. A branch name contains no tool or agent name.
+- A pull request body has three sections: Summary, Evidence and Merge danger. Merge danger has a `Door` line and a `Blast radius` line. `Door` says one-way or two-way, which means whether the change can be reversed after release. `Blast radius` says who and what a mistake would affect.
 - Compare every pull request's diff with the model coverage in `.agents/skills/verify-mqtt-lifecycle/SKILL.md`, run `node verification/check.ts`, and state the result in the body.
 
 # Prose
@@ -18,5 +19,9 @@ Comments, docs, commit messages and pull request bodies use whole sentences, one
 
 # Performance and targets
 
-- Performance is a requirement. When a change touches the publish or receive path, measure the steady state before and after with `test/bench/packed-qos0.ts` and `test/bench/packed-echo.sh`, and put the numbers in the pull request body. When a hot path changes, add the sampled allocation per publish and a `--trace-deopt` run. `docs/measurements.md` has the commands.
+- Performance is a requirement. The message path is the code that runs once for each publish or for each received message. It is the functions below and the functions they call for each message.
+  - Publish: `PortableClient.publish`, `publishPacket`, `transmitter` and `sendIdentified` in `src/portable.ts`, `capturePublication` in `src/publication.ts`, `PublicationAdmission.reserve` in `src/publicationAdmission.ts`, `QosZeroWrites.run` in `src/qosZeroWrites.ts`, `OutboundQosOne.enqueue`, `drain`, `start`, `complete` and `accept` in `src/outboundQosOne.ts`, `packetSender` in `src/diagnostics.ts`, `send` in `src/transportCore.ts`, `allowsNativeWrite` in `src/nativeWriteBudget.ts`, `encodePacket` in `src/wireCodec.ts`, and `write` in `src/tcpClient.ts`, `src/websocketClient.ts` and `src/browserClient.ts`.
+  - Receive: `PacketInput.push` in `src/packetInput.ts`, `PacketFramer.push` in `src/packetFramer.ts`, `decodeFramedPacket` in `src/wireCodec.ts`, `readProperties` in `src/wireProperties.ts`, `inboundPacketListener` in `src/inboundPackets.ts`, `publishMessage` in `src/messageProperties.ts`, `packetReceiver` in `src/diagnostics.ts`, and the packet listener in the `PortableClient` constructor, `receiveQosOne` and `deliverQosOne` in `src/portable.ts`.
+- A pull request that changes the message path reports these numbers for the base and for the branch: operations per second, p50 and p99 latency and sampled bytes per publish from `test/bench/packed-qos0.ts`, the echo result from `test/bench/packed-echo.sh`, and the count of deoptimizations in the message path from a `--trace-deopt` run. `docs/measurements.md` has the commands.
+- A pull request that changes nothing in the message path says so in its body and measures nothing.
 - The build targets ES2025, and Node 26 is the only supported Node line. `docs/design-decisions.md` records the decision.
