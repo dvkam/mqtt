@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,7 +9,8 @@ import { createFixture, sleep, waitFor, type Report } from './page-lifecycle-fix
 import type { Retry } from './page-lifecycle-page.ts';
 
 // Playwright keeps every page visible and focused, passes --disable-background-timer-throttling and keeps a DevTools
-// session on every page, which blocks a discard. This check starts Chromium itself with none of Playwright's switches.
+// session on every page, which blocks a discard. The hidden tab check starts Chromium itself with none of Playwright's
+// switches.
 // For the hidden, throttled and frozen tab, Playwright attaches with noDefaults. For the discard, a second Chromium
 // loads an extension, and a DevTools connection with no session on the tab calls chrome.tabs.discard in it.
 
@@ -23,13 +25,35 @@ interface Chromium {
   readonly endpoint: string;
   /** The path of the browser target on that endpoint. */
   readonly browserPath: string;
-  readonly stop: () => void;
+  readonly stop: () => Promise<void>;
 }
 
-const running = new Set<Chromium>();
+// What stops each browser and removes each directory that the hidden tab check made. An error, a signal and the
+// watchdog all run it, the last one made first.
+const cleanups = new Set<() => void | Promise<void>>();
+async function cleanUp(): Promise<void> {
+  for (const cleanup of [...cleanups].reverse()) await cleanup();
+}
+
+function remove(directory: string): void {
+  try {
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5 });
+  } catch {
+    // A failed removal must not replace the error of the check.
+  }
+}
+
+function exitAfterCleanUp(): void {
+  void cleanUp().finally(() => {
+    process.exit(1);
+  });
+}
+process.once('SIGTERM', exitAfterCleanUp);
+process.once('SIGINT', exitAfterCleanUp);
 
 async function launch(switches: readonly string[]): Promise<Chromium> {
   const profile = mkdtempSync(join(tmpdir(), 'mqtt-lifecycle-'));
+  // Chromium gets its own process group, so stop() can end the processes that outlive the browser process.
   const child = spawn(
     chromium.executablePath(),
     [
@@ -43,33 +67,42 @@ async function launch(switches: readonly string[]): Promise<Chromium> {
       ...switches,
       'about:blank',
     ],
-    { stdio: 'ignore' },
+    { stdio: 'ignore', detached: true },
   );
+  const exited = once(child, 'exit');
+  const endGroup = (): void => {
+    try {
+      if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
+    } catch {
+      // The group is empty once every process of this Chromium has exited.
+    }
+  };
+  const stop = async (): Promise<void> => {
+    cleanups.delete(stop);
+    child.kill();
+    const timer = setTimeout(endGroup, 5000);
+    await exited;
+    clearTimeout(timer);
+    endGroup();
+    // Chromium writes to its profile while it exits, so the directory goes after the processes.
+    remove(profile);
+  };
+  cleanups.add(stop);
   const portFile = join(profile, 'DevToolsActivePort');
   await waitFor(() => existsSync(portFile) && readFileSync(portFile, 'utf8').split('\n').length >= 2, 'Chromium to start', 20_000);
   const [port = '', browserPath = ''] = readFileSync(portFile, 'utf8').split('\n');
-  const browser: Chromium = {
-    endpoint: `127.0.0.1:${port}`,
-    browserPath,
-    stop() {
-      running.delete(browser);
-      child.kill();
-      rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
-    },
-  };
-  running.add(browser);
-  return browser;
+  return { endpoint: `127.0.0.1:${port}`, browserPath, stop };
 }
 
-// A step that hangs names itself, because a DevTools command to a hidden or discarded tab can stay unanswered.
+// A step that hangs names itself, because a DevTools command to a hidden or discarded tab can stay unanswered. The
+// budgets of all steps add up to 540 seconds, which test/packed/page-lifecycle.sh allows for.
 let watchdog: ReturnType<typeof setTimeout> | undefined;
-function enter(step: string, budgetMs = 60_000): void {
+function enter(step: string, budgetSeconds: number): void {
   clearTimeout(watchdog);
   watchdog = setTimeout(() => {
-    console.error(`The check hung in the step "${step}"`);
-    for (const browser of running) browser.stop();
-    process.exit(1);
-  }, budgetMs);
+    console.error(`The hidden tab check hung in the step "${step}"`);
+    exitAfterCleanUp();
+  }, budgetSeconds * 1000);
 }
 
 let current: Browser | undefined;
@@ -138,7 +171,7 @@ async function open(path: string, retry?: Readonly<Retry>): Promise<void> {
   await tab().goto(fixture.origin + path);
   const before = fixture.opened();
   await start(retry);
-  assert.equal(fixture.opened() - before, 1);
+  assert.equal(await fixture.openedSince(before), 1);
 }
 
 const returns = (log: readonly string[]) => log.filter((entry) => entry.startsWith('return '));
@@ -162,7 +195,8 @@ async function throttled(): Promise<void> {
     `ci/lifecycle/${String(process.pid)}`,
   );
   assert.equal(pending.code, 'ERR_MQTT_TIMEOUT');
-  assert.ok(pending.elapsedMs >= 900 && pending.elapsedMs < 2200, `Settled after ${String(pending.elapsedMs)} ms`);
+  // The lower bound and the error code show the deadline. The upper bound leaves 2 seconds for a late wake-up.
+  assert.ok(pending.elapsedMs >= 900 && pending.elapsedMs < 3000, `Settled after ${String(pending.elapsedMs)} ms`);
   await until('retrying ', known);
   await sleep(1500);
   assert.equal(fixture.opened(), connections, 'The retry timer of 10 to 20 seconds started no attempt');
@@ -171,8 +205,9 @@ async function throttled(): Promise<void> {
   await until('return ', known);
   const log = (await entries()).slice(known);
   assert.deepEqual(returns(log), ['return visibilitychange retried']);
-  assert.ok(reconnectMs < 1500, `Reconnected ${String(reconnectMs)} ms after the return`);
-  assert.equal(fixture.opened() - connections, 1);
+  // The retry timer would start the attempt 10 to 20 seconds after the session ended.
+  assert.ok(reconnectMs < 5000, `Reconnected ${String(reconnectMs)} ms after the return`);
+  assert.equal(await fixture.openedSince(connections), 1);
   console.log(
     JSON.stringify({
       step: 'hidden tab with throttled timers',
@@ -196,7 +231,7 @@ async function throttled(): Promise<void> {
   await until('return ', knownSilent);
   assert.deepEqual(returns((await entries()).slice(knownSilent)), ['return visibilitychange retried']);
   assert.ok(silentMs >= 900 && silentMs < 3000, `Reconnected after ${String(silentMs)} ms`);
-  assert.equal(fixture.opened() - before, 1);
+  assert.equal(await fixture.openedSince(before), 1);
   console.log(JSON.stringify({ step: 'silent connection in a hidden tab', reconnectMs: Math.round(silentMs) }));
 }
 
@@ -234,8 +269,11 @@ async function wakeUps(late: 'attempt deadline' | 'retry timer'): Promise<void> 
     assert.equal(outcomes.length, 1);
     assert.match(outcomes[0] ?? '', /^return visibilitychange (?:connecting|retried)$/u);
   }
-  assert.ok(reconnectMs < 1500, `Reconnected ${String(reconnectMs)} ms after the return`);
-  assert.equal(fixture.opened() - connections, 1);
+  // This bound shows only that the session comes back. It cannot tell retryNow() from the timer, because the retry
+  // delay is 200 milliseconds and the browser runs an overdue timer on the return anyway. The outcome `retried` shows
+  // that retryNow() found the client waiting and started the attempt.
+  assert.ok(reconnectMs < 5000, `Reconnected ${String(reconnectMs)} ms after the return`);
+  assert.equal(await fixture.openedSince(connections), 1);
   console.log(
     JSON.stringify({
       step: `hidden tab with one wake-up a minute and a late ${late}`,
@@ -281,7 +319,7 @@ async function frozen(): Promise<void> {
   const healthyMs = await until(`connected ${String(session + 1)} ERR_MQTT_TRANSPORT uncertain=0`, known);
   await until('return ', known);
   assert.deepEqual(returns((await entries()).slice(known)), ['return visibilitychange retried']);
-  assert.equal(fixture.opened() - connections, 1);
+  assert.equal(await fixture.openedSince(connections), 1);
   console.log(
     JSON.stringify({
       step: 'frozen hidden tab with a healthy connection',
@@ -306,14 +344,15 @@ async function frozen(): Promise<void> {
   const resumed = (await entries()).slice(known);
   assert.deepEqual(resumed.slice(0, 2), ['freeze hidden', 'resume hidden']);
   assert.deepEqual(returns(resumed), [], 'A resume that leaves the tab hidden is no return');
-  assert.equal(fixture.opened(), connections);
+  assert.equal(await fixture.openedSince(connections), 0);
   await show();
   const reconnectMs = await until(`connected ${String(session + 1)} `, known);
   await until('return ', known);
   const log = (await entries()).slice(known);
   assert.deepEqual(returns(log), ['return visibilitychange retried']);
-  assert.ok(reconnectMs < 1500, `Reconnected ${String(reconnectMs)} ms after the return`);
-  assert.equal(fixture.opened() - connections, 1);
+  // The retry timer would start the attempt 10 to 20 seconds after the session ended.
+  assert.ok(reconnectMs < 5000, `Reconnected ${String(reconnectMs)} ms after the return`);
+  assert.equal(await fixture.openedSince(connections), 1);
   console.log(
     JSON.stringify({
       step: 'frozen hidden tab with a pending publication',
@@ -388,8 +427,13 @@ function clientReport(index: number): Report | undefined {
 // service worker of an extension discards the tab with chrome.tabs.discard, as a tab manager extension does.
 // chrome://discards can discard a tab too, but opening it crashed Chrome for Testing 159.0.8154.6.
 async function discarded(): Promise<void> {
-  enter('start Chromium with the extension');
+  enter('start Chromium with the extension', 30);
   const extension = mkdtempSync(join(tmpdir(), 'mqtt-discard-'));
+  const removeExtension = (): void => {
+    cleanups.delete(removeExtension);
+    remove(extension);
+  };
+  cleanups.add(removeExtension);
   writeFileSync(
     join(extension, 'manifest.json'),
     JSON.stringify({
@@ -404,9 +448,9 @@ async function discarded(): Promise<void> {
   const browser = await launch([`--load-extension=${extension}`]);
   const cdp = await connectDevtools(browser);
   try {
-    enter('attach to the extension');
+    enter('attach to the extension', 15);
     let worker: string | undefined;
-    for (let tries = 0; tries < 500 && worker === undefined; tries++) {
+    for (let tries = 0; tries < 250 && worker === undefined; tries++) {
       await sleep(20);
       const targets = await cdp.send('Target.getTargets');
       assert.ok(typeof targets === 'object' && targets !== null && 'targetInfos' in targets && Array.isArray(targets.targetInfos));
@@ -417,16 +461,16 @@ async function discarded(): Promise<void> {
     assert.ok(worker !== undefined, 'The extension started no service worker');
     const sessionId = text(await cdp.send('Target.attachToTarget', { targetId: worker, flatten: true }), 'sessionId');
 
-    enter('open the tab to discard');
+    enter('open the tab to discard', 15);
     const before = fixture.opened();
     const auto = text(await cdp.send('Target.createTarget', { url: fixture.origin + '/auto' }), 'targetId');
     await waitFor(() => fixture.reports().length === 1, 'the first report of the tab');
     assert.deepEqual(clientReport(0), { wasDiscarded: false, entries: ['connected 1  uncertain=0'] });
-    assert.equal(fixture.opened() - before, 1);
+    assert.equal(await fixture.openedSince(before), 1);
     await cdp.send('Target.createTarget', { url: fixture.origin + '/cover' });
     await waitFor(() => fixture.beacons().includes('visibilitychange hidden'), 'the tab to be hidden');
 
-    enter('discard the tab');
+    enter('discard the tab', 15);
     const discardedAt = performance.now();
     const reply = await cdp.send(
       'Runtime.evaluate',
@@ -448,7 +492,7 @@ async function discarded(): Promise<void> {
     assert.equal(fixture.opened() - before, 1, 'A discarded tab opens no connection');
     assert.equal(fixture.reports().length, 1);
 
-    enter('return to the discarded tab');
+    enter('return to the discarded tab', 15);
     const returnedAt = performance.now();
     await cdp.send('Target.activateTarget', { targetId: auto });
     await waitFor(() => fixture.reports().length === 2, 'the report of the reloaded tab', 10_000);
@@ -469,13 +513,13 @@ async function discarded(): Promise<void> {
     );
   } finally {
     cdp.close();
-    browser.stop();
-    rmSync(extension, { recursive: true, force: true });
+    await browser.stop();
+    removeExtension();
   }
 }
 
 async function hidden(): Promise<string> {
-  enter('start Chromium');
+  enter('start Chromium', 30);
   // Chromium throttles chained timers to one wake-up a minute once a page was hidden for 5 minutes. This parameter of
   // the feature shortens the 5 minutes to 10 seconds.
   const browser = await launch(['--enable-features=IntensiveWakeUpThrottling:grace_period_seconds/10']);
@@ -488,34 +532,34 @@ async function hidden(): Promise<string> {
     cover = await context.newPage();
     await cover.goto(fixture.origin + '/cover');
     try {
-      enter('throttled timers');
+      enter('throttled timers', 40);
       await throttled();
-      enter('one wake-up a minute', 330_000);
+      enter('one wake-up a minute', 330);
       await intensive();
-      enter('frozen tab');
+      enter('frozen tab', 40);
       await frozen();
     } catch (error) {
       console.log('The hidden tab check failed with this page log');
       console.log(JSON.stringify(await timeline().catch(() => 'The page was gone')));
       throw error;
     }
-    enter('stop the client');
+    enter('stop the client', 10);
     await tab().evaluate(async () => {
       await (await import('/lifecycle.js')).stop();
     });
     await waitFor(() => fixture.open() === 0, 'the connection of the stopped client to close');
     return current.version();
   } finally {
-    browser.stop();
+    await browser.stop();
   }
 }
 
 try {
   const version = await hidden();
   await discarded();
-  console.log(`Packed chromium ${version} hidden, frozen and discarded tab check passed`);
+  console.log(`Packed chromium ${version} hidden tab check passed`);
 } finally {
   clearTimeout(watchdog);
-  for (const browser of running) browser.stop();
+  await cleanUp();
   fixture.close();
 }

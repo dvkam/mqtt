@@ -129,10 +129,11 @@ async function navigateConnected(engine: string, notCached: readonly unknown[]):
     assert.equal(openWhileAway, 0, 'The connection of the unloaded page closed');
     const closedAfterMs = Math.round(fixture.closedAt() - left);
     assert.ok(consoleLog.includes('pagehide persisted=false'), JSON.stringify(consoleLog));
+    // The document of the client is gone by now, so no later connection can come from it.
     assert.equal(fixture.opened(), before, 'The unloaded page opened no connection');
     const events = [...consoleLog];
     await start();
-    assert.equal(fixture.opened() - before, 1);
+    assert.equal(await fixture.openedSince(before), 1);
     console.log(
       JSON.stringify({
         engine,
@@ -157,7 +158,7 @@ async function navigateConnected(engine: string, notCached: readonly unknown[]):
   await until('return ');
   assert.deepEqual(returns(await entries()), ['return visibilitychange retried']);
   await waitFor(() => fixture.open() === 1, 'the connection of the cached page to close');
-  assert.equal(fixture.opened() - before, 1);
+  assert.equal(await fixture.openedSince(before), 1);
   const times = await timeline();
   console.log(
     JSON.stringify({
@@ -196,7 +197,7 @@ async function navigateWaiting(engine: string): Promise<void> {
   const log = (await entries()).slice(known);
   assert.deepEqual(returns(log), ['return visibilitychange retried']);
   assert.ok(log.indexOf('resume hidden') < log.indexOf('visibilitychange visible'), JSON.stringify(log));
-  assert.equal(fixture.opened() - refused, 1);
+  assert.equal(await fixture.openedSince(refused), 1);
   const times = await timeline();
   console.log(
     JSON.stringify({
@@ -227,7 +228,7 @@ async function check(engine: string): Promise<void> {
   const before = fixture.opened();
   await page.goto(fixture.origin + '/a');
   await start();
-  assert.equal(fixture.opened() - before, 1);
+  assert.equal(await fixture.openedSince(before), 1);
   await navigateConnected(engine, notCached);
   await navigateWaiting(engine);
 
@@ -241,7 +242,7 @@ async function check(engine: string): Promise<void> {
   assert.ok(stalledMs >= 900 && stalledMs < 3000, `Reconnected after ${String(stalledMs)} ms`);
   await until('return ', known);
   assert.deepEqual(returns((await entries()).slice(known)), ['return visibilitychange retried']);
-  assert.equal(fixture.opened() - connections, 1);
+  assert.equal(await fixture.openedSince(connections), 1);
   console.log(
     `${engine}: a silent connection ended at its ping deadline, and the next session connected ${String(Math.round(stalledMs))} ms after the return`,
   );
@@ -262,7 +263,7 @@ async function check(engine: string): Promise<void> {
   const pendingMs = await until(`connected ${String(session + 1)} ERR_MQTT_TIMEOUT uncertain=1`, known, 3000);
   await until('return ', known);
   assert.deepEqual(returns((await entries()).slice(known)), ['return visibilitychange retried']);
-  assert.equal(fixture.opened() - connections, 1);
+  assert.equal(await fixture.openedSince(connections), 1);
   console.log(
     `${engine}: a pending QoS 1 publication rejected after ${String(Math.round(pending.elapsedMs))} ms, and the next session connected ${String(Math.round(pendingMs))} ms after the return`,
   );

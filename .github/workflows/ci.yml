@@ -105,10 +105,12 @@ jobs:
       - name: Run packed MQTT 5 sessions over WS and WSS
         run: MOSQUITTO_BIN="$GITHUB_WORKSPACE/test/packed/mosquitto-container.sh" MQTT_BROKER_DIR="$RUNNER_TEMP/mqtt-broker" bash test/packed/mosquitto-ws.sh "$RUNNER_TEMP/mqtt-consumer"
 
-  # The browser checks download a browser each, so a pull request runs them only when it changes a file below. The
-  # schedule and a manual run always run them. A push to main does not, because its pull request already did.
+  # The browser checks download a browser each, so a pull request runs them only when it changes a path below. The
+  # schedule and a manual run always run them. A push to main does not. The browsers job has a job-level if, so it
+  # must not become a required check, because GitHub counts a skipped required job as passing.
   browser-changes:
     runs-on: ubuntu-26.04
+    timeout-minutes: 5
     outputs:
       run: ${{ steps.changed.outputs.run }}
     steps:
@@ -123,9 +125,9 @@ jobs:
             run=false
           elif [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
             # The checkout of a pull request is its merge commit, whose first parent is the base.
-            if git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml src/browser.ts src/browserClient.ts \
-              src/pageLifecycle.ts src/reconnect.ts 'test/packed/page-lifecycle*' 'test/packed/browser-build.*' \
-              'test/packed/websocket-check.*' 'test/packed/websocket-session*' test/packed/mosquitto-ws.sh; then
+            # A diff that fails leaves run at true.
+            if git diff --quiet HEAD^1 HEAD -- src tsconfig.json package.json pnpm-lock.yaml .node-version test/packed \
+              test/experiments .github/workflows/ci.yml; then
               run=false
             fi
           fi

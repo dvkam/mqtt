@@ -26,6 +26,12 @@ export interface Fixture {
   readonly clientId: string;
   /** The number of connections the proxy accepted, in every mode. */
   readonly opened: () => number;
+  /**
+   * Waits 300 milliseconds and returns the number of connections accepted since the count `since`. A second attempt
+   * that starts together with the first opens its connection within that wait. A retry timer that the client did not
+   * clear would run 10 to 20 seconds later, and test/reconnect.test.ts covers that with fake timers.
+   */
+  readonly openedSince: (since: number) => Promise<number>;
   /** The number of connections that are open now. */
   readonly open: () => number;
   /** The `performance.now()` of the last accepted connection. */
@@ -200,6 +206,10 @@ await start(url, 'manual-lifecycle-' + Math.random().toString(16).slice(2, 8));
     proxyUrl,
     clientId,
     opened: () => opened,
+    async openedSince(since) {
+      await sleep(300);
+      return opened - since;
+    },
     open: () => pairs.size,
     openedAt: () => openedAt,
     closedAt: () => closedAt,
