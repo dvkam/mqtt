@@ -121,7 +121,7 @@ These numbers come from Node 26.13.0 and an in-memory transport that answers eac
 
 A QoS 2 publish allocates 1.9 times the bytes of a QoS 1 publish, because it runs two acknowledged steps with a deadline each. On an otherwise idle machine it measured about 119,000 publishes per second, against about 196,000 at QoS 1. `test/bench/packed-qos1-qos2.ts` repeats the timing against an installed tarball. `MQTT_TEST_QOS` selects 1 or 2, and `MQTT_TEST_SESSION_STATE=1` adds a session state.
 
-`publish(topic, payload, { qos: 2 })` is a runtime option, so a bundler cannot drop the exchange code and every client carries it. The packed browser bundle grew from 84,021 to 89,689 bytes, and from 21,135 to 22,484 bytes gzipped.
+`publish(topic, payload, { qos: 2 })` is a runtime option, so a bundler cannot drop the exchange code and every client carries it. The packed browser bundle grew from 84,021 to 90,117 bytes, and from 21,135 to 22,584 bytes gzipped.
 
 ## Verification
 
