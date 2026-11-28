@@ -340,21 +340,7 @@ function topic(value: string, filter: boolean, sharedSubscriptions = false): voi
     throw new Error('Invalid MQTT topic filter');
 }
 
-type PublicationProperties = Pick<
-  PublishFields,
-  'payloadFormatIndicator' | 'messageExpiryInterval' | 'contentType' | 'responseTopic' | 'correlationData'
->;
-
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Append encoded properties to the caller's list and preserve its byte views.
-function appendPublicationProperties(parts: Uint8Array[], packet: Readonly<PublicationProperties>): void {
-  if (packet.payloadFormatIndicator !== undefined) parts.push(Uint8Array.of(0x01, integer(packet.payloadFormatIndicator, 1)));
-  if (packet.messageExpiryInterval !== undefined) parts.push(Uint8Array.of(0x02), uint32(packet.messageExpiryInterval));
-  if (packet.contentType !== undefined) parts.push(Uint8Array.of(0x03), utf8(packet.contentType));
-  if (packet.responseTopic !== undefined) parts.push(Uint8Array.of(0x08), utf8(responseTopic(packet.responseTopic)));
-  if (packet.correlationData !== undefined) parts.push(Uint8Array.of(0x09), binary(packet.correlationData));
-}
-
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The parts carry mutable encoded byte views.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The parts are the Uint8Array fields that join in this file takes. Readonly<Uint8Array> keeps the writable index signature, so no element type satisfies the rule.
 function propertySection(parts: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
   // MQTT encodes an empty property section as one byte with value zero.
   if (parts.length === 0) return new Uint8Array(1);
@@ -362,13 +348,17 @@ function propertySection(parts: readonly Uint8Array[]): Uint8Array<ArrayBuffer> 
   return join([variable(body.length), body]);
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Will payload and correlation data are byte views.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- WillMessage in src/will.ts declares payload and correlationData as Uint8Array. Readonly<WillMessage> leaves their index signatures writable, so no type for this parameter satisfies the rule.
 function encodeWill(will: Readonly<WillMessage>): Uint8Array<ArrayBuffer> {
   const payload = binary(will.payload);
   const parts: Uint8Array[] = [];
   for (const [key, value] of will.userProperties ?? []) parts.push(Uint8Array.of(0x26), utf8(key), utf8(value));
   if (will.delayInterval !== undefined) parts.push(Uint8Array.of(0x18), uint32(will.delayInterval));
-  appendPublicationProperties(parts, will);
+  if (will.payloadFormatIndicator !== undefined) parts.push(Uint8Array.of(0x01, integer(will.payloadFormatIndicator, 1)));
+  if (will.messageExpiryInterval !== undefined) parts.push(Uint8Array.of(0x02), uint32(will.messageExpiryInterval));
+  if (will.contentType !== undefined) parts.push(Uint8Array.of(0x03), utf8(will.contentType));
+  if (will.responseTopic !== undefined) parts.push(Uint8Array.of(0x08), utf8(responseTopic(will.responseTopic)));
+  if (will.correlationData !== undefined) parts.push(Uint8Array.of(0x09), binary(will.correlationData));
   return join([propertySection(parts), utf8(will.topic), payload]);
 }
 

@@ -42,7 +42,7 @@ function optionalSeconds(value: unknown, field: string): number | undefined {
   return value;
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Validate the bounded Will payload without copying it again.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The payload is a Uint8Array, and Readonly<Uint8Array> keeps the writable index signature, so no type for these bytes satisfies the rule. captureWill in this file and decodeBody in src/wireCodec.ts pass their bytes without a copy.
 export function validateWillPayload(payload: Readonly<Uint8Array>, format: 0 | 1 | undefined): void {
   if (format !== 1) return;
   try {
