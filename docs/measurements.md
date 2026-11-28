@@ -4,10 +4,6 @@ Keep workload, environment, tool versions, individual observations, summary and 
 
 | Work                                   | Record                                                                                                    | Scope                                                                                                |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Duplicate CONNACK receipt | [Packed observations](baseline/duplicate-connack-checks.md) | Installed TLS/WS single-CONNACK controls after receipt tracking; no performance comparison |
-| Session Present agreement | [Packed observations](baseline/session-present-checks.md) | Installed TLS/WS controls after the Clean Start guard; no performance comparison |
-| Connection agreement | [Packed observations](baseline/connack-agreement-checks.md) | Installed TLS/WS sessions after authentication and identity checks; no performance comparison |
-| Property cardinality and values | [Packed observations](baseline/property-value-checks.md) | Installed TLS/WS sessions after scalar checks; no controlled performance comparison |
 | Pinned upstream comparison             | [Baseline data](baseline/results.jsonl) and [runner](baseline/measure.mjs)                                | Initial Node and browser reference workloads                                                         |
 | Portable codec                         | [Codec measurements](codec.md#initial-measurements)                                                       | Encoding and decoding a 256-byte payload; three-run medians                                          |
 | Application consumption                | [Queue comparison](message-stream-comparison.md)                                                          | Callback, iterator and Web Streams delivery; queue accounting and ownership                          |
@@ -15,32 +11,17 @@ Keep workload, environment, tool versions, individual observations, summary and 
 | Ready message batches                  | [Batch comparison](ready-message-batches.md)                                                              | Iterator dispatch counts, allocation samples and oldest delivered age                                |
 | Packed ready batches                   | [Browser network probe](packed-batch-network.md)                                                          | Oldest live backlog, control latency, dispatch and cleanup across three engines                      |
 | Native TCP socket delay | [Six paired TLS observations](baseline/native-socket-delay.md) | Installed-artifact comparison of native buffering defaults; five echoes per session |
-| DISCONNECT property validation | [Packed observations](baseline/disconnect-property-checks.md) | Installed TLS/WS smoke exchanges; no measured performance change |
-| ACK property validation | [Packed observations](baseline/ack-property-checks.md) | Installed TLS/WS exchanges after the ACK guard; no performance comparison |
-| PUBLISH property validation | [Packed observations](baseline/publish-property-checks.md) | Installed TLS/WS sessions after the byte guard; no controlled performance comparison |
-| TCP TLS                                | [Packed fixture observations](baseline/tcp-tls-checks.md)                                                 | Authenticated MQTT exchanges and five-echo smoke timings                                             |
 | WebSocket transport                    | [WS/WSS comparison](websocket-comparison.md)                                                              | TLS, proxy, bufferedAmount admission and close observations                                          |
 | Receive-limit validation               | [8 November observations](baseline/receive-validation-measurements.md)                                    | Individual broker smoke timings, browser delivery and fixture bundle sizes                           |
 | Bounded Node framing                   | [Individual measurements](baseline/node-framing-measurements.md) and [design](node-framing-experiment.md) | Compact assembly, streaming gate and native reference                                                |
 | Node parser occupancy                  | [Individual observations](baseline/node-framing-occupancy.md)                                             | Native fragment bytes/items and compact assembly capacity; no allocation or timing claim             |
 | Mixed traffic preview                  | [Six observations](baseline/mixed-traffic-probe.md) and [method](mixed-traffic-probe.md)                  | QoS 0 bursts, capacity rejection, ping, subscriptions, delayed echoes and same-process metrics       |
-| Concurrent subscriptions               | [CI observations](baseline/concurrent-subscriptions-checks.md)                                            | Individual packed-broker echo timings and fixture bundle sizes; no controlled performance comparison |
-| QoS 1 wire profile                     | [CI observations](baseline/qos1-wire-checks.md)                                                           | Packed QoS 0 echo timings and bundle sizes after expanding the codec                                 |
-| Outbound QoS 1                         | [CI observations](baseline/qos1-outbound-checks.md)                                                       | Packed QoS 1 exchange validation, QoS 0 echo timings and fixture sizes                               |
 | Property decoding | [Three runs before and after](property-decoding.md#measurements) | Node decode throughput for packets with and without properties; no allocation or browser measurement |
 | Packet identifier allocator            | [Set and bitset observations](baseline/packet-id-allocator.md)                                            | Sparse and nearly full occupancy, five repetitions per variant                                       |
-| Shared unsubscribe                     | [CI observations](baseline/unsubscribe-checks.md)                                                         | Packed unsubscribe validation, QoS 0 echo timings and fixture sizes                                  |
-| Inbound QoS 1                          | [CI and local observations](baseline/qos1-inbound-checks.md)                                              | Packed delivery validation, QoS 0 echo timings and browser fixture measurements                      |
-| Subscription acknowledgment validation | [CI observations](baseline/subscription-protocol-checks.md)                                               | Valid broker echo timings and fixture bundle sizes                                                   |
-| Parser acknowledgment reporting        | [CI observations](baseline/parser-ack-checks.md)                                                          | Valid broker echo timings and fixture bundle sizes                                                   |
-| Legacy TLS and comment audit           | [CI observations](baseline/legacy-audit-checks.md)                                                        | Valid broker echo timings and fixture bundle sizes                                                   |
-| Session lint cleanup                   | [CI observations](baseline/lint-audit-checks.md)                                                          | Valid broker echo timings and fixture bundle sizes                                                   |
 
 The compact runner now uses the private production decoder described in [TCP packet input](tcp-packet-input.md) and [Node WebSocket packet input](websocket-packet-input.md). Historical prototype runs remain pinned in the measurement record. Decoder-only throughput excludes the input helper, session and native socket.
 
 Local timing observations do not become CI thresholds automatically. #18 owns repeatable bundle, throughput, latency and memory baselines. #56 owns portable encoder allocation profiling. #75 owns the Node framing comparison and adoption decision. A passing protocol exchange or a small bundle does not establish a general performance advantage.
-
-The [historical dependency removal observations](baseline/dependency-removal.md) preserve PR #59's installed-tree, bundle and broker checks, including the correction that the after tree came from an incremental update.
 
 The [PUBLISH encoding comparison](publish-encoding-measurements.md) records unprofiled Node and Chromium timings, V8 allocation samples, and the isolated codec bundle for the single-frame assembly.
 
