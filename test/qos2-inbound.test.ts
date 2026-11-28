@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { createTransportClient, type ByteClientOptions, type SessionEnd } from '../src/portableClient.js';
 import { exchangeBroker, settle, type Delivery, type ExchangeScript } from './experiments/exchange-broker.js';
 
@@ -19,7 +19,7 @@ function answers(frames: readonly (readonly number[])[]): (readonly number[])[] 
   });
 }
 
-type Handlers = Readonly<Pick<ByteClientOptions, 'onMessage' | 'onQosOneMessage' | 'onQosTwoMessage'>>;
+type Handlers = Readonly<Pick<ByteClientOptions, 'onMessage' | 'onQosOneMessage' | 'onQosTwoMessage' | 'timeoutMs'>>;
 
 function gate() {
   let release: () => void = () => {};
@@ -184,6 +184,33 @@ test('a handler that throws ends the session without PUBREC', async () => {
   expect(answers(connection.frames)).toEqual([]);
   expect(ends).toEqual([{ kind: 'error', error: failure }]);
   await expect(session.ping()).rejects.toBe(failure);
+});
+
+test('a handler that outlasts the operation deadline ends the session without PUBREC and without DISCONNECT', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+  try {
+    const { promise } = gate();
+    const { connection, delivered, ends } = await receiver(
+      {},
+      {
+        timeoutMs: 50,
+        async onQosTwoMessage({ messageId }: Readonly<{ messageId: number }>) {
+          delivered.push(messageId);
+          await promise;
+        },
+      },
+    );
+    connection.deliver(publication(7));
+    await vi.advanceTimersByTimeAsync(49);
+    expect(ends).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(ends).toMatchObject([{ kind: 'error', error: { code: 'ERR_MQTT_TIMEOUT' } }]);
+    expect(delivered).toEqual([7]);
+    // The transport closes without DISCONNECT, so the broker publishes the Will.
+    expect(connection.frames).toEqual([]);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test('a PUBREL that arrives while the handler runs is a protocol error with reason 0x82', async () => {

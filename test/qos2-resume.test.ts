@@ -547,12 +547,14 @@ test('a handler that finishes after its connection ended keeps the identifier fo
   await second.disconnect();
 });
 
-/** A receiver whose first QoS 2 handler call stays pending until the test fails it. */
+/** A receiver whose first QoS 2 handler call stays pending until the test fails or fulfills it. */
 function lateHandler() {
   const calls: string[] = [];
-  let fail: (reason: Readonly<Error>) => void = () => {};
-  const first = new Promise<void>((_resolve, reject) => {
-    fail = reject;
+  let fulfill: () => void = () => {};
+  let reject: (reason: Readonly<Error>) => void = () => {};
+  const first = new Promise<void>((resolve, refuse) => {
+    fulfill = resolve;
+    reject = refuse;
   });
   first.catch(() => {});
   const handlers: Options = {
@@ -562,10 +564,10 @@ function lateHandler() {
       if (calls.length === 1) await first;
     },
   };
-  const failFirst = (): void => {
-    fail(new Error('the first handler fails late'));
+  const fail = (): void => {
+    reject(new Error('the first handler fails late'));
   };
-  return { calls, handlers, fail: failFirst };
+  return { calls, handlers, fail, fulfill };
 }
 
 function message(topic: string, messageId: number, dup = false): Delivery {
@@ -649,5 +651,29 @@ test('a handler of an earlier connection that fails late frees its own Packet Id
   await settle();
   expect(calls).toEqual(['A id 1', 'A id 1 dup']);
   expect(peer.connection(1).frames).toEqual([pubrecOne]);
+  await second.disconnect();
+});
+
+test('a handler of an earlier connection that fulfills late does not record a Packet Identifier whose exchange ended', async () => {
+  const peer = exchangeBroker({ connack: (index) => ({ sessionPresent: index >= 2 }) });
+  const sessionState = createSessionState();
+  const { calls, handlers, fulfill } = lateHandler();
+  await connect(peer.transport, sessionState, handlers).connecting;
+  peer.connection(0).deliver(message('A', 1));
+  await settle();
+  peer.connection(0).end();
+  await settle();
+  const second = await connect(peer.transport, sessionState, { ...handlers, cleanStart: false }).connecting;
+  peer.connection(1).deliver(message('A', 1, true));
+  await settle();
+  peer.connection(1).deliver({ cmd: 'pubrel', messageId: 1, reasonCode: 0 });
+  await settle();
+  fulfill();
+  await settle();
+  // The exchange of A is over, so Packet Identifier 1 names a new message and not a duplicate.
+  peer.connection(1).deliver(message('B', 1));
+  await settle();
+  expect(calls).toEqual(['A id 1', 'B id 1']);
+  expect(peer.connection(1).frames).toEqual([pubrecOne, pubcompOne, pubrecOne]);
   await second.disconnect();
 });
