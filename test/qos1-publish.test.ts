@@ -293,8 +293,9 @@ test('a connection failure during the drain wins and prevents DISCONNECT', async
 
 test('an unsupported DISCONNECT reason code is an invalid argument and leaves the session usable', async () => {
   const broker = await peer();
-  // @ts-expect-error The test sends a reason code that the DisconnectOptions type does not allow.
-  await expect(broker.client.disconnect({ reasonCode: 1 })).rejects.toMatchObject({
+  // The test passes an untyped value, as a JavaScript caller could.
+  const options: Record<string, unknown> = { reasonCode: 1 };
+  await expect(broker.client.disconnect(options)).rejects.toMatchObject({
     code: 'ERR_MQTT_INVALID_ARGUMENT',
     fatal: false,
     message: 'Unsupported MQTT disconnect reason code',
