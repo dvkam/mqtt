@@ -35,7 +35,10 @@ export interface Reconnectable {
   signal?: AbortSignal;
 }
 
-/** A subscription the reconnecting client makes after every CONNACK, in the order given. */
+/**
+ * A subscription the reconnecting client makes after a CONNACK, in the order given, unless it knows that the session
+ * already holds its subscriptions.
+ */
 export interface SubscriptionIntent {
   /** The topic filter. */
   readonly topic: string;
@@ -66,8 +69,8 @@ export type SubscriptionRestore = Readonly<
 export type ReconnectEvent =
   | Readonly<{
       /**
-       * A session connected and its subscriptions were made, or it resumed a broker session, and `session()` resolves
-       * with it.
+       * A session connected, and `session()` resolves with it. The client made its subscriptions first, unless it knows
+       * that the session already holds them.
        */
       kind: 'connected';
       /** The number of sessions that connected, starting at 1. A failed attempt does not count. */
@@ -83,8 +86,9 @@ export type ReconnectEvent =
        */
       previous?: SessionEnd;
       /**
-       * One outcome for each entry of `subscriptions` in the options, in the same order. Empty when `resumed` is true,
-       * because the broker kept the subscriptions.
+       * One outcome for each entry of `subscriptions` in the options, in the same order. Empty when the client made
+       * none, because it knows that the session holds them. It can list outcomes while `resumed` is true, because the
+       * client subscribes on a resumed session when it does not know that.
        */
       subscriptions: readonly SubscriptionRestore[];
       /** The CONNACK Session Present flag. True when the broker resumed the session that an earlier CONNECT started. */
@@ -150,7 +154,13 @@ export type ReconnectEvent =
  * `resume` is set and the factory options have no `sessionExpiryInterval` from 1 to 4,294,967,295.
  */
 export interface ReconnectOptions {
-  /** Subscriptions to make after every CONNACK with Session Present false. */
+  /**
+   * The subscriptions the session is to hold. After a CONNACK the client sends one SUBSCRIBE for each, unless it knows
+   * that the session already holds them. It knows that once a `connected` event has listed a SUBACK for every entry,
+   * whether the SUBACK granted or refused the filter. It no longer knows after a CONNACK with Session Present false and
+   * after an attempt that failed. A SUBSCRIBE for a subscription that the session holds replaces it, and the broker
+   * sends the retained messages that match the filter again.
+   */
   readonly subscriptions?: readonly SubscriptionIntent[];
   /**
    * Resume the MQTT session on later attempts. Every attempt after a connected session sends Clean Start false and shares
@@ -233,6 +243,14 @@ function stopReason(error: Readonly<Error>): 'refused' | 'fatal' | undefined {
   return 'code' in error && error.code === wsMessageTooLong ? undefined : 'fatal';
 }
 
+/**
+ * Whether the broker answered the intent with a SUBACK. A SUBACK that refuses the filter is an answer. A rejection that
+ * came before the SUBSCRIBE was written, such as `ERR_MQTT_INVALID_ARGUMENT`, is not.
+ */
+function answered(outcome: SubscriptionRestore): boolean {
+  return 'result' in outcome || (outcome.error instanceof MqttError && outcome.error.code === 'ERR_MQTT_REFUSED');
+}
+
 function milliseconds(value: number | undefined, fallback: number, name: string): number {
   if (value === undefined) return fallback;
   if (!(Number.isFinite(value) && value >= 0)) throw new RangeError(name + ' must be a finite number of 0 or more');
@@ -263,9 +281,9 @@ function waiter(): Waiter {
 
 /**
  * Keep a connection to the broker. `create` builds a fresh one-shot factory for each attempt, such as
- * `(options) => createTcpClient(options)`. After a CONNACK with Session Present false, the client makes `subscriptions`
- * again. A QoS 1 or QoS 2 publication that was in flight when a session ended is reported in the next `connected` event.
- * Without `resume`, the client never sends it again. With `resume`, a session the broker resumed continues its exchange
+ * `(options) => createTcpClient(options)`. After a CONNACK, the client makes `subscriptions` unless it knows that the
+ * session already holds them. A QoS 1 or QoS 2 publication that was in flight when a session ended is reported in the
+ * next `connected` event. Without `resume`, the client never sends it again. With `resume`, a session the broker resumed continues its exchange
  * with its Packet Identifier. Throws a RangeError at once when an option in `reconnect` is invalid, or when `resume` is set and
  * `options` has no `sessionExpiryInterval` from 1 to 4,294,967,295.
  */
@@ -310,6 +328,9 @@ export function createReconnectingClient<Options extends Reconnectable>(
   let dropped: UncertainPublication[] = [];
   // PUBACK events of a resumed session, held until its connected event or its end.
   let held: ReconnectEvent[] | undefined;
+  // Whether the client knows that the broker session holds the subscriptions. No other state records it, so a journal for
+  // #14 can store this one value with the session.
+  let subscribed = false;
 
   // A function, so a check after an await reads the state instead of the type narrowed before it.
   const stopped = (): boolean => state === 'stopped';
@@ -416,6 +437,10 @@ export function createReconnectingClient<Options extends Reconnectable>(
       ended(event);
     };
     const superseded = (): boolean => thisAttempt.ended || stopped();
+    // A CONNECT that reaches the broker can start a new session there even when its CONNACK never arrives. The client
+    // therefore knows nothing about the subscriptions until this attempt reads Session Present true.
+    const known = subscribed;
+    subscribed = false;
     opening = new AbortController();
     const signal = userSignal === undefined ? opening.signal : AbortSignal.any([userSignal, opening.signal]);
     const onSessionEnd: SessionEndObserver = async (event) => {
@@ -458,13 +483,19 @@ export function createReconnectingClient<Options extends Reconnectable>(
         cleanStart = false;
         if (!resumed) dropped.push(...stored);
       }
+      let holds = resumed && known;
       let subscriptions: SubscriptionRestore[] = [];
-      try {
-        if (!resumed) subscriptions = await restore(session);
-      } catch {
-        return;
+      if (!holds) {
+        try {
+          subscriptions = await restore(session);
+        } catch {
+          return;
+        }
+        holds = subscriptions.every(answered);
       }
       if (superseded()) return;
+      // Recorded with the connected event, so the application has received every outcome that the client relies on.
+      subscribed = holds;
       state = 'connected';
       generation++;
       next.resolve(session);

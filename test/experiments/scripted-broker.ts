@@ -15,8 +15,12 @@ export interface Connection {
 export interface Script {
   /** The CONNACK reason for the nth connection, starting at 1. Undefined withholds the CONNACK. */
   connack?: (connection: number) => number | undefined;
-  /** The SUBACK reason for a filter. Defaults to 0. */
-  suback?: (topic: string) => number;
+  /** The Session Present flag of the CONNACK for the nth connection, starting at 1. Defaults to false. */
+  sessionPresent?: (connection: number) => boolean;
+  /** Whether the write of a SUBSCRIBE rejects on the nth connection, starting at 1. The broker does not read that packet. */
+  failSubscribeWrite?: (connection: number) => boolean;
+  /** The SUBACK reason for a filter on the nth connection, starting at 1. Undefined withholds the SUBACK. Defaults to 0. */
+  suback?: (topic: string, connection: number) => number | undefined;
   /** Whether to answer a QoS 1 PUBLISH with PUBACK. */
   puback?: boolean;
   /** The PUBACK reason. Defaults to 0. */
@@ -61,6 +65,8 @@ export function broker(script: Readonly<Script> = {}) {
           for (const packet of decoder.push(bytes)) {
             if (packet.cmd === 'connack' || packet.cmd === 'suback' || packet.cmd === 'unsuback' || packet.cmd === 'pingresp')
               continue;
+            if (packet.cmd === 'subscribe' && script.failSubscribeWrite?.(index) === true)
+              throw new MqttError('ERR_MQTT_TRANSPORT', 'write EPIPE');
             connection.packets.push(packet);
             if (connection.silent) continue;
             if (packet.cmd === 'connect') {
@@ -68,13 +74,14 @@ export function broker(script: Readonly<Script> = {}) {
               if (reasonCode !== undefined)
                 reply({
                   cmd: 'connack',
-                  sessionPresent: false,
+                  sessionPresent: script.sessionPresent?.(index) ?? false,
                   reasonCode,
                   ...(script.receiveMaximum === undefined ? {} : { receiveMaximum: script.receiveMaximum }),
                 });
             } else if (packet.cmd === 'subscribe') {
               const [topic = ''] = packet.topics;
-              reply({ cmd: 'suback', messageId: packet.messageId, granted: [script.suback?.(topic) ?? 0] });
+              const granted = script.suback === undefined ? 0 : script.suback(topic, index);
+              if (granted !== undefined) reply({ cmd: 'suback', messageId: packet.messageId, granted: [granted] });
             } else if (packet.cmd === 'pingreq') {
               reply({ cmd: 'pingresp' });
             } else if (packet.cmd === 'publish' && packet.qos === 1 && script.puback !== false) {
