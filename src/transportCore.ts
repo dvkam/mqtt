@@ -17,6 +17,8 @@ import { invalidOption, MqttError, transportFailure } from './mqttError.js';
 import { capturePassword } from './password.js';
 import { captureWill, type WillMessage, type WillOptions } from './will.js';
 import { isSessionExpiryInterval, sessionBinding, type SessionBinding, type SessionState } from './sessionState.js';
+import type { ClientPacket } from './wireCodec.js';
+import type { ReadonlyDeep } from './util/bytes.js';
 
 export const flushNativeWrites = Symbol('flushNativeWrites');
 export type ByteWriterWithFlush = ByteWriter & { [flushNativeWrites]?(): void };
@@ -88,13 +90,12 @@ function captureSessionOptions(options: Readonly<SessionOptions>): Readonly<{
  */
 export function createByteClient<Bytes extends Uint8Array>(
   transport: Readonly<ByteTransport>,
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The core keeps native signals and payload views by identity.
-  options: Readonly<ByteClientOptions<Bytes>>,
+  options: ReadonlyDeep<ByteClientOptions<Bytes>>,
   platform: Readonly<BytePlatform<Bytes>>,
 ): ClientFactory {
   let connection: Promise<ClientSession> | undefined;
   return {
-    // oxlint-disable-next-line typescript/promise-function-async -- Forward the existing promise without adding an async wrapper.
+    // oxlint-disable-next-line typescript/promise-function-async -- Removing it would cost developer experience. `connect` returns the one stored promise to every caller, which the comment of `createByteClient` documents as its contract. An async method would return a new promise on each call, so a caller could no longer compare the promises.
     connect() {
       if (connection) return connection;
       let start = () => {};
@@ -116,8 +117,7 @@ export function createByteClient<Bytes extends Uint8Array>(
  */
 async function connectOverBytes<Bytes extends Uint8Array>(
   transport: Readonly<ByteTransport>,
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The core keeps native signals and payload views by identity.
-  options: Readonly<ByteClientOptions<Bytes>>,
+  options: ReadonlyDeep<ByteClientOptions<Bytes>>,
   platform: Readonly<BytePlatform<Bytes>>,
 ): Promise<ClientSession> {
   const { name, supportsSharedSubscriptions = true, supportsPassword = true } = transport;
@@ -160,14 +160,10 @@ async function connectOverBytes<Bytes extends Uint8Array>(
   const forceClose = async (opened: Readonly<ByteWriter>): Promise<void> => {
     if (forcedClose) return forcedClose;
     let start = () => {};
-    forcedClose = new Promise<void>((resolve, reject) => {
+    forcedClose = new Promise<void>((resolve) => {
       start = () => {
-        try {
-          resolve(opened.close(true));
-        } catch (error) {
-          // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- A custom writer's synchronous throw has the same outcome as its rejected close promise.
-          reject(error);
-        }
+        // The async call turns a writer's synchronous throw into the same rejection as its rejected close promise.
+        resolve((async () => opened.close(true))());
       };
     });
     // A writer can report end or failure synchronously while closing.
@@ -230,8 +226,7 @@ async function connectOverBytes<Bytes extends Uint8Array>(
     const opened = writer;
     const packets: PacketTransport<Bytes> = {
       supportsSharedSubscriptions,
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The session hands over mutable packets.
-      async send(packet) {
+      async send(packet: ReadonlyDeep<ClientPacket>) {
         const bytes = encodePacket(packet, { sharedSubscriptions: supportsSharedSubscriptions });
         const wireBytes = bytes.length + (opened.frameOverhead?.(bytes.length) ?? 0);
         const traffic = packet.cmd === 'publish' ? 'publication' : 'control';

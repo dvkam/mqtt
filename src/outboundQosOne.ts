@@ -137,7 +137,7 @@ export class OutboundQosOne<Item> {
         detach();
         if (queue.delete(publication)) releaseBudget();
         const reason: unknown = cancellation?.reason;
-        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- AbortSignal.reason can be a symbol. The queued cancellation regression checks that callers receive it unchanged.
+        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- Removing it would cost developer experience. The publish promise rejects with `AbortSignal.reason` as the caller set it, which may be a symbol or a string, and the queued cancellation test in test/qos1-publish.test.ts checks that the caller catches that same value. `cancel` settles a promise that another function created, so it cannot throw the value instead.
         reject(reason);
       }
       function cancelIfAborted(): boolean {
