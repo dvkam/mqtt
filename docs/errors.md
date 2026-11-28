@@ -51,6 +51,7 @@ These rejections have no code yet, or lack a field that #155 asks for.
 - Errors from `ws` and the native socket, such as `Server sent no subprotocol`, pass through unchanged.
 - Codec failures that are not a `ProtocolInputError` are plain `Error` or `RangeError` values. Examples are invalid fixed-header flags, a malformed Remaining Length, a truncated field, many property defects such as a CONNACK Receive Maximum of 0 or Maximum QoS of 2, and a packet over `maxPacketBytes`. MQTT 5 treats most of them as Malformed Packet 0x81.
 - An inbound QoS 2 PUBLISH when only an `onQosOneMessage` handler is set, or an inbound QoS 1 PUBLISH when only an `onQosTwoMessage` handler is set, ends the session with a plain `Error`. Without either handler the client drops both and sends no acknowledgment.
+- An `onQosTwoMessage` handler that outlives its connection and rejects after a resumed session acknowledged the duplicate PUBLISH loses that message without an error. [QoS 2](qos2.md#handler-failures) describes the case.
 - A QoS 0 publish write and the transport `close` during `disconnect()` reject with the transport's own value, even when it is not an Error.
 - Invalid client options such as `timeoutMs` or publication limits throw `RangeError`, and so does an invalid `checkAfterMs` of `watchPageLifecycle`. The Will, the password, the session options and the `disconnect()` options are the exception: they reject with `ERR_MQTT_INVALID_ARGUMENT`. For the Will and `disconnect()`, the original error is the cause.
 - Custom transport errors pass through unchanged.

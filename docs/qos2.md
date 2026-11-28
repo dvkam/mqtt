@@ -105,6 +105,8 @@ A handler can still run when its connection ends, for example after the deadline
 | Rejected before the duplicate arrived | Calls the handler again, with `dup: true` |
 | Still runs when the duplicate arrives | Sends PUBREC at once and does not call the handler. The broker then finishes the exchange, so a handler that rejects afterwards causes no second delivery. |
 
+In the third case the message is lost when the earlier handler rejects afterwards. The broker has finished the exchange and does not send the message again, and the client reports nothing. Two handlers can also run at the same time in that case, because the next message arrives while the earlier handler still runs. A handler that may run longer than `timeoutMs` should retry its own work instead of rejecting.
+
 The outcome of a handler changes only its own delivery. When the exchange has ended in the meantime, a late outcome changes nothing. A message that got the same Packet Identifier since then is neither delivered twice nor taken for a duplicate.
 
 ### Flow control
