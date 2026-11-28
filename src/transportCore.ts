@@ -85,9 +85,9 @@ function captureSessionOptions(
   if (granted > acknowledged)
     throw new MqttError(
       'ERR_MQTT_INVALID_ARGUMENT',
-      'MQTT session state holds a subscription with QoS ' +
+      'MQTT session state was granted a QoS ' +
         String(granted) +
-        ', which needs ' +
+        ' subscription, which needs ' +
         (granted === 2 ? 'onQosTwoMessage and onQosOneMessage' : 'onQosOneMessage'),
     );
   const releaseSession = session?.claim();

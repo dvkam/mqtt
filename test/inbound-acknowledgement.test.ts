@@ -237,7 +237,7 @@ test.each([
       name: 'MqttError',
       code: 'ERR_MQTT_INVALID_ARGUMENT',
       fatal: false,
-      message: `MQTT session state holds a subscription with QoS ${String(granted)}, which needs ${needs}`,
+      message: `MQTT session state was granted a QoS ${String(granted)} subscription, which needs ${needs}`,
     });
     expect(peer.connections).toHaveLength(1);
     // The rejected attempt did not claim the state.
@@ -298,7 +298,7 @@ test('a later grant of a lower QoS does not lower what the session state was gra
   await first.disconnect();
   await expect(createTransportClient(peer.transport, { ...options, cleanStart: false }).connect()).rejects.toMatchObject({
     code: 'ERR_MQTT_INVALID_ARGUMENT',
-    message: 'MQTT session state holds a subscription with QoS 2, which needs onQosTwoMessage and onQosOneMessage',
+    message: 'MQTT session state was granted a QoS 2 subscription, which needs onQosTwoMessage and onQosOneMessage',
   });
 });
 
