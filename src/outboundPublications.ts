@@ -341,6 +341,7 @@ export class OutboundPublications<Item> {
 
   /** `released` is true when a resumed session continues an exchange that has its PUBREC, so only PUBREL goes out. */
   private startTwoPhase(publication: Publication<Item>, identifier: IdentifierLease, resent: boolean, released: boolean): void {
+    const { messageId } = identifier;
     const exchange: Exchange<Item> = {
       publication,
       identifier,
@@ -351,43 +352,29 @@ export class OutboundPublications<Item> {
       acknowledgmentCode: released ? 0 : undefined,
       phase: 'publish',
     };
-    this.active.set(identifier.messageId, exchange);
-    void this.completeTwoPhase(exchange, released ? undefined : this.awaited(identifier.messageId, 'publish'));
-  }
-
-  /** The promise of the next acknowledgment of the active QoS 2 exchange `messageId`, which enters `phase`. */
-  private async awaited(messageId: number, phase: Phase): Promise<number> {
-    return new Promise<number>((resolve, reject) => {
-      const exchange = this.active.get(messageId);
-      if (exchange === undefined) return;
-      exchange.phase = phase;
-      exchange.acknowledge = resolve;
-      exchange.rejectAck = reject;
-    });
-  }
-
-  private async completeTwoPhase(
-    exchange: Readonly<Exchange<Item>>,
-    received: Readonly<Promise<number>> | undefined,
-  ): Promise<void> {
-    const { publication, identifier } = exchange;
-    const { messageId } = identifier;
-    try {
-      const code =
-        received === undefined
+    const awaited = async (phase: Phase): Promise<number> =>
+      new Promise<number>((resolve, reject) => {
+        exchange.phase = phase;
+        exchange.acknowledge = resolve;
+        exchange.rejectAck = reject;
+      });
+    this.active.set(messageId, exchange);
+    void (async () => {
+      try {
+        const code = released
           ? 0
-          : await (exchange.resent ? this.retransmit : this.transmit)(publication.outgoing, messageId, received);
-      if (code >= 128) reportAcknowledgment(publication, code);
-      // A drain deadline rejects the publication and drops its exchange. It can pass while the PUBLISH write is pending.
-      else if (this.active.get(messageId) === exchange) {
-        await this.release(messageId, this.awaited(messageId, 'release'), received === undefined);
-        publication.resolve();
+          : await (resent ? this.retransmit : this.transmit)(publication.outgoing, messageId, awaited('publish'));
+        if (code >= 128) reportAcknowledgment(publication, code);
+        else {
+          await this.release(messageId, awaited('release'), released);
+          publication.resolve();
+        }
+      } catch (reason) {
+        publication.reject(reason);
+      } finally {
+        this.finish(exchange);
       }
-    } catch (reason) {
-      publication.reject(reason);
-    } finally {
-      this.finish(exchange);
-    }
+    })();
   }
 
   /** Return what a settled exchange held, and dispatch what waited for its quota slot. */

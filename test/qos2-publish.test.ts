@@ -400,6 +400,19 @@ test('a refused PUBREC whose PUBLISH write is pending is reported as not acknowl
   expect(ends[0]).toMatchObject({ uncertain: [{ topic: 'a', messageId: 1, qos: 2, acknowledged: false }] });
 });
 
+test('a second PUBREC before the PUBLISH write settles does not replace the first', async () => {
+  const { connection, session, ends } = await publisher({ hold: (packet) => packet.cmd === 'publish' });
+  const publishing = session.publish('a', 'hi', qosTwo).catch((error: unknown) => error);
+  await settle();
+  connection.deliver(pubrec(1));
+  connection.deliver(pubrec(1, 0x80));
+  await settle();
+  connection.end();
+  await publishing;
+  await settle();
+  expect(ends[0]).toMatchObject({ uncertain: [{ topic: 'a', messageId: 1, qos: 2, acknowledged: true }] });
+});
+
 test('each step of a QoS 2 exchange has its own operation deadline', async () => {
   vi.useFakeTimers();
   const { session, connection, ends } = await publisher({}, { timeoutMs: 50 });
