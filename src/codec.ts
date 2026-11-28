@@ -1,4 +1,5 @@
 /** The portable MQTT 5 codec. The Node-only framed decode in `wireCodec.ts` stays internal. */
+export type { ReadonlyBytes } from './util/bytes.js';
 export type { WillMessage } from './will.js';
 export {
   encodePacket,

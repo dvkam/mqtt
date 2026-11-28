@@ -12,6 +12,7 @@ import { openMqttWebSocket } from './websocket.js';
 import { resolveWebSocketMessageLimit } from './websocketLimits.js';
 import { MqttError, ReceiveLimitError } from './mqttError.js';
 import type { WillOptions } from './will.js';
+import type { ReadonlyDeep } from './util/bytes.js';
 
 export type BrowserMessage = PublishMessage;
 
@@ -35,9 +36,9 @@ export interface BrowserClientOptions extends PublicationLimits, SubscriptionLim
   will?: WillOptions;
   onDiagnostic?: DiagnosticObserver;
   onSessionEnd?: SessionEndObserver;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler receives `message` as its own, and the application owns the message and may write its fields and its payload, which `browserFactory` in test/types/mutable-contracts.ts checks. A read-only parameter type in this declaration would be false.
   onMessage?: (message: BrowserMessage) => void;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser message retains its mutable Uint8Array payload.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler receives `message` as its own, and the application owns the message and may write its fields and its payload, which `browserFactory` in test/types/mutable-contracts.ts checks. A read-only parameter type in this declaration would be false.
   onQosOneMessage?: (message: BrowserQosOneMessage) => void | Promise<void>;
   /**
    * Receives each inbound QoS 2 publication once. The client sends PUBREC after the handler returns or its promise
@@ -46,14 +47,13 @@ export interface BrowserClientOptions extends PublicationLimits, SubscriptionLim
   onQosTwoMessage?: NonNullable<PortableOptions['onQosTwoMessage']>;
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `Readonly<BrowserClientOptions>` still fails the rule, because the options hold an AbortSignal and a Will with byte views. `ReadonlyDeep` would pass, but it is an internal type, and this signature is public, so it names only exported types. Exporting the deep type is left to the owner.
 export function createBrowserClient(options: BrowserClientOptions): ClientFactory {
   return createByteClient(
     {
       name: 'WebSocket',
       supportsSharedSubscriptions: false,
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The opener keeps the inbound object and the native abort signal by identity.
-      async open(inbound, context) {
+      async open(inbound: Readonly<ByteInbound>, context: ReadonlyDeep<OpenContext>) {
         return openBrowserSocket(options, inbound, context);
       },
     },
@@ -63,8 +63,11 @@ export function createBrowserClient(options: BrowserClientOptions): ClientFactor
 }
 
 /** Open a native WebSocket with the `mqtt` subprotocol and adapt it to the byte transport contract. */
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
-async function openBrowserSocket(options: BrowserClientOptions, inbound: ByteInbound, context: OpenContext): Promise<ByteWriter> {
+async function openBrowserSocket(
+  options: ReadonlyDeep<BrowserClientOptions>,
+  inbound: Readonly<ByteInbound>,
+  context: ReadonlyDeep<OpenContext>,
+): Promise<ByteWriter> {
   const { timeoutMs } = context;
   const maxWebSocketMessageBytes = resolveWebSocketMessageLimit(context.maxPacketBytes, options.maxWebSocketMessageBytes);
   const socket = await openMqttWebSocket(options.url, { signal: context.signal, timeoutMs });
@@ -72,8 +75,7 @@ async function openBrowserSocket(options: BrowserClientOptions, inbound: ByteInb
   const closed = new Promise<void>((resolve) => {
     closeSeen = resolve;
   });
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.
-  const message = (event: MessageEvent) => {
+  const message = (event: Readonly<{ data: unknown }>) => {
     if (!(event.data instanceof ArrayBuffer)) {
       inbound.fail(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket requires binary messages'));
       return;
@@ -109,7 +111,7 @@ async function openBrowserSocket(options: BrowserClientOptions, inbound: ByteInb
     get bufferedBytes() {
       return socket.bufferedAmount;
     },
-    // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- A closed socket must reject through the writer's promise. The native socket keeps the encoded bytes.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- Removing it would cost performance. `WebSocket.send` takes a writable view over an `ArrayBuffer` and rejects `ReadonlyBytes` (TS2345), so a read-only `bytes` would need a copy for every packet, and `WriterBytesAreWritable` in test/types/mutable-contracts.ts pins the writable type. The method is async without an await so that a closed socket rejects through the returned promise. Returning a promise from it costs about 49 bytes and 40 ns more for every packet (test/bench/promise-forwarding.ts, recorded in docs/measurements.md).
     async write(bytes) {
       // send() on a closing socket drops the data without an error.
       if (socket.readyState !== WebSocket.OPEN) throw new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket closed');

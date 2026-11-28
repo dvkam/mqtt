@@ -53,7 +53,7 @@ export type { MqttErrorCode, MqttErrorDetails } from './mqttError.js';
 /** Create a one-shot MQTT client with Buffer payloads over a custom transport. */
 export function createTransportClient(
   transport: Readonly<ByteTransport>,
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteClientOptions holds a native AbortSignal and Buffer callbacks, and Readonly<> cannot hide their mutable members. createByteClient in src/transportCore.ts takes the same type.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `Readonly<ByteClientOptions<Buffer>>` still fails the rule, because the options hold an AbortSignal and a Will with byte views. `ReadonlyDeep` would pass, but it is an internal type, and this signature is public, so it names only exported types. Exporting the deep type is left to the owner.
   options: Readonly<ByteClientOptions<Buffer>>,
 ): ClientFactory {
   return createByteClient(transport, options, nodePlatform);

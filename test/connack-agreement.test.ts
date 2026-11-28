@@ -8,6 +8,7 @@ import { createBrowserClient } from '../src/browser.js';
 import { PacketDecoder, encodePacket } from '../src/codec.js';
 import { startTcpPacketPeer } from './experiments/tcp-packet-peer.js';
 import { startWebSocketPacketPeer } from './experiments/websocket-packet-peer.js';
+import { entryAt } from './experiments/entry.js';
 
 function decodedPeer(onListen?: () => void) {
   let receive: Parameters<PacketTransport['listen']>[0] | undefined;
@@ -164,7 +165,7 @@ test('exposes the validated assigned identifier and a frozen broker capability s
   };
   peer.receive()?.(reply);
   reply.assignedClientIdentifier = 'changed';
-  userProperties[0]![1] = 'changed';
+  entryAt(userProperties, 0)[1] = 'changed';
   const client = await opening;
   expect(client.connection).toMatchObject({
     clientId: 'assigned-id',

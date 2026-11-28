@@ -3,7 +3,7 @@ import { ProtocolInputError } from './protocolInputError.js';
 import { isSubscriptionReason } from './subscriptionReason.js';
 import { isAcknowledgmentReason } from './pubackReason.js';
 import { captureWill, validateWillPayload, type WillMessage } from './will.js';
-import { isBytes, ownByteLength, variableByteIntegerSize, type ReadonlyBytes } from './util/bytes.js';
+import { isBytes, ownByteLength, variableByteIntegerSize, type ReadonlyBytes, type ReadonlyDeep } from './util/bytes.js';
 import { loneSurrogate, utf8Length } from './util/utf8.js';
 import {
   decodeUtf8,
@@ -374,10 +374,7 @@ function encodeWill(will: EncodableWill): Uint8Array<ArrayBuffer> {
   return join([propertySection(parts), utf8(will.topic), payload]);
 }
 
-function properties(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
-  packet: Readonly<Exclude<WirePacket, { cmd: 'pingreq' | 'pingresp' }>>,
-): Uint8Array<ArrayBuffer> {
+function properties(packet: ReadonlyDeep<Exclude<WirePacket, { cmd: 'pingreq' | 'pingresp' }>>): Uint8Array<ArrayBuffer> {
   const parts: Uint8Array[] = [];
   for (const [key, value] of packet.userProperties ?? []) parts.push(Uint8Array.of(0x26), utf8(key), utf8(value));
   if ((packet.cmd === 'connect' || packet.cmd === 'connack') && packet.receiveMaximum !== undefined)
@@ -421,7 +418,7 @@ function properties(
 
 /** MQTT 5 preview profile. Unsupported packet forms and properties are rejected. */
 export function encodePacket(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `Readonly<WirePacket>` still fails the rule, because a CONNECT packet holds a Will with writable members. `ReadonlyDeep` would pass, but it is an internal type, and this signature is public through `mqtt/codec`, so it names only exported types. Exporting the deep type is left to the owner.
   packet: Readonly<WirePacket>,
   { sharedSubscriptions = false }: Readonly<{ sharedSubscriptions?: boolean }> = {},
 ): Uint8Array<ArrayBuffer> {
@@ -607,10 +604,9 @@ export function encodePacket(
 }
 
 class Reader {
-  private readonly bytes: Uint8Array;
+  private readonly bytes: ReadonlyBytes;
   offset = 0;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
-  constructor(bytes: Readonly<Uint8Array>) {
+  constructor(bytes: ReadonlyBytes) {
     this.bytes = bytes;
   }
   get remaining(): number {
@@ -623,8 +619,11 @@ class Reader {
     return value;
   }
   byte(): number {
-    if (this.offset >= this.bytes.length) throw new Error('Truncated MQTT field');
-    return this.bytes[this.offset++]!;
+    const value = this.bytes[this.offset];
+    // A byte view yields undefined only past its end, so this is the bounds check.
+    if (value === undefined) throw new Error('Truncated MQTT field');
+    this.offset++;
+    return value;
   }
   uint16(): number {
     return this.byte() * 256 + this.byte();
@@ -684,8 +683,7 @@ function validateHeader(header: number): void {
   }
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
-function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
+function decodeFrame(frame: ReadonlyBytes): WirePacket {
   const reader = new Reader(frame);
   const header = reader.byte();
   reader.variable();
@@ -695,8 +693,7 @@ function decodeFrame(frame: Readonly<Uint8Array>): WirePacket {
   return packet;
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
-function inPublicProfile(packet: FramedPacket): packet is WirePacket {
+function inPublicProfile(packet: ReadonlyDeep<FramedPacket>): packet is WirePacket {
   return packet.cmd !== 'auth';
 }
 
@@ -704,8 +701,7 @@ function inPublicProfile(packet: FramedPacket): packet is WirePacket {
  * Decode one packet from its fixed-header byte and the bytes that follow it, starting at the Remaining Length.
  * The caller owns the fixed-header checks, the direction check and the Topic Alias policy.
  */
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
-export function decodeFramedPacket(header: number, lengthAndBody: Readonly<Uint8Array>): FramedPacket {
+export function decodeFramedPacket(header: number, lengthAndBody: ReadonlyBytes): FramedPacket {
   const reader = new Reader(lengthAndBody);
   reader.variable();
   return decodeBody(header, reader, false);
@@ -889,8 +885,7 @@ export class PacketDecoder {
   constructor({ maxPacketBytes = 1024 * 1024 }: Readonly<{ maxPacketBytes?: number }> = {}) {
     this.maxPacketBytes = integer(maxPacketBytes, 268_435_460, 2);
   }
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
-  push(bytes: Readonly<Uint8Array>): WirePacket[] {
+  push(bytes: ReadonlyBytes): WirePacket[] {
     const batch = this.pushBatch(bytes);
     if (!Array.isArray(batch)) throw batch.error;
     return batch;
@@ -905,7 +900,8 @@ export class PacketDecoder {
     try {
       while (index < bytes.length) {
         if (!this.frame) {
-          const digit = bytes[index++]!;
+          // The loop condition proved that index is inside bytes, so the fallback never applies.
+          const digit = bytes[index++] ?? 0;
           this.header.push(digit);
           if (this.header.length === 1) {
             validateHeader(digit);

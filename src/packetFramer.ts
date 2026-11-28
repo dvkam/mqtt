@@ -103,7 +103,8 @@ export class PacketFramer {
           this.flush();
           continue;
         }
-        const digit = bytes[index++]!;
+        // The loop condition proved that index is inside bytes, so the fallback never applies.
+        const digit = bytes[index++] ?? 0;
         if (this.header === undefined) {
           this.header = digit;
           validateFixedHeader(digit);

@@ -3,6 +3,7 @@ import type { ClientPacket } from '../src/codec.js';
 import { expect, test, vi } from 'vitest';
 import { connectPortable, type PacketTransport } from '../src/portable.js';
 import type { ReadonlyDeep } from '../src/util/bytes.js';
+import { entryAt } from './experiments/entry.js';
 
 /** The scripted transport. Its `send` only reads the packet, so an override may forward the read-only view to it. */
 type ReadingTransport = Omit<PacketTransport, 'send'> & { send: (packet: ReadonlyDeep<ClientPacket>) => Promise<void> };
@@ -12,8 +13,13 @@ function deferred() {
 }
 
 async function peer(options = {}) {
-  let receive!: Parameters<PacketTransport['listen']>[0];
-  let retire!: Parameters<PacketTransport['listen']>[1];
+  // The session replaces both when it listens. A fixture that used one earlier would fail here.
+  let receive: Parameters<PacketTransport['listen']>[0] = () => {
+    throw new Error('The session has not listened yet');
+  };
+  let retire: Parameters<PacketTransport['listen']>[1] = () => {
+    throw new Error('The session has not listened yet');
+  };
   const packets: ReadonlyDeep<ClientPacket>[] = [];
   const transport: ReadingTransport = {
     async send(packet: ReadonlyDeep<ClientPacket>) {
@@ -75,7 +81,7 @@ test('returns the broker grant and metadata when it downgrades a QoS 1 subscript
     ['origin', 'policy'],
   ];
   broker.receive({ cmd: 'suback', messageId: 1, granted: [0], reasonString: 'limited', userProperties });
-  userProperties[0]![1] = 'changed';
+  entryAt(userProperties, 0)[1] = 'changed';
   await expect(acknowledged).resolves.toEqual({
     grantedQos: 0,
     reasonCode: 0,

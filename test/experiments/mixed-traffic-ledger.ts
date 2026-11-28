@@ -30,7 +30,7 @@ export class ProbeRound {
   private pendingEchoes = 0;
   private checksum = 0;
   private closed = false;
-  private resolveCompletion!: () => void;
+  private readonly resolveCompletion: () => void;
   readonly completion: Promise<void>;
   constructor(expectedAttempts: number, expectedAccepted: number) {
     if (
@@ -43,9 +43,9 @@ export class ProbeRound {
       throw new Error('Invalid round limits');
     this.expectedAttempts = expectedAttempts;
     this.expectedAccepted = expectedAccepted;
-    this.completion = new Promise((resolve) => {
-      this.resolveCompletion = resolve;
-    });
+    const { promise, resolve } = Promise.withResolvers<void>();
+    this.completion = promise;
+    this.resolveCompletion = resolve;
   }
   attempt(id: number, startedAt: number): string {
     if (

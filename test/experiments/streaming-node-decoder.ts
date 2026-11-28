@@ -42,7 +42,8 @@ export class StreamingNodeDecoder {
           this.parse(fragment);
           continue;
         }
-        const digit = bytes[index++]!;
+        // The loop condition proved that index is inside bytes, so the fallback never applies.
+        const digit = bytes[index++] ?? 0;
         if (this.firstByte) {
           this.firstByte = false;
           this.parse(Buffer.of(digit));

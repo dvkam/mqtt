@@ -6,6 +6,7 @@ import { createWebSocketClient } from '../src/ws.js';
 import { createBrowserClient } from '../src/browser.js';
 import { startTcpPacketPeer } from './experiments/tcp-packet-peer.js';
 import { startWebSocketPacketPeer } from './experiments/websocket-packet-peer.js';
+import { entryAt } from './experiments/entry.js';
 
 type Kind = 'connack' | 'publish' | 'puback' | 'pubrec' | 'pubrel' | 'pubcomp' | 'suback' | 'unsuback' | 'disconnect';
 function variable(value: number): number[] {
@@ -296,7 +297,7 @@ test('resets singleton tracking for each packet and leaves non-topic strings unr
 
 test('does not introduce payload UTF-8 validation for Payload Format Indicator 1', () => {
   const bytes = frame('publish', [0x01, 1]);
-  bytes[1] = bytes[1]! + 1;
+  bytes[1] = entryAt(bytes, 1) + 1;
   bytes.push(0xc0);
   const result = decode(bytes);
   expect(result.failure).toBeUndefined();

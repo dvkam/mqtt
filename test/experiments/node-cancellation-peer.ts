@@ -6,14 +6,8 @@ import type { ReadonlyDeep } from '../../src/util/bytes.js';
 
 export async function startCancellationPeer(kind: 'tcp' | 'websocket') {
   const commands: string[] = [];
-  let sawPing!: () => void;
-  let sawClose!: () => void;
-  const pingSeen = new Promise<void>((resolve) => {
-    sawPing = resolve;
-  });
-  const peerClosed = new Promise<void>((resolve) => {
-    sawClose = resolve;
-  });
+  const { promise: pingSeen, resolve: sawPing } = Promise.withResolvers<void>();
+  const { promise: peerClosed, resolve: sawClose } = Promise.withResolvers<void>();
   const sockets = new Set<Socket | WebSocket>();
   const packets = (write: (bytes: Readonly<Buffer<Readonly<ArrayBufferLike>>>) => void) => {
     const decoder = parser({ protocolVersion: 5 });

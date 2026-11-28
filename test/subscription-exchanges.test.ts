@@ -1,6 +1,7 @@
 import { generate } from 'mqtt-packet';
 import { expect, test } from 'vitest';
 import { SubscriptionExchanges, resolveSubscriptionLimits } from '../src/subscriptionExchanges.js';
+import { entryAt } from './experiments/entry.js';
 
 test.each([0, -1, 1.5, NaN, Infinity, 65_536])('rejects invalid entry capacity %s', (maxPendingSubscriptions) => {
   expect(() => resolveSubscriptionLimits({ maxPendingSubscriptions })).toThrow(RangeError);
@@ -32,10 +33,10 @@ test('wraps the full identifier range, rejects exhaustion and protects a reused 
   const registry = new SubscriptionExchanges({ maxPendingSubscriptions: 65_535 });
   const reservations = Array.from({ length: 65_535 }, () => registry.reserve('a'));
   expect(new Set(reservations.map((entry: Readonly<{ messageId: number }>) => entry.messageId)).size).toBe(65_535);
-  expect(reservations[0]!.messageId).toBe(1);
-  expect(reservations[65_534]!.messageId).toBe(65_535);
+  expect(entryAt(reservations, 0).messageId).toBe(1);
+  expect(entryAt(reservations, 65_534).messageId).toBe(65_535);
   expect(() => registry.reserve('a')).toThrow('MQTT subscription capacity exceeded');
-  const old = reservations[1]!;
+  const old = entryAt(reservations, 1);
   registry.accept({ cmd: 'suback', messageId: 2, granted: [0] });
   await old.acknowledged;
   old.release();

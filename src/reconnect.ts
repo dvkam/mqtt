@@ -493,7 +493,7 @@ export function createReconnectingClient<Options extends Reconnectable>(
   });
 
   return {
-    // oxlint-disable-next-line typescript/promise-function-async -- An async function returns a new promise on each call. The test 'returns the same session promise until that session ends' in test/reconnect.test.ts checks with toBe that repeated calls return one promise.
+    // oxlint-disable-next-line typescript/promise-function-async -- Removing it would cost developer experience. `session` returns the one stored promise until that session ends, and the test 'returns the same session promise until that session ends' in test/reconnect.test.ts compares the promises with `toBe`. An async method would return a new promise on each call.
     session() {
       return stopError === undefined ? next.promise : Promise.reject(stopError);
     },

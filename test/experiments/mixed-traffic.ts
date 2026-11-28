@@ -90,10 +90,7 @@ export async function runMixedTrafficProbe(
     throw new Error('Invalid probe configuration');
   const controller = new AbortController();
   let firstFailure: Error | undefined;
-  let rejectFailure!: (reason: Readonly<Error>) => void;
-  const failed = new Promise<never>((_, reject) => {
-    rejectFailure = reject;
-  });
+  const { promise: failed, reject: rejectFailure } = Promise.withResolvers<never>();
   void failed.catch(() => {});
   const fail = (reason: unknown) => {
     if (firstFailure) return;

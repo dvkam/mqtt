@@ -93,7 +93,6 @@ export function exchangeBroker(script: Readonly<ExchangeScript> = {}) {
   const held: (() => void)[] = [];
   const transport: ByteTransport = {
     name: 'Exchange broker',
-    // oxlint-disable-next-line typescript/require-await -- Developer experience: ByteTransport.open in src/byteTransport.ts returns a promise, and promise-function-async requires an async function for that. This opener has nothing to wait for, and an await added for the rule would put every scripted connection one microtask later than the tests state.
     async open(inbound: Readonly<ByteInbound>) {
       const decoder = new PacketDecoder();
       const index = connections.length + 1;
@@ -120,7 +119,7 @@ export function exchangeBroker(script: Readonly<ExchangeScript> = {}) {
       };
       connections.push(connection);
       read.push(seen);
-      return {
+      return Promise.resolve({
         get bufferedBytes() {
           return script.buffered?.() ?? 0;
         },
@@ -164,7 +163,7 @@ export function exchangeBroker(script: Readonly<ExchangeScript> = {}) {
             });
         },
         async close() {},
-      };
+      });
     },
   };
   /** The nth connection, counted from 0. */

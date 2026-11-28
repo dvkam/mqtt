@@ -86,7 +86,7 @@ export interface ClientSession {
    * Send a PUBLISH. A string payload is sent as UTF-8. A Uint8Array payload and Correlation Data are written as given, so
    * do not change their bytes before the returned promise settles.
    */
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The payload and Correlation Data are the caller's Uint8Array views, and the signal keeps its native identity.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The client hands `payload` to `PacketTransport.send` inside a `ClientPacket` without a copy, and a custom transport receives that packet with a writable payload (`packetTransport` in test/types/mutable-contracts.ts). A read-only parameter type here would promise the caller more than the client can keep. `Readonly<PublishOptions>` still fails the rule, because the options hold Correlation Data as a byte view. `ReadonlyDeep` would pass, but it is an internal type, and this signature is public, so it names only exported types. Exporting the deep type is left to the owner.
   publish(topic: string, payload: string | Uint8Array, options?: Readonly<PublishOptions>): Promise<void>;
   ping(): Promise<void>;
   disconnect(options?: Readonly<DisconnectOptions>): Promise<void>;

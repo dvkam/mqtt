@@ -110,7 +110,8 @@ for (const [name, packet] of workloads) {
     times.push(run(wire));
   }
   times.sort((left, right) => left - right);
-  const median = times[Math.floor(times.length / 2)]!;
+  const median = times[Math.floor(times.length / 2)];
+  if (median === undefined) throw new Error('The benchmark ran no batch');
   console.log(
     JSON.stringify({
       kind: 'decode',

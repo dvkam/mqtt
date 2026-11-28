@@ -22,9 +22,8 @@ let publications = 0;
 let releases = 0;
 const transport: ByteTransport = {
   name: 'benchmark writer',
-  // oxlint-disable-next-line typescript/require-await -- Developer experience: ByteTransport.open in the installed package returns a promise, and promise-function-async requires an async function for that. This opener has nothing to wait for, and an await added for the rule would be code that serves no reader.
   async open(inbound: Readonly<ByteInbound>) {
-    return {
+    return Promise.resolve({
       bufferedBytes: 0,
       // oxlint-disable-next-line typescript/promise-function-async -- Performance: an async write would allocate a promise per packet inside the measured loop, so this writer returns one settled promise.
       write(bytes: Readonly<Uint8Array<Readonly<ArrayBufferLike>>>) {
@@ -44,7 +43,7 @@ const transport: ByteTransport = {
       close: async () => {
         await completed;
       },
-    };
+    });
   },
 };
 
