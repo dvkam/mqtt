@@ -51,6 +51,8 @@ export interface ExchangeScript {
   hold?: (packet: ReadPacket, connection: number) => boolean;
   /** The writer's `bufferedBytes`. Defaults to 0. */
   buffered?: () => number;
+  /** Deliver each answer from inside the write call that caused it, as an in-memory transport can. Defaults to false. */
+  immediate?: boolean;
 }
 
 const encoder = new TextEncoder();
@@ -81,7 +83,8 @@ export function acknowledge({ cmd, qos, messageId }: ReadPacket): readonly Deliv
 
 /**
  * A broker over the byte transport for the QoS 1 and QoS 2 exchange tests. It answers CONNECT, SUBSCRIBE and PINGREQ, and
- * the script decides every other answer. Each answer arrives one microtask after the write that caused it.
+ * the script decides every other answer. Each answer arrives one microtask after the write that caused it, unless the
+ * script sets `immediate`.
  */
 export function exchangeBroker(script: Readonly<ExchangeScript> = {}) {
   const connections: ExchangeConnection[] = [];
@@ -95,9 +98,11 @@ export function exchangeBroker(script: Readonly<ExchangeScript> = {}) {
       const index = connections.length + 1;
       const seen: ReadPacket[] = [];
       const reply = (bytes: ArrayLike<number>): void => {
-        queueMicrotask(() => {
-          inbound.bytes(Uint8Array.from(bytes));
-        });
+        if (script.immediate === true) inbound.bytes(Uint8Array.from(bytes));
+        else
+          queueMicrotask(() => {
+            inbound.bytes(Uint8Array.from(bytes));
+          });
       };
       const connection: ExchangeConnection = {
         packets: [],

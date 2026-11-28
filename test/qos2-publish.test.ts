@@ -62,6 +62,14 @@ test('a QoS 2 publish writes PUBLISH, answers PUBREC with PUBREL and resolves on
   await session.disconnect();
 });
 
+test('a transport that answers from inside its write call completes QoS 2 exchanges', async () => {
+  const { session, sent } = await publisher({ answer: acknowledge, immediate: true });
+  await session.publish('a', 'one', qosTwo);
+  await Promise.all([session.publish('b', 'two', qosTwo), session.publish('c', 'three', qosOne)]);
+  expect(sent()).toEqual(['publish a qos 2 id 1', 'pubrel 1', 'publish b qos 2 id 1', 'publish c qos 1 id 2', 'pubrel 1']);
+  await session.disconnect();
+});
+
 test('a QoS 2 publish carries its properties and retain flag', async () => {
   const { session, connection } = await publisher({ answer: acknowledge });
   await session.publish('a', Uint8Array.of(1, 2), { qos: 2, retain: true, contentType: 'x', userProperties: [['k', 'v']] });

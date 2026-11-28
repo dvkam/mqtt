@@ -12,7 +12,7 @@ The promise settles as the table shows.
 
 | Broker answer | Publish promise | What the client does |
 | --- | --- | --- |
-| PUBREC with a reason below 0x80 | Stays pending | Writes PUBREL once the PUBLISH write settled |
+| PUBREC with a reason below 0x80 | Stays pending | Writes PUBREL at once, so the PUBRELs go out in the order the PUBRECs arrive (MQTT-4.6.0-4), also while an earlier PUBLISH write is still pending |
 | PUBREC with a reason of 0x80 or above | Rejects with `ERR_MQTT_REFUSED`, `fatal: false` and the `reasonCode` | Writes no PUBREL, and frees the quota slot and the Packet Identifier |
 | PUBCOMP with reason 0 or 0x92 | Resolves | Frees the quota slot and the Packet Identifier |
 
@@ -36,7 +36,7 @@ Without a resumed session the client sends neither packet again. An entry with `
 - The session reads Maximum QoS from CONNACK. A publish with a higher QoS rejects with `ERR_MQTT_INVALID_ARGUMENT` before anything is written. `session.connection.maximumQos` holds the value.
 - QoS 1 and QoS 2 publications share the broker's Receive Maximum and one queue, so they go out in call order. A QoS 2 exchange keeps its quota slot and its Packet Identifier until PUBCOMP, or until a refusing PUBREC. [MQTT 5 section 4.9](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html)
 - Queued and active QoS 2 publications count toward `maxPendingPublishes` and `maxPendingPublishBytes`, as QoS 1 publications do. [Outbound QoS 1](qos1-publish.md#admission-and-quota)
-- Each step has its own operation deadline of `timeoutMs`. The first covers the PUBLISH write and the PUBREC. The second covers the PUBREL write and the PUBCOMP. A missed deadline ends the session with `ERR_MQTT_TIMEOUT`.
+- Each step has its own operation deadline of `timeoutMs`. The first covers the PUBLISH write and the PUBREC. The second starts when the PUBREC arrives and covers the PUBREL write and the PUBCOMP. A missed deadline ends the session with `ERR_MQTT_TIMEOUT`. The exchange keeps its slot until both writes have settled.
 - A `signal` withdraws a publication that is still queued. After dispatch an abort rejects the caller's promise with the abort reason, and the exchange still runs to PUBCOMP and keeps its slot until then.
 - A built-in transport that refuses the PUBLISH at its write budget rejects that publish and leaves the session usable, as at QoS 1.
 
@@ -45,9 +45,9 @@ Without a resumed session the client sends neither packet again. An entry with `
 | Packet from the broker | What the client does |
 | --- | --- |
 | A second PUBREC for an exchange, or a PUBREC for the identifier of a QoS 1 exchange | Ignores it. The exchange keeps the reason code of its first PUBREC. |
-| A PUBREC below 0x80 for an identifier without an exchange | Writes PUBREL with reason 0x92, so the broker can drop what it holds |
+| A PUBREC below 0x80 for an identifier without an exchange | Writes PUBREL with reason 0x92, so the broker can drop what it holds. After `disconnect()` it writes nothing. |
 | A PUBREC of 0x80 or above for an identifier without an exchange | Ignores it |
-| A PUBCOMP for an exchange whose PUBREL has not gone out, or for an identifier without an exchange | Ignores it. The exchange stays pending. |
+| A PUBCOMP for an exchange that has no PUBREC yet, or for an identifier without an exchange | Ignores it. The exchange stays pending. |
 | A PUBACK for a QoS 2 exchange | Ignores it |
 | Packet Identifier 0, an unknown reason code or invalid fixed-header flags | Ends the session. [Error codes](errors.md) |
 

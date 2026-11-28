@@ -641,12 +641,17 @@ class PortableClient<Bytes extends Uint8Array> {
   }
 
   /**
-   * Write a PUBREC, PUBREL or PUBCOMP outside a handler call. The callers answer nothing once `disconnect()` was called.
-   * A failed write ends the session. `freesSlot` marks the PUBCOMP that ends the publication in the receive slot, so the
-   * retained next PUBLISH starts once the write settled.
+   * Answer a packet that just arrived with a PUBREC, PUBREL or PUBCOMP. The write starts on the next microtask, because
+   * a transport may deliver a packet from inside its own write call and the packet input does not take bytes while it
+   * handles one. The callers answer nothing once `disconnect()` was called. A failed write ends the session.
+   * `freesSlot` marks the PUBCOMP that ends the publication in the receive slot, so the retained next PUBLISH starts once
+   * the write settled.
    */
   private answer(packet: Readonly<Extract<ClientPacket, { cmd: 'pubrec' | 'pubrel' | 'pubcomp' }>>, freesSlot = false): void {
-    void this.run(async () => this.sendPacket(packet), 'inbound-publish')
+    void this.run(async () => {
+      await Promise.resolve();
+      await this.sendPacket(packet);
+    }, 'inbound-publish')
       .catch(this.failInbound.bind(this))
       .finally(() => {
         if (!freesSlot) return;
@@ -719,7 +724,7 @@ class PortableClient<Bytes extends Uint8Array> {
   }
 
   /**
-   * Write the PUBREL of an outbound QoS 2 exchange at once and wait for its PUBCOMP. Both reason codes of a PUBCOMP end the
+   * Write the PUBREL of an outbound QoS 2 exchange and wait for its PUBCOMP. Both reason codes of a PUBCOMP end the
    * exchange. 0x92 says the broker no longer knows the Packet Identifier, which happens when it already released the
    * message and its first PUBCOMP was lost with an earlier connection.
    */
@@ -727,16 +732,25 @@ class PortableClient<Bytes extends Uint8Array> {
     let sent: Promise<void> | undefined;
     try {
       return await this.run(async () => {
-        const packet: ClientPacket = { cmd: 'pubrel', messageId, reasonCode: 0 };
-        // MQTT-3.14.4-1: a PUBREC that arrives once DISCONNECT is due gets no PUBREL. The exchange stays for a resume.
-        if (this.writesEnded) sent = Promise.reject(this.writesEnded);
-        else sent = resent ? this.resend(packet) : this.sendIdentified(packet, 'MQTT publication release failed');
+        sent = resent ? this.resend({ cmd: 'pubrel', messageId, reasonCode: 0 }) : this.answerPubrec(messageId);
         const [code] = await Promise.all([completion, sent]);
         return code;
       }, 'outbound-publish');
     } finally {
       await sent?.catch(() => {});
     }
+  }
+
+  /**
+   * Write the PUBREL for a PUBREC that just arrived. A transport may deliver the PUBREC from inside its own write call,
+   * and the packet input does not take bytes while it handles a packet, so the PUBREL leaves on the next microtask. The
+   * PUBRELs still leave in the order the PUBRECs arrived (MQTT-4.6.0-4).
+   */
+  private async answerPubrec(messageId: number): Promise<void> {
+    await Promise.resolve();
+    // MQTT-3.14.4-1: a PUBREC that arrives once DISCONNECT is due gets no PUBREL. The exchange stays for a resume.
+    if (this.writesEnded) throw this.writesEnded;
+    await this.sendIdentified({ cmd: 'pubrel', messageId, reasonCode: 0 }, 'MQTT publication release failed');
   }
 
   /**

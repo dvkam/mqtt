@@ -211,6 +211,28 @@ test('a PUBREL that arrives while the handler runs is a protocol error with reas
   expect(answers(connection.frames)).toEqual([[0xe0, 1, 0x82]]);
 });
 
+test('a transport that answers from inside its write call completes inbound QoS 2 exchanges', async () => {
+  const { session, connection, delivered } = await receiver({
+    immediate: true,
+    answer(packet) {
+      if (packet.cmd === 'pubrec' && packet.messageId !== undefined)
+        return [{ cmd: 'pubrel', messageId: packet.messageId, reasonCode: 0 }];
+      return packet.cmd === 'pubcomp' && packet.messageId === 7 ? [publication(8)] : undefined;
+    },
+  });
+  connection.deliver(publication(7));
+  await settle();
+  expect(delivered).toEqual([7, 8]);
+  expect(answers(connection.frames)).toEqual([
+    [0x50, 2, 0, 7],
+    [0x70, 2, 0, 7],
+    [0x50, 2, 0, 8],
+    [0x70, 2, 0, 8],
+  ]);
+  await session.ping();
+  await session.disconnect();
+});
+
 test('a QoS 2 handler alone advertises Receive Maximum 1', async () => {
   const peer = exchangeBroker();
   const session = await createTransportClient(peer.transport, { clientId: 'receiver', onQosTwoMessage() {} }).connect();
