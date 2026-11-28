@@ -49,7 +49,7 @@ The models check safety in small finite instances. Callbacks run to completion. 
 No module covers these rules. Only tests check them.
 
 - Session Present after Clean Start false. `SessionPresentAgreement` assumes Clean Start true. When `cleanStart` is false, `receiveConnack` in `src/portable.ts` accepts Session Present true with reason code 0 only, and `open` then resumes the stored publications through `src/sessionState.ts`. A refused CONNACK with Session Present true stays a protocol error.
-- The resend phase in `src/portable.ts` and `src/outboundQosOne.ts`: resends in stored order with DUP set, the QoS 0 and QoS 1 publications that wait for them, and no write after DISCONNECT. `QosOneOutbound` leaves out `resume` and `releaseQueued`. `QosTwoOutbound` covers which packet a resumed QoS 2 exchange continues with, not the order of the resends.
+- The resend phase in `src/portable.ts` and `src/outboundQosOne.ts`: resends in stored order with DUP set, the QoS 0 and QoS 1 publications that wait for them, and no write after DISCONNECT. `QosOneOutbound` leaves out `resume` and `releaseQueued`. `QosTwoOutbound` covers which packet a resumed QoS 2 exchange continues with and that a stored PUBREL does not wait for the quota, not the order of the resends.
 - The reconnect loop in `src/reconnect.ts`: the retry timer and `retryNow()`, the attempt count, the subscriptions made again after CONNACK, and `disconnect()` during an attempt or a wait.
 - The page lifecycle adapter in `src/pageLifecycle.ts`.
 - Maximum Packet Size: the CONNACK value below 4 that `receiveConnack` rejects, and the size checks in `PublicationAdmission.reserve` and `SubscriptionExchanges.reserve`.
