@@ -10,39 +10,94 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels the run of its older commit. A run on main or on the schedule gets a group of
+# its own, so it always finishes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
+  # The main ruleset requires checks (ubuntu-26.04) and checks (windows-latest). Each job installs once and runs every
+  # check as a step of its own. A check runs after an earlier check failed, and it starts from a tree without the
+  # files an earlier check wrote. Keep this job free of a job-level `if`. GitHub counts a skipped required job as
+  # passing.
   verify:
-    name: ${{ matrix.check }} (${{ matrix.os }})
+    name: checks (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-26.04, windows-latest]
-        check: [test, 'test:types', lint, 'format:check', build]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    outputs:
+      Linux: ${{ steps.failed.outputs.Linux }}
+      Windows: ${{ steps.failed.outputs.Windows }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
       - uses: pnpm/action-setup@v6
-      - run: pnpm install --frozen-lockfile
+      - id: install
+        run: pnpm install --frozen-lockfile
+      - name: test
+        id: test
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: git clean -fdxq -e node_modules && pnpm test
+      - name: test:types
+        id: test-types
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: git clean -fdxq -e node_modules && pnpm test:types
       # Lint reads emitted declarations. Emitting them without a type check keeps a type error in the test:types check only.
-      - if: matrix.check == 'lint'
-        run: pnpm lint:declarations
-      - run: pnpm ${{ matrix.check }}
+      - name: lint
+        id: lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: git clean -fdxq -e node_modules && pnpm lint:declarations && pnpm lint
+      - name: format:check
+        id: format-check
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: git clean -fdxq -e node_modules && pnpm format:check
+      - name: build
+        id: build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: git clean -fdxq -e node_modules && pnpm build
+      - name: Name the failed checks
+        id: failed
+        if: ${{ failure() }}
+        shell: bash
+        env:
+          OUTCOMES: >-
+            test=${{ steps.test.outcome }}
+            test:types=${{ steps.test-types.outcome }}
+            lint=${{ steps.lint.outcome }}
+            format:check=${{ steps.format-check.outcome }}
+            build=${{ steps.build.outcome }}
+        run: |
+          failed=()
+          for outcome in $OUTCOMES; do
+            if [[ $outcome == *=failure ]]; then
+              failed+=("\"${outcome%=*} (${{ matrix.os }})\"")
+            fi
+          done
+          (IFS=,; echo "${{ runner.os }}=${failed[*]}") >> "$GITHUB_OUTPUT"
 
-  # The main ruleset requires checks (ubuntu-26.04) and checks (windows-latest). Each fails unless every verify job passed
-  # on both platforms. It runs even after a cancel, because GitHub counts a skipped required job as passing.
-  checks:
-    if: ${{ always() }}
+  # A failed check also reports as a status with the name of the check, such as lint (windows-latest), so a pull
+  # request shows which check failed. A run without a failed check starts no runner for this job.
+  failed:
+    name: ${{ matrix.check }}
     needs: verify
+    if: ${{ failure() && (needs.verify.outputs.Linux || needs.verify.outputs.Windows) }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-26.04, windows-latest]
+        check: ${{ fromJSON(format('[{0}{1}{2}]', needs.verify.outputs.Linux, needs.verify.outputs.Linux && needs.verify.outputs.Windows && ',' || '', needs.verify.outputs.Windows)) }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 5
     steps:
-      - name: Require every check on both platforms
-        run: test "${{ needs.verify.result }}" = success
+      - name: Point to the output of the failed check
+        run: |
+          echo "::error title=${{ matrix.check }}::This check failed. Its output is in the step of the same name in the checks job of that platform."
+          exit 1
 
   packed-consumer:
     runs-on: ubuntu-26.04
