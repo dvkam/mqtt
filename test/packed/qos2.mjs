@@ -107,7 +107,12 @@ const onClientMessage = async (message) => {
   clientReceived.push({ payload, dup: message.dup });
   if (payload !== 'held') return;
   await new Promise((resolve, reject) => {
-    held.push({ resolve: () => resolve(undefined), reject });
+    held.push({
+      resolve: () => {
+        resolve(undefined);
+      },
+      reject,
+    });
   });
 };
 const unexpectedQosOne = () => {
