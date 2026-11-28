@@ -25,7 +25,7 @@ The established session uses the same parser, packet limits, publication and sub
 
 A real TCP peer holds the TLS handshake open. The test observes the actual TLS socket after TCP connection and checks that no MQTT CONNECT is submitted. A controlled timer checks timeout cleanup, and another test injects a native failure followed by cancellation. Source faults for early MQTT, replaced failure and retained abort listeners fail their regressions.
 
-The installed tarball completes MQTT 5 exchanges over TLS and mutual TLS against Mosquitto. It rejects an unknown CA, a wrong hostname and a missing client certificate. The fixture supplies extra verification-disable settings to confirm that the adapter discards them. The same broker script retains WS/WSS and proxy checks. The [local observations](baseline/tcp-tls-checks.md) record the fixture timings and their scope.
+The installed tarball completes MQTT 5 exchanges over TLS and mutual TLS against Mosquitto. It rejects an unknown CA, a wrong hostname and a missing client certificate. The fixture supplies extra verification-disable settings to confirm that the adapter discards them. The same broker script retains WS/WSS and proxy checks.
 
 The opening model checks authentication before MQTT, first failure and release of opening resources. It abstracts cryptography, byte contents, event-loop timing, native TLS buffers and MQTT acknowledgment processing.
 

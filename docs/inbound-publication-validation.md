@@ -18,4 +18,4 @@ The tests use independent bytes through each public client. They check the coded
 
 The existing ParserAckNotice, NodeInputLifecycle and BrowserAckOrder models cover downstream ownership and retirement. Byte-level name validation and the exact reason codes are checked by the wire tests. This change adds no reconnect alias state.
 
-[CONNACK property validation](connack-property-validation.md) covers original property strings before native conversion. Other packet-property validation remains under #9.
+[Property decoding](property-decoding.md) covers the checks on property strings. Other packet-property validation remains under #9.
