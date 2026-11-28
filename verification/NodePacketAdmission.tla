@@ -1,4 +1,15 @@
 ------------------------- MODULE NodePacketAdmission -------------------------
+\* Rule: The framer admits a packet only within maxPacketBytes, decodes it only when it is complete, stays failed
+\* after a failure or a stop, and rejects an end of input inside a packet.
+\* Source: src/packetFramer.ts (PacketFramer, push, flush, finish, stop, reject, assertOpen)
+\* Source: test/experiments/streaming-node-decoder.ts (StreamingNodeDecoder)
+\* Tests: test/packet-framer.test.ts, test/tcp-packet-admission.test.ts, test/websocket-packet-admission.test.ts, test/bounded-node-decoder.test.ts
+\* Mapping: Mode "compact" is PacketFramer, which allocates the packet without its first byte. Mode "streaming" is
+\* the comparison decoder under test/experiments, which allocates no packet region. Header, Declare and Copy are
+\* steps of push. Decode and the callback phase are flush calling onPacket. Stop is stop. Reject is reject. Finish
+\* is finish. InputAfterFailure is assertOpen.
+\* Not modeled: Fixed header checks, the Remaining Length encoding, which NodeCanonicalLength covers, the reentrancy
+\* guards and the allocator contract.
 EXTENDS Naturals
 CONSTANT Fault
 VARIABLES mode, phase, admitted, allocated, copied, decoded, earlyDecode,

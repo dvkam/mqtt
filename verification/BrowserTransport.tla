@@ -1,4 +1,20 @@
 ----------------------------- MODULE BrowserTransport -----------------------------
+\* Rule: No message reaches the session after the transport retired. Buffered writes stay within the write budget. A
+\* native close settles the writer even when the end notification throws.
+\* Source: src/browserClient.ts (openBrowserSocket, message, detach, nativeClosed, closeSeen)
+\* Source: src/transportCore.ts (connectOverBytes, finish, teardown)
+\* Source: src/packetInput.ts (PacketInput, push)
+\* Source: src/nativeWriteBudget.ts (allowsNativeWrite)
+\* Tests: test/browser-core-changes.test.ts, test/browser-client.test.ts, test/browser-eof.test.ts
+\* Mapping: Capture is a message event that the browser queued before retirement. Deliver is the message listener
+\* calling inbound.bytes, where PacketInput.push drops input after the terminal cause. Admit is allowsNativeWrite in
+\* send, measured against socket.bufferedAmount. Drain is the socket sending buffered bytes. Retire is a terminal
+\* path through finish or detachCore. NativeClose is nativeClosed, whose finally block calls closeSeen after
+\* inbound.end. Deadline is the timer in the writer's close.
+\* Not modeled: Timer delays in a suspended page, physical socket closure, listener counts and receive size, which
+\* WebSocketReceive covers.
+\* The model was written for src/browserTransport.ts, which no longer exists. The browser opener and the byte core
+\* now share its rules.
 EXTENDS Naturals
 CONSTANT Fault
 VARIABLES retired, captured, queued, invalidDelivery, nativeClosed, settled, observerThrows

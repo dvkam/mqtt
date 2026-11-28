@@ -1,4 +1,12 @@
 ----------------------------- MODULE CodecFrames -----------------------------
+\* Rule: The public decoder allocates a frame only within maxPacketBytes, emits a packet only when its frame is
+\* complete, and emits nothing after a failure.
+\* Source: src/wireCodec.ts (PacketDecoder, pushBatch, decodeFrame)
+\* Tests: test/codec.test.ts
+\* Mapping: Declare is the size check and the allocation of the frame. Copy is frame.set with the next input slice.
+\* Emit is the test that offset equals the frame length, followed by decodeFrame. Reject is the catch, which stores
+\* the failure and drops the frame. FailedInput is the failure guard at the start of pushBatch.
+\* Not modeled: Fixed header validation, byte arithmetic, field decoding and payload ownership.
 EXTENDS Naturals
 CONSTANT Fault
 VARIABLES phase, allocated, received, emittedEarly, emittedAfterFailure

@@ -187,3 +187,34 @@ jobs:
             export MQTT_TEST_CHROMIUM=1
           fi
           MOSQUITTO_BIN="$GITHUB_WORKSPACE/test/packed/mosquitto-container.sh" MQTT_BROKER_DIR="$RUNNER_TEMP/mqtt-broker" bash test/packed/mosquitto-ws.sh "$RUNNER_TEMP/mqtt-consumer"
+
+  # Checks every TLA+ model in verification/ with TLC. The job has no path filter, because a filter would let a source
+  # change that breaks a model's mapping skip it. The image provides Java 21, the version the models were checked with.
+  models:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    env:
+      TLC_SHA256: 936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+      - uses: actions/cache@v6
+        id: tlc
+        with:
+          path: tla2tools.jar
+          key: tlc-1.7.4-${{ env.TLC_SHA256 }}
+      - name: Download TLC 1.7.4
+        if: steps.tlc.outputs.cache-hit != 'true'
+        run: curl -fsSL --retry 3 -o tla2tools.jar https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
+      - name: Check the TLC download
+        run: echo "$TLC_SHA256  tla2tools.jar" | sha256sum --check
+      - name: Run the models
+        run: |
+          export JAVA="${JAVA_HOME_21_X64:?}/bin/java"
+          "$JAVA" -version
+          TLC_JAR=tla2tools.jar node verification/check.ts | tee -a "$GITHUB_STEP_SUMMARY"
