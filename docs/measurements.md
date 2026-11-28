@@ -128,7 +128,7 @@ The full lifecycle replay passed 43 positive models and found all 152 expected f
 | `async`, returns the given promise | 81.3, 86.8, 87.8 | 39.7, 46.2, 55.4 | 96.9, 97.2, 97.5 |
 | `async`, nothing awaited | 42.7, 46.6, 54.2 | 8.6, 8.6, 8.9 | 48.0, 48.0, 48.1 |
 
-The `async` form of a forwarding call allocates about 97 bytes more and takes about 50 ns longer per awaited call. An `async` function that returns a promise costs about 49 bytes and 40 ns more than one that awaits nothing. The numbers are for the call alone and say nothing about a whole publish.
+The `async` form of a forwarding call allocates about 97 bytes more and takes 44 to 57 ns longer per awaited call in these runs. A rerun by the reviewer of the pull request measured about 41 ns. An `async` function that returns a promise costs about 49 bytes and 40 ns more than one that awaits nothing. The numbers are for the call alone and say nothing about a whole publish.
 
 ```sh
 node --expose-gc --max-semi-space-size=256 test/bench/promise-forwarding.ts

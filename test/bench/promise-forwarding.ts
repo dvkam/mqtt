@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 const settled = Promise.resolve();
 let calls = 0;
 
-// oxlint-disable-next-line typescript/promise-function-async -- Removing it would cost developer experience: this function is the baseline the benchmark measures, a call that returns the promise it was given, and an async function cannot express that.
+// oxlint-disable-next-line typescript/promise-function-async -- Removing it would cost developer experience. This function is the baseline the benchmark measures, a call that returns the promise it was given, and an async function cannot express that.
 function forward(): Promise<void> {
   calls++;
   return settled;
@@ -16,7 +16,7 @@ async function asyncForward(): Promise<void> {
   return settled;
 }
 
-// oxlint-disable-next-line typescript/require-await -- Removing it would cost developer experience: this function is the second baseline the benchmark measures, an async function with nothing to wait for, and returning a promise from it would turn it into asyncForward.
+// oxlint-disable-next-line typescript/require-await -- Removing it would cost developer experience. This function is the second baseline the benchmark measures, an async function with nothing to wait for, and returning a promise from it would turn it into asyncForward.
 async function asyncBare(): Promise<void> {
   calls++;
 }
