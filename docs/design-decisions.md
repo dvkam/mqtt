@@ -11,6 +11,40 @@ Two terms used below:
 - The inbound rules are what the client does with each packet the broker sends: which packet types it accepts, how it shapes QoS 0 and QoS 1 messages, how it handles AUTH, and how it closes. At 351f172 the Node clients apply them in `src/nodePacketListener.ts` and `src/nodePacketInput.ts`, and the browser client has its own in `src/browserClient.ts` and `src/browserTransport.ts`.
 - A packet-level seam is a public hook for a custom transport that sends and receives decoded MQTT packets instead of bytes.
 
+## The session journal is a segment of checksummed commit frames
+
+Written on 28 November 2026 (UTC), for [#14](https://github.com/dvkam/mqtt/issues/14). A design for the session journal was written in a working session, with options and a recommendation for each choice, and the pull requests for #14 follow it. The options below were not put to the owner as a question. The pull request author chose among them, and the owner has not accepted them yet. Status: in the pull request for `feat/journal-format`, not merged when this entry was written. That pull request adds the format and its recovery rules as functions over bytes. Nothing reads or writes a file yet, and no entry point exports the module.
+
+Question: what does the journal keep on disk, and how does it change with each publish?
+
+| Option | Trade-off |
+| --- | --- |
+| One file per session, rewritten atomically: write a temporary file, sync, rename, sync the directory | The whole state and two syncs for each change, which is too slow for a publish. |
+| A snapshot file and a separate log file | One sync per batch, and two files that must agree. |
+| An append-only segment whose first frame is a snapshot (chosen, recommended by the design) | One write and one sync per batch, and one file is the truth at any time. Compaction writes the next segment. The format and its recovery are code this repository owns and tests. |
+| A database file through `node:sqlite` | Atomic commits and kernel locks without new code. The module is at stability 1.2, release candidate, in the Node 26 documentation, it has only a synchronous API, so each commit stops the event loop, and a test cannot stop it between a write and a sync. |
+
+Reason given by the pull request author: a publish must cost one sync that it can share with other publishes, and the kill-point tests of #14 need a storage they can stop at every step.
+
+Question: how is a publication stored?
+
+| Option | Trade-off |
+| --- | --- |
+| As the MQTT 5 PUBLISH packet the client's encoder writes (chosen, recommended by the design) | No second encoding of topic, payload and properties. Recovery uses the client's decoder and returns the publication value that the in-memory state holds, so the session resume code applies one rule for a smaller Maximum Packet Size to both. The format depends on the encoder's byte output, which the codec tests pin against mqtt-packet. |
+| In a layout of its own | Independent of the wire codec. A second encoder and decoder for every PUBLISH property, with their own tests. |
+
+Reason given by the pull request author: the codec already encodes every property the client accepts, and its tests already pin those bytes.
+
+Consequences, added by the pull request author:
+
+- A frame is one commit batch and has one CRC-32, from `crc32` of `node:zlib`. A frame that fails its checks at the end of a segment is a torn tail, which recovery drops. A frame that fails them before a valid frame makes the segment unreadable, because a writer writes a frame only after it synced the one before.
+- Every frame carries the generation of its segment. The design had the generation only in the file name. Without it, frames of a deleted segment that a file system leaves in a torn tail would count as proof of a commit, and a segment would be unreadable after a power loss.
+- Recovery is strict. An unknown format version, an unknown record type, a record that does not apply to the state before it, and a frame of the wrong epoch each make the segment unreadable with a reason. No rule skips what it does not understand.
+- Damage inside the last frame of a segment looks like a torn tail, and recovery drops that frame. A second sync for every commit would tell the two apart.
+- The module imports `node:zlib`, so it is for Node. `mqtt`, `mqtt/browser` and `mqtt/portable` do not import it, and the browser bundles do not change.
+
+What follows: [Session journal](journal.md) describes the format. The storage that reads and writes the segments, the lock, the entry point and the client changes are later pull requests for #14. The durability level, the session expiry rule, the error codes, the entry point name, the fields of a recovered publication, the inbound Receive Maximum and the takeover option are choices of those pull requests, and each records its own entry.
+
 ## QoS 2 in both directions
 
 Written on 28 November 2026 (UTC), for [#13](https://github.com/dvkam/mqtt/issues/13). The owner asked in a working session for QoS 2 on an active process. The request named both exchange directions, duplicate PUBLISH and PUBREL, a failed PUBREC that frees its quota slot, replay by phase after a resume and no second local delivery. The request left the handler shape, the delivery point, the meaning of PUBCOMP reason 0x92 and the content of the public codec to the pull request. The options below were not put to the owner as a question. The pull request author chose among them, and the owner has not accepted them yet. Status: in the pull request for `feat/qos2`, not merged when this entry was written.
