@@ -91,7 +91,8 @@ async function openSocket(
       if (socket.readyState !== WebSocket.OPEN) throw new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket closed');
       return new Promise((resolve, reject) => {
         socket.send(bytes, (error?: Readonly<Error> | null) => {
-          error ? reject(error) : resolve();
+          if (error) reject(error);
+          else resolve();
         });
       });
     },

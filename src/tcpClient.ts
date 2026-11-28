@@ -97,7 +97,8 @@ async function openTcpSocket(
       }
       return new Promise((resolve, reject) => {
         socket.write(bytes, (error?: Readonly<Error> | null) => {
-          error ? reject(error) : resolve();
+          if (error) reject(error);
+          else resolve();
         });
       });
     },
