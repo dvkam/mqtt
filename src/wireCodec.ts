@@ -418,7 +418,8 @@ function properties(packet: ReadonlyDeep<Exclude<WirePacket, { cmd: 'pingreq' | 
 
 /** MQTT 5 preview profile. Unsupported packet forms and properties are rejected. */
 export function encodePacket(
-  packet: ReadonlyDeep<WirePacket>,
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `Readonly<WirePacket>` still fails the rule, because a CONNECT packet holds a Will with writable members. `ReadonlyDeep` would pass, but it is an internal type, and this signature is public through `mqtt/codec`, so it names only exported types. Exporting the deep type is left to the owner.
+  packet: Readonly<WirePacket>,
   { sharedSubscriptions = false }: Readonly<{ sharedSubscriptions?: boolean }> = {},
 ): Uint8Array<ArrayBuffer> {
   const fields = packetFields[packet.cmd];

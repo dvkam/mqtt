@@ -47,7 +47,8 @@ export interface BrowserClientOptions extends PublicationLimits, SubscriptionLim
   onQosTwoMessage?: NonNullable<PortableOptions['onQosTwoMessage']>;
 }
 
-export function createBrowserClient(options: ReadonlyDeep<BrowserClientOptions>): ClientFactory {
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `Readonly<BrowserClientOptions>` still fails the rule, because the options hold an AbortSignal and a Will with byte views. `ReadonlyDeep` would pass, but it is an internal type, and this signature is public, so it names only exported types. Exporting the deep type is left to the owner.
+export function createBrowserClient(options: BrowserClientOptions): ClientFactory {
   return createByteClient(
     {
       name: 'WebSocket',

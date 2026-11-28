@@ -14,6 +14,7 @@ import {
   createTransportClient as createPortableTransportClient,
   type ReadonlyBytes as PortableReadonlyBytes,
 } from '../../dist/portableClient.js';
+import type { PacketDecoder, ReadonlyBytes as CodecReadonlyBytes } from '../../dist/codec.js';
 
 type RequireTrue<Value extends true> = Value;
 type Same<Left, Right> =
@@ -78,6 +79,9 @@ type OpenParameters = Parameters<ByteTransport['open']>;
 // ByteInbound.bytes names its parameter type, and both entry points that export ByteInbound export that name.
 export type InboundTakesReadonlyBytes = RequireTrue<Same<Parameters<ByteInbound['bytes']>[0], ReadonlyBytes>>;
 export type PortableExportsTheSameType = RequireTrue<Same<ReadonlyBytes, PortableReadonlyBytes>>;
+// PacketDecoder.push takes the same type, and mqtt/codec exports its name.
+export type CodecExportsTheSameType = RequireTrue<Same<ReadonlyBytes, CodecReadonlyBytes>>;
+export type DecoderTakesReadonlyBytes = RequireTrue<Same<Parameters<PacketDecoder['push']>[0], ReadonlyBytes>>;
 export type OpenReceivesInbound = RequireTrue<Same<OpenParameters[0], ByteInbound>>;
 export type OpenReceivesContext = RequireTrue<Same<OpenParameters[1], OpenContext>>;
 export type OpenReturnsWriter = RequireTrue<Same<ReturnType<ByteTransport['open']>, Promise<ByteWriter>>>;

@@ -41,7 +41,6 @@ export type {
   SubscriptionIntent,
   SubscriptionRestore,
 } from './reconnect.js';
-import type { ReadonlyDeep } from './util/bytes.js';
 export type { NodeMessage, NodeQosOneMessage, NodeQosTwoMessage } from './nodeMessage.js';
 export type { MessageProperties } from './messageProperties.js';
 export type { UserProperty } from './codec.js';
@@ -54,7 +53,8 @@ export type { MqttErrorCode, MqttErrorDetails } from './mqttError.js';
 /** Create a one-shot MQTT client with Buffer payloads over a custom transport. */
 export function createTransportClient(
   transport: Readonly<ByteTransport>,
-  options: ReadonlyDeep<ByteClientOptions<Buffer>>,
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `Readonly<ByteClientOptions<Buffer>>` still fails the rule, because the options hold an AbortSignal and a Will with byte views. `ReadonlyDeep` would pass, but it is an internal type, and this signature is public, so it names only exported types. Exporting the deep type is left to the owner.
+  options: Readonly<ByteClientOptions<Buffer>>,
 ): ClientFactory {
   return createByteClient(transport, options, nodePlatform);
 }
