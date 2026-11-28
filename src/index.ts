@@ -13,7 +13,9 @@ import { createByteClient, type ByteClientOptions } from './transportCore.js';
 export { createTcpClient } from './tcpClient.js';
 export type { TcpClientOptions, TcpTlsOptions } from './tcpClient.js';
 export type { ByteInbound, ByteTransport, ByteWriter, OpenContext } from './byteTransport.js';
-export type { ByteClientOptions } from './transportCore.js';
+export type { ByteClientOptions, SessionOptions } from './transportCore.js';
+export { createSessionState } from './sessionState.js';
+export type { SessionState } from './sessionState.js';
 export type {
   ClientFactory,
   ClientSession,

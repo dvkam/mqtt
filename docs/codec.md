@@ -16,7 +16,7 @@ Open a native WebSocket with the `mqtt` subprotocol and set `binaryType` to `arr
 
 | Packet               | Supported fields                                                                                                                                |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| CONNECT              | MQTT 5, client identifier, Clean Start, Keep Alive, Receive Maximum, username, binary password, User Properties, and a QoS 0, 1, or 2 Will with its own property section |
+| CONNECT              | MQTT 5, client identifier, Clean Start, Keep Alive, Receive Maximum, Session Expiry Interval, username, binary password, User Properties, and a QoS 0, 1, or 2 Will with its own property section |
 | CONNACK              | Session Present, reason code and every CONNACK property in MQTT 5 section 3.2.2.3                                                              |
 | PUBLISH              | QoS 0 or 1, nonempty topic name, binary payload, retain, Payload Format Indicator, Message Expiry Interval, Content Type, Response Topic, Correlation Data, Subscription Identifiers, User Properties. QoS 1 also carries a nonzero packet identifier and DUP. |
 | PUBACK               | Nonzero packet identifier, reason code, Reason String and ordered User Properties                                                               |

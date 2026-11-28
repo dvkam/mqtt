@@ -27,7 +27,7 @@ The first argument can be `createTcpClient`, `createWebSocketClient`, `createBro
 
 ## Sessions
 
-Every attempt opens a clean session, because the client does not yet resume one. After each CONNACK, the client makes the `subscriptions` in order, then resolves `session()` and reports a `connected` event. A refused SUBACK does not end the session. Its error is listed in the event's `subscriptions`.
+Without `resume`, every attempt sends the factory's `cleanStart` flag, which defaults to true. With true, each attempt opens a new broker session. False needs a `sessionState` in the factory options. After each CONNACK with Session Present false, the client makes the `subscriptions` in order, then resolves `session()` and reports a `connected` event. A refused SUBACK does not end the session. Its error is listed in the event's `subscriptions`. After a CONNACK with Session Present true, the broker still has the subscriptions, so the client makes none and `subscriptions` is empty. The event's `resumed` field holds the Session Present flag.
 
 The event's `generation` counts the sessions that connected, starting at 1. A failed attempt does not count. Its `attempt` counts the attempts since the last stable session, including the one that connected.
 
@@ -35,9 +35,51 @@ The event's `generation` counts the sessions that connected, starting at 1. A fa
 
 ## Lost publications
 
-When a session ends, every pending publish rejects with the session's error. A QoS 1 publication that was written but not acknowledged may or may not have reached the broker. The next `connected` event lists it in `previous.uncertain` with its topic and Packet Identifier. Its `acknowledged` field is true when a PUBACK with a reason below 0x80 arrived before the write settled, and only then is it known that the broker has the message. The client never sends it again. A publication that was still queued was never written and is not listed. `onSessionEnd` receives the same `uncertain` list.
+When a session ends, every pending publish rejects with the session's error. A QoS 1 publication that was written but not acknowledged may or may not have reached the broker. The next `connected` event lists it in `previous.uncertain` with its topic and Packet Identifier. Its `acknowledged` field is true when a PUBACK with a reason below 0x80 arrived before the write settled, and only then is it known that the broker has the message. Without `resume`, the client never sends it again. A publication that was still queued was never written and is not listed. `onSessionEnd` receives the same `uncertain` list.
 
 `previous` is the end of the session reported by the previous `connected` event. Failed attempts in between do not replace it, so a publication lost before a refused CONNACK is still listed once a session connects.
+
+## Resuming the session
+
+Set `resume: true` and a `sessionExpiryInterval` of at least 1 second in the factory options to keep one MQTT session across connections.
+
+```ts
+const client = createReconnectingClient(
+  createTcpClient,
+  { host: 'broker.example', clientId: 'sensor-7', sessionExpiryInterval: 3600, onQosOneMessage: handle },
+  {
+    resume: true,
+    subscriptions: [{ topic: 'commands/sensor-7/#', qos: 1 }],
+    onReconnect(event) {
+      if (event.kind === 'connected' && !event.resumed) for (const lost of event.dropped ?? []) console.warn('Dropped', lost.topic);
+      if (event.kind === 'puback' && event.reasonCode >= 0x80) console.warn('Refused', event.topic, event.reasonCode);
+    },
+  },
+);
+```
+
+The first attempt sends the factory's `cleanStart` flag, true by default. Once a session has connected, every later attempt sends Clean Start false. All attempts share one session state, which holds each QoS 1 publication from its first write until its PUBACK arrives. The client copies the payload and the Correlation Data into the state, so the caller may reuse its bytes once the publish promise settles. `createReconnectingClient` throws a RangeError when `resume` is set and `sessionExpiryInterval` is missing, 0 or not an integer up to 4,294,967,295. The broker can lower the interval in CONNACK, and `session.connection.sessionExpiryInterval` holds the value in effect.
+
+| CONNACK | What the client does |
+| --- | --- |
+| Session Present true | Before any new publication, it sends each stored publication again with DUP set and its Packet Identifier, in the order of the first writes, within the broker's Receive Maximum. The `connected` event lists them in `resent`, with `resumed: true` and empty `subscriptions`. A `puback` event reports the broker's answer to each, after the `connected` event. New publications and subscriptions get other Packet Identifiers. |
+| Session Present false | The broker lost the session. The client drops the stored publications without sending them, makes the `subscriptions` again and lists the dropped publications in the event's `dropped`. Their outcome is unknown, and `previous.uncertain` also lists those the previous session had written. |
+| Session Present true, and a stored publication is larger than the new Maximum Packet Size | The client sends no PUBLISH. It writes DISCONNECT with reason 0, so the broker keeps the session and discards the Will, and the attempt fails with `ERR_MQTT_SESSION_CONFLICT`. The client keeps the stored publication and retries under the policy below. |
+| Session Present true, and the broker's Maximum QoS is now 0 | The same conflict, because the stored QoS 1 publications cannot be sent. |
+| Session Present true, a stored publication is retained, and CONNACK sets Retain Available 0 | The same conflict, because the broker no longer accepts the retained publication. |
+| Session Present true after Clean Start true | `ERR_MQTT_PROTOCOL` with reason 0x82, as before. A refused CONNACK with Session Present true still fails decoding with `Invalid CONNACK`. |
+
+The original publish promise rejected when its session ended, and the client does not settle it again. A caller reads the outcome of a publication sent again from the `puback` event. If the resumed session ends before that PUBACK, the publication is in `previous.uncertain` of the next `connected` event and stays stored.
+
+`client.resetSession()` makes the next attempt start a new session. That attempt drops the stored publications, lists them in `dropped` of the next `connected` event and sends Clean Start true until a session connects, so the client makes the subscriptions again. A connected session keeps running. Call it, for example, from `onReconnect` after a `retrying` event whose error is `ERR_MQTT_SESSION_CONFLICT`. Without `resume`, it has no effect.
+
+The client writes the resends one at a time. Each resend waits until the write of the one before it settled. New publications wait until every resend was written. When more publications are stored than the broker's Receive Maximum allows at once, that wait includes the PUBACK round trips that free quota for the later resends. A new QoS 1 publication stays queued in that time. It takes no Packet Identifier, is not stored and can still be withdrawn with its signal. A session that ends first rejects it without listing it in `uncertain`. A new QoS 0 publication keeps its admission reservation while it waits, and its write deadline starts only when the wait ends. A session end rejects it with the session's error. `disconnect()` drops the resends that have not started. With `drain` true, a waiting QoS 0 publication goes out before DISCONNECT once the started resends are written. It rejects with `ERR_MQTT_CLOSING`, and no resend follows, when the client writes DISCONNECT first: at once with `drain: false`, or when the drain deadline passes before the started resends are written. MQTT-3.14.4-1 forbids any packet after DISCONNECT. The publications that were not sent again stay stored for a later resume. Once the resends are written, the waiting QoS 0 publications go out first, and the queued QoS 1 publications follow in their call order. A TCP or `ws` write settles once the socket took the bytes. Each resend therefore meets a drained socket buffer that no other publication shares. The write budget then refuses only a stored publication larger than `maxBufferedBytes` minus `reservedControlBytes`. Control packets such as PINGREQ and SUBSCRIBE do not wait. A browser WebSocket write settles when the WebSocket accepted the bytes, so its `bufferedAmount` can still hold earlier resends. When the budget refuses a resend, the client writes DISCONNECT with reason 0 and the connection ends with `ERR_MQTT_SESSION_CONFLICT`, whose `cause` is the budget error. The publication stays stored with its Packet Identifier, `previous.uncertain` of the next `connected` event lists it, and no new publication can take its identifier. The reconnecting client retries, and each retry sends the stored publications before the refused one again unless the broker acknowledged them. If the refusal repeats, call `resetSession()` or raise `maxBufferedBytes`.
+
+Inbound QoS 1 messages that the broker sends again after a resume arrive at `onQosOneMessage` with `dup: true`, and the client acknowledges them as any other. Topic Alias maps belong to one connection in MQTT 5, so none carries over. The client sends no Topic Alias and advertises a Topic Alias Maximum of 0, so an aliased PUBLISH after a resume still ends the session with `ERR_MQTT_PROTOCOL` and reason 0x94.
+
+The session state lives in memory. A restarted process starts with an empty one, and a broker session that it resumes then has nothing to send again. A journal that survives a restart is [#14](https://github.com/dvkam/mqtt/issues/14).
+
+A one-shot factory can resume too. Pass the same `createSessionState()` object as `sessionState`, with `cleanStart: false` and a `sessionExpiryInterval`, to each factory of the session. `cleanStart: false` without a `sessionState` rejects with `ERR_MQTT_INVALID_ARGUMENT` before the transport opens, because MQTT-3.2.2-4 makes a client without session state close on Session Present true. A second connection that passes a state another connection holds rejects the same way and opens no transport. Read `sessionState.inFlight` before `connect()` when you need the list, because a CONNACK with Session Present false empties it and a one-shot factory reports no `puback` events.
 
 ## Retries
 
@@ -47,7 +89,7 @@ The delay before attempt `n + 1` is drawn from half to all of `min(maxDelayMs, i
 
 | Outcome | Next step |
 | --- | --- |
-| `ERR_MQTT_TRANSPORT` or `ERR_MQTT_TIMEOUT` | Retry |
+| `ERR_MQTT_TRANSPORT`, `ERR_MQTT_TIMEOUT` or `ERR_MQTT_SESSION_CONFLICT` | Retry |
 | An error that is neither an `MqttError` nor a `RangeError` | Retry |
 | A `RangeError` for broker input over a receive limit: a packet over `maxPacketBytes`, the browser receive message limit, or a `ws` message over its limit | Retry |
 | CONNACK Server unavailable (0x88), Server busy (0x89), Quota exceeded (0x97) or Connection rate exceeded (0x9F) | Retry |
@@ -69,7 +111,5 @@ In Node, the retry timer keeps the process alive until the client connects or st
 
 ## Not covered yet
 
-- Resuming a session with Clean Start false and a Session Expiry Interval, tracked in #14. Until then, the broker forgets the subscriptions and queued messages of each session.
-- A CONNACK whose Session Present flag does not match the session the client asked to resume. This matters only once Clean Start false exists, tracked in #14.
-- A smaller packet limit or a Topic Alias map on resume, tracked in #12.
+- A session state that survives a process restart, tracked in #14.
 - Server Reference redirects, tracked in #16.

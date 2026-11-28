@@ -64,7 +64,7 @@ Each check runs before the publication is admitted or written. A failed check re
 - `retain: true` is rejected when the broker's CONNACK set Retain Available to 0.
 - The Content Type, Response Topic and User Property strings follow the MQTT UTF-8 string rules: at most 65,535 bytes, no U+0000 and no unpaired surrogate. A text payload has no length or U+0000 limit, but it must not contain an unpaired surrogate.
 
-The publication byte limit, `maxPendingPublishBytes`, counts the whole PUBLISH, including the property section. A publication that does not fit rejects with `ERR_MQTT_CAPACITY`. [Outgoing admission](outgoing-admission.md)
+The publication byte limit, `maxPendingPublishBytes`, counts the whole PUBLISH, including the property section. A publication that does not fit rejects with `ERR_MQTT_CAPACITY`. So does a PUBLISH larger than the Maximum Packet Size the broker sent in CONNACK. [Outgoing admission](outgoing-admission.md#maximum-packet-size)
 
 ## Cancellation
 
