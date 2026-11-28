@@ -75,8 +75,9 @@ async function generation(): Promise<number> {
 const returns = (log: readonly string[]) => log.filter((entry) => entry.startsWith('return '));
 
 // Playwright 1.65.1 turns the back-forward cache off in its Firefox and WebKit builds, so page.goBack() loads the page
-// again there. A Firefox with browser.sessionhistory.max_total_viewers of 8 still did not cache a page without a client,
-// and with fission.bfcacheInParent the navigation never finished.
+// again there. The playwright.cfg of the Firefox build sets fission.bfcacheInParent to false and says that a docShell
+// property turns the cache off in content. A Firefox with browser.sessionhistory.max_total_viewers of 8 still did not
+// cache a page without a client, and with fission.bfcacheInParent true the navigation never finished.
 const caches = (engine: string): boolean => engine === 'chromium';
 
 async function leaveAndGoBack(awayMs: number): Promise<Readonly<{ restored: boolean; openWhileAway: number }>> {

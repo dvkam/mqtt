@@ -72,7 +72,7 @@ An application that must send DISCONNECT before the page enters the cache discon
 
 The `browsers` job in `.github/workflows/ci.yml` runs once for each of Chromium, Firefox and WebKit on `ubuntu-26.04`. It runs on the weekly schedule, on a manual run of the workflow, and on a pull request that changes the browser entry, the reconnecting client, the adapter, a browser check or the workflow. The job step "Run the page lifecycle check" runs `test/packed/page-lifecycle.sh`, which starts Mosquitto with a WebSocket listener and drives the packed adapter through a TCP proxy. The proxy counts connections and can make them stop answering.
 
-The results below are from the `browsers` jobs of [run 46144703278](https://github.com/dvkam/mqtt/actions/runs/46144703278) on 28 November 2026, with Playwright 1.65.1, Chrome for Testing 159.0.8154.6, Firefox 159.0 and WebKit 27.2. Every client had a `timeoutMs` of 1,000.
+The results below are from the `browsers` jobs of [run 46144703278](https://github.com/dvkam/mqtt/actions/runs/46144703278) on 28 November 2026, with Playwright 1.65.1, Chrome for Testing 159.0.8154.6, Firefox 159.0 and WebKit 27.2. Every client had a `timeoutMs` of 1,000. The same checks passed in the same three builds in a local Ubuntu 24.04 container.
 
 ### A navigation away and back
 
@@ -89,7 +89,7 @@ The results below are from the `browsers` jobs of [run 46144703278](https://gith
 
 Chromium sent no `Page.backForwardCacheNotUsed` event. Playwright starts Chromium with `--disable-back-forward-cache`, so the check removes that switch. The headless shell, Playwright's default Chromium, still refuses the cache with the reasons `BackForwardCacheDisabledForDelegate` and `BrowsingInstanceNotSwapped`, so the check launches the `chromium` channel in new headless mode.
 
-Playwright's Firefox and WebKit builds do not use the back-forward cache. The page without a client received `pagehide` with `persisted` false in both, so the open WebSocket is not the reason. A Firefox started with the preference `browser.sessionhistory.max_total_viewers` at 8 still unloaded that page. With `fission.bfcacheInParent` true as well, `page.goBack()` did not finish within 20 seconds. Playwright has no launch option for the WebKit setting. The check asserts the unload in both browsers, so it fails when a later Playwright build starts to cache the page.
+Playwright's Firefox and WebKit builds do not use the back-forward cache. The page without a client received `pagehide` with `persisted` false in both, so the open WebSocket is not the reason. The `playwright.cfg` of the Firefox build sets `fission.bfcacheInParent` to false, and its comment says that the build also turns the cache off in content through a docShell property. A Firefox started with the preference `browser.sessionhistory.max_total_viewers` at 8 still unloaded that page. With `fission.bfcacheInParent` true as well, `page.goBack()` did not finish within 20 seconds. Playwright has no launch option for the WebKit setting. The check asserts the unload in both browsers, so it fails when a later Playwright build starts to cache the page.
 
 The remaining steps dispatch `visibilitychange` with a replaced `document.visibilityState` getter, because a page that Playwright launched stays visible. They passed in all three browsers:
 
