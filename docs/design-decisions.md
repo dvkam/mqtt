@@ -56,6 +56,8 @@ Consequences: `retryNow()` counts its attempt toward `maxAttempts` and does noth
 
 What follows: Firefox and WebKit lifecycle tests, and the playground panel in #191.
 
+Update, 28 November 2026: the `browsers` CI job runs the lifecycle check in Chromium, Firefox and WebKit, and a second check hides, throttles, freezes and discards a Chromium tab. No check failed in the adapter, so the adapter did not change. Playwright's Firefox and WebKit builds do not use the back-forward cache, so their cache stays a manual check. One measured limit follows from this decision: when a return finds an attempt open, the adapter does nothing, and after the overdue deadline ended that attempt the client waits its backoff delay. Whether the adapter should call `retryNow()` after such an attempt fails was not put to the owner as a question. [Page lifecycle](page-lifecycle.md) has the measurements and the manual checks.
+
 ## Leave the connection open when the page enters the back-forward cache
 
 Decided on 26 November 2026 (UTC), for [#32](https://github.com/dvkam/mqtt/issues/32), together with the previous entry and accepted the same way. Status: in the pull request for `feat/page-lifecycle`, not merged when this entry was written.

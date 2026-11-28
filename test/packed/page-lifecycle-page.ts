@@ -99,7 +99,7 @@ export async function until(prefix: string, timeoutMs = 5000, from = 0): Promise
   return performance.now() - started;
 }
 
-// A headless page stays visible, so the getter of document.visibilityState is replaced on this document.
+// A page that Playwright launched stays visible, so the getter of document.visibilityState is replaced on this document.
 export function setVisibility(state: 'hidden' | 'visible'): void {
   if (visibility === undefined) Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility });
   visibility = state;

@@ -16,7 +16,10 @@ export interface Report {
 export type Mode = 'forward' | 'silent' | 'refuse';
 
 export interface Fixture {
-  /** The origin of the HTTP server. /auto starts a client on load, and every other path is an empty page. */
+  /**
+   * The origin of the HTTP server. /auto starts a client on load, /manual starts one and shows its log, and every other
+   * path is an empty page.
+   */
   readonly origin: string;
   /** The WebSocket URL of the proxy in front of the broker. */
   readonly proxyUrl: string;
@@ -72,11 +75,13 @@ export async function waitFor(condition: () => boolean, what: string, timeoutMs 
 
 /**
  * Bundles the page module against the packed tarball in `root`, and starts an HTTP server for it and a TCP proxy in
- * front of the broker at `brokerUrl`. The proxy counts connections and can make them stop answering.
+ * front of the broker at `brokerUrl`. The proxy counts connections and can make them stop answering. Both listen on
+ * `host`, which is the loopback address unless another device has to reach them.
  */
 export async function createFixture(
   root: string,
   brokerUrl: Readonly<{ hostname: string; port: string; pathname: string }>,
+  host = '127.0.0.1',
 ): Promise<Fixture> {
   // Bundle a copy inside the consumer, so mqtt/browser resolves to the installed tarball.
   const entry = resolve(root, 'packed/page-lifecycle-page.ts');
@@ -132,7 +137,7 @@ export async function createFixture(
     client.on('error', close).on('close', close);
     upstream.on('error', close).on('close', close);
   });
-  proxy.listen(0, '127.0.0.1');
+  proxy.listen(0, host);
   await once(proxy, 'listening');
   const proxyAddress = proxy.address();
   assert.ok(proxyAddress !== null && typeof proxyAddress !== 'string');
@@ -149,10 +154,23 @@ for (const type of ['freeze', 'visibilitychange']) document.addEventListener(typ
 await start(${JSON.stringify(proxyUrl)}, ${JSON.stringify(clientId)});
 await fetch('/report', { method: 'POST', body: JSON.stringify({ wasDiscarded: document.wasDiscarded, entries: entries() }) });
 </script>`;
+  // The page is loaded from another device, so it takes the host of the proxy from its own address.
+  const manual = `<!doctype html><meta name="viewport" content="width=device-width"><title>MQTT page lifecycle</title>
+<pre id="log"></pre><script type="module">
+import { start, timeline } from '/lifecycle.js';
+const show = () => {
+  const now = Math.round(performance.now()) + ' now ' + document.visibilityState;
+  document.getElementById('log').textContent = [...timeline(), now].join('\\n');
+};
+setInterval(show, 500);
+const url = 'ws://' + location.hostname + ':' + ${JSON.stringify(String(proxyAddress.port) + brokerUrl.pathname)};
+await start(url, 'manual-lifecycle-' + Math.random().toString(16).slice(2, 8));
+</script>`;
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The request listener of createServer in node:http receives a native http.IncomingMessage and http.ServerResponse, and the fixture reads the request's stream and calls the response's writeHead and end methods.
   const server = createServer((request, response) => {
     if (request.url === '/lifecycle.js') response.writeHead(200, { 'Content-Type': 'text/javascript' }).end(code);
     else if (request.url === '/auto') response.writeHead(200, { 'Content-Type': 'text/html' }).end(auto);
+    else if (request.url === '/manual') response.writeHead(200, { 'Content-Type': 'text/html' }).end(manual);
     else if (request.url === '/report' || request.url === '/beacon') {
       const { url } = request;
       let body = '';
@@ -172,7 +190,7 @@ await fetch('/report', { method: 'POST', body: JSON.stringify({ wasDiscarded: do
     } else
       response.writeHead(200, { 'Content-Type': 'text/html' }).end('<!doctype html><title>' + String(request.url) + '</title>');
   });
-  server.listen(0, '127.0.0.1');
+  server.listen(0, host);
   await once(server, 'listening');
   const address = server.address();
   assert.ok(address !== null && typeof address !== 'string');
