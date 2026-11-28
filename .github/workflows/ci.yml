@@ -17,22 +17,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The main ruleset requires checks (ubuntu-26.04) and checks (windows-latest). Each job installs once and runs every
-  # check as a step of its own. A check runs after an earlier check failed, and it starts from a tree without the
-  # files an earlier check wrote. Keep this job free of a job-level `if`. GitHub counts a skipped required job as
-  # passing.
-  verify:
-    name: checks (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-26.04, windows-latest]
-    runs-on: ${{ matrix.os }}
+  # The main ruleset requires checks (ubuntu-26.04) and checks (windows-latest). Each platform job installs once and
+  # runs every check as a step of its own. A check still runs when an earlier check failed, and it starts without the
+  # dist and .type-fixtures output of an earlier check. Keep the platform jobs free of a job-level `if` and of `needs`.
+  # GitHub counts a skipped required job as passing. test/ci-required-checks.test.ts fails when either key appears.
+  verify-ubuntu:
+    name: checks (ubuntu-26.04)
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
-    outputs:
-      Linux: ${{ steps.failed.outputs.Linux }}
-      Windows: ${{ steps.failed.outputs.Windows }}
-    steps:
+    outputs: &outcomes
+      test: ${{ steps.test.outcome }}
+      test-types: ${{ steps.test-types.outcome }}
+      lint: ${{ steps.lint.outcome }}
+      format-check: ${{ steps.format-check.outcome }}
+      build: ${{ steps.build.outcome }}
+    steps: &checks
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
@@ -43,61 +42,74 @@ jobs:
       - name: test
         id: test
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: git clean -fdxq -e node_modules && pnpm test
+        run: git clean -ffdxq -e /node_modules && pnpm test
       - name: test:types
         id: test-types
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: git clean -fdxq -e node_modules && pnpm test:types
-      # Lint reads emitted declarations. Emitting them without a type check keeps a type error in the test:types check only.
+        run: git clean -ffdxq -e /node_modules && pnpm test:types
+      # Lint reads emitted declarations. Emitting them without a type check lets lint report when the sources have a
+      # type error. The type error fails test:types, and build when it is in src.
       - name: lint
         id: lint
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: git clean -fdxq -e node_modules && pnpm lint:declarations && pnpm lint
+        run: git clean -ffdxq -e /node_modules && pnpm lint:declarations && pnpm lint
       - name: format:check
         id: format-check
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: git clean -fdxq -e node_modules && pnpm format:check
+        run: git clean -ffdxq -e /node_modules && pnpm format:check
       - name: build
         id: build
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: git clean -fdxq -e node_modules && pnpm build
-      - name: Name the failed checks
-        id: failed
-        if: ${{ failure() }}
-        shell: bash
-        env:
-          OUTCOMES: >-
-            test=${{ steps.test.outcome }}
-            test:types=${{ steps.test-types.outcome }}
-            lint=${{ steps.lint.outcome }}
-            format:check=${{ steps.format-check.outcome }}
-            build=${{ steps.build.outcome }}
-        run: |
-          failed=()
-          for outcome in $OUTCOMES; do
-            if [[ $outcome == *=failure ]]; then
-              failed+=("\"${outcome%=*} (${{ matrix.os }})\"")
-            fi
-          done
-          (IFS=,; echo "${{ runner.os }}=${failed[*]}") >> "$GITHUB_OUTPUT"
+        run: git clean -ffdxq -e /node_modules && pnpm build
 
-  # A failed check also reports as a status that names it, such as failed-check (lint (windows-latest)), so a pull
-  # request shows which check failed. A run without a failed check skips this job and starts no runner for it. The
-  # job has no `name`, because GitHub shows a skipped matrix job under its unexpanded name.
-  failed-check:
-    needs: verify
-    if: ${{ failure() && (needs.verify.outputs.Linux || needs.verify.outputs.Windows) }}
-    strategy:
+  verify-windows:
+    name: checks (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 10
+    outputs: *outcomes
+    steps: *checks
+
+  # Each check also reports as a status of its own on every run, such as lint (windows-latest). A report job reads the
+  # outcome of its step from the platform job and runs no checkout and no setup. It passes only when that step passed.
+  # It fails when the step failed or did not run. It needs one platform job, so the Ubuntu reports do not wait for
+  # Windows.
+  report-ubuntu:
+    name: ${{ matrix.check }} (ubuntu-26.04)
+    needs: verify-ubuntu
+    if: ${{ !cancelled() }}
+    strategy: &report
       fail-fast: false
       matrix:
-        check: ${{ fromJSON(format('[{0}{1}{2}]', needs.verify.outputs.Linux, needs.verify.outputs.Linux && needs.verify.outputs.Windows && ',' || '', needs.verify.outputs.Windows)) }}
+        include:
+          - { check: test, step: test }
+          - { check: 'test:types', step: test-types }
+          - { check: lint, step: lint }
+          - { check: 'format:check', step: format-check }
+          - { check: build, step: build }
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
-      - name: Point to the output of the failed check
+      - name: Require the step of the platform job to have passed
+        env:
+          OUTCOME: ${{ needs.verify-ubuntu.outputs[matrix.step] }}
         run: |
-          echo "::error title=${{ matrix.check }}::This check failed. Its output is in the step of the same name in the checks job of that platform."
-          exit 1
+          echo "The ${{ matrix.check }} step of checks (ubuntu-26.04) ended as '${OUTCOME:-not run}'."
+          test "$OUTCOME" = success
+
+  report-windows:
+    name: ${{ matrix.check }} (windows-latest)
+    needs: verify-windows
+    if: ${{ !cancelled() }}
+    strategy: *report
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Require the step of the platform job to have passed
+        env:
+          OUTCOME: ${{ needs.verify-windows.outputs[matrix.step] }}
+        run: |
+          echo "The ${{ matrix.check }} step of checks (windows-latest) ended as '${OUTCOME:-not run}'."
+          test "$OUTCOME" = success
 
   packed-consumer:
     runs-on: ubuntu-26.04
