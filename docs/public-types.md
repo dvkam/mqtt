@@ -63,6 +63,8 @@ The last seven fields are the PUBLISH properties, and `MessageProperties` names 
 
 On Node, `payload` and `correlationData` are views of the one allocation the decoder made for the packet. Keeping either one keeps the whole packet in memory. Copy the bytes with `Buffer.from(message.payload)` to keep a payload for a long time.
 
+The client does not check a received payload as UTF-8 when `payloadFormatIndicator` is 1. MQTT 5 section 3.3.2.3.2 makes that check optional for a receiver.
+
 ### Change from the mqtt-packet shape
 
 `NodeMessage` used to be mqtt-packet's `IPublishPacket` with a Buffer payload. It now matches `BrowserMessage`. `BrowserMessage` gained the six properties other than `userProperties`, which it dropped before.
