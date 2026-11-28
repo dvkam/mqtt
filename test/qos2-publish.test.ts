@@ -66,7 +66,7 @@ test('a transport that answers from inside its write call completes QoS 2 exchan
   const { session, sent } = await publisher({ answer: acknowledge, immediate: true });
   await session.publish('a', 'one', qosTwo);
   await Promise.all([session.publish('b', 'two', qosTwo), session.publish('c', 'three', qosOne)]);
-  expect(sent()).toEqual(['publish a qos 2 id 1', 'pubrel 1', 'publish b qos 2 id 1', 'publish c qos 1 id 2', 'pubrel 1']);
+  expect(sent()).toEqual(['publish a qos 2 id 1', 'pubrel 1', 'publish b qos 2 id 2', 'publish c qos 1 id 3', 'pubrel 2']);
   await session.disconnect();
 });
 
