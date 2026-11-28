@@ -31,6 +31,8 @@ The original agreement work ended with 54 cases. It covered every split in the p
 
 ConnackAgreement explores empty and named requested IDs, caller-option mutation, method/data presence, four assignment classes, refusal, acceptance, activation and unsolicited AUTH. Its Deliver transition represents QoS 0 from acceptance onward. Its checks cover the captured wire identity, validation before acceptance and retirement on unsolicited AUTH. String validity is abstracted. The refusal transition represents a refusal without authentication properties. Exact Error identity, UTF-8 arithmetic, negotiated numeric bounds, native closure and server uniqueness remain outside this finite model.
 
+SessionPresentAgreement assumes Clean Start true, and `test/session-resume.test.ts` covers both Session Present values after Clean Start false.
+
 The baseline replay passed 39 configurations and detected 137 expected faults. The updated replay passes 40 and detects 143. Eight actual source faults remove method rejection, data rejection, AUTH rejection, the missing-assignment check, identity replacement rejection, the wire-ID snapshot, browser assignment forwarding or codec duplicate rejection. Each fails a regression and was restored.
 
 Run `pnpm exec vitest run test/connack-agreement.test.ts test/portable.test.ts`. The project-local verification skill records the source mapping, complete replay and deliberate fault checks. Broader negotiated MQTT behavior remains under #16, enhanced-auth profile decisions under #19, and codec comparison under #9/#111.
