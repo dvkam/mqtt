@@ -75,10 +75,6 @@ export async function start(
   await reconnecting.session();
 }
 
-export async function ready(): Promise<void> {
-  await client?.session();
-}
-
 export function generation(): number {
   return connected;
 }
@@ -91,9 +87,10 @@ export function timeline(): string[] {
   return log.map((entry, index) => `${String(Math.round(times[index] ?? 0))} ${entry}`);
 }
 
-export async function until(prefix: string, timeoutMs = 5000): Promise<number> {
+/** Waits for an entry that starts with `prefix`, at index `from` or later, and returns the milliseconds it waited. */
+export async function until(prefix: string, timeoutMs = 5000, from = 0): Promise<number> {
   const started = performance.now();
-  while (!log.some((entry) => entry.startsWith(prefix))) {
+  while (!log.slice(from).some((entry) => entry.startsWith(prefix))) {
     if (performance.now() - started > timeoutMs) throw new Error(`No "${prefix}" in ${JSON.stringify(log)}`);
     await new Promise((resolve) => {
       setTimeout(resolve, 10);

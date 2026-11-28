@@ -54,11 +54,11 @@ async function timeline(): Promise<string[]> {
   return tab().evaluate(async () => (await import('/lifecycle.js')).timeline());
 }
 
-async function until(prefix: string, timeoutMs = 5000): Promise<number> {
+async function until(prefix: string, from = 0, timeoutMs = 5000): Promise<number> {
   return tab().evaluate(
-    async ({ prefix, timeoutMs }: Readonly<{ prefix: string; timeoutMs: number }>) =>
-      (await import('/lifecycle.js')).until(prefix, timeoutMs),
-    { prefix, timeoutMs },
+    async ({ prefix, timeoutMs, from }: Readonly<{ prefix: string; timeoutMs: number; from: number }>) =>
+      (await import('/lifecycle.js')).until(prefix, timeoutMs, from),
+    { prefix, timeoutMs, from },
   );
 }
 
@@ -68,61 +68,83 @@ async function setVisibility(state: 'hidden' | 'visible'): Promise<void> {
   }, state);
 }
 
-async function ready(): Promise<void> {
-  await tab().evaluate(async () => (await import('/lifecycle.js')).ready());
-}
-
 async function generation(): Promise<number> {
   return tab().evaluate(async () => (await import('/lifecycle.js')).generation());
 }
 
 const returns = (log: readonly string[]) => log.filter((entry) => entry.startsWith('return '));
 
-async function leaveAndGoBack(awayMs: number): Promise<boolean> {
+// Playwright 1.65.1 turns the back-forward cache off in its Firefox and WebKit builds, so page.goBack() loads the page
+// again there. A Firefox with browser.sessionhistory.max_total_viewers of 8 still did not cache a page without a client,
+// and with fission.bfcacheInParent the navigation never finished.
+const caches = (engine: string): boolean => engine === 'chromium';
+
+async function leaveAndGoBack(awayMs: number): Promise<Readonly<{ restored: boolean; openWhileAway: number }>> {
   const page = tab();
   await page.goto(fixture.origin + '/b');
   await sleep(awayMs);
+  const openWhileAway = fixture.open();
   await page.goBack({ waitUntil: 'commit' });
   await page.waitForFunction(() => document.readyState === 'complete');
-  return (await entries()).includes('pageshow persisted=true');
+  return { restored: (await entries()).includes('pageshow persisted=true'), openWhileAway };
+}
+
+// The milliseconds between the last entry that starts with `from` and the last entry that starts with `to`.
+function between(log: readonly string[], from: string, to: string): number {
+  const at = (prefix: string): number =>
+    Number.parseInt(log.findLast((entry) => entry.slice(entry.indexOf(' ') + 1).startsWith(prefix)) ?? '', 10);
+  return at(to) - at(from);
 }
 
 // A page without a client shows whether this browser restores a page from the back-forward cache under automation.
-async function control(engine: string): Promise<boolean> {
+async function control(engine: string): Promise<void> {
   consoleLog.length = 0;
   await tab().goto(fixture.origin + '/control');
   await listen();
-  const restored = await leaveAndGoBack(500);
+  const { restored } = await leaveAndGoBack(500);
+  assert.equal(restored, caches(engine));
+  if (restored) {
+    assert.deepEqual(consoleLog, [
+      'pagehide persisted=true',
+      'visibilitychange hidden',
+      'freeze hidden',
+      'resume hidden',
+      'visibilitychange visible',
+      'pageshow persisted=true',
+    ]);
+  } else assert.deepEqual(consoleLog, ['pagehide persisted=false', 'visibilitychange hidden']);
   console.log(JSON.stringify({ engine, step: 'page without a client', restoredFromCache: restored, events: consoleLog }));
-  return restored;
 }
 
-// Chromium restores the page from the back-forward cache, keeps its connection open in the cache and fails its WebSocket
-// on restore.
+// Chromium keeps the connection of a cached page open and fails its WebSocket on restore. Firefox and WebKit unload the
+// page, which closes the connection, and load it again on the way back.
 async function navigateConnected(engine: string, notCached: readonly unknown[]): Promise<void> {
   consoleLog.length = 0;
   const before = fixture.opened();
   const left = performance.now();
-  const restored = await leaveAndGoBack(2000);
-  const closedAfterMs = fixture.closedAt() > left ? Math.round(fixture.closedAt() - left) : undefined;
-  if (engine !== 'chromium') {
-    if (restored) await until('return ', 10_000);
-    else await start();
-    // A return can be logged before its reconnect connects, so the next step reads the generation of a connected session.
-    await ready();
+  const { restored, openWhileAway } = await leaveAndGoBack(2000);
+  assert.equal(restored, caches(engine));
+  if (!restored) {
+    assert.equal(openWhileAway, 0, 'The connection of the unloaded page closed');
+    const closedAfterMs = Math.round(fixture.closedAt() - left);
+    assert.ok(consoleLog.includes('pagehide persisted=false'), JSON.stringify(consoleLog));
+    assert.equal(fixture.opened(), before, 'The unloaded page opened no connection');
+    const events = [...consoleLog];
+    await start();
+    assert.equal(fixture.opened() - before, 1);
     console.log(
       JSON.stringify({
         engine,
         step: 'page with a connected client',
-        restoredFromCache: restored,
+        restoredFromCache: false,
         connectionClosedAfterMs: closedAfterMs,
-        connectionsOpened: fixture.opened() - before,
-        events: consoleLog,
+        eventsOfTheUnloadedPage: events,
       }),
     );
     return;
   }
-  const restoredMs = await until('connected 2');
+  assert.equal(openWhileAway, 1, 'The connection of the cached page stays open');
+  await until('connected 2');
   assert.deepEqual(notCached, []);
   const log = await entries();
   for (const expected of ['pagehide persisted=true', 'freeze hidden', 'resume hidden', 'pageshow persisted=true'])
@@ -134,41 +156,56 @@ async function navigateConnected(engine: string, notCached: readonly unknown[]):
   await until('return ');
   assert.deepEqual(returns(await entries()), ['return visibilitychange retried']);
   await waitFor(() => fixture.open() === 1, 'the connection of the cached page to close');
-  assert.ok(restoredMs < 5000);
   assert.equal(fixture.opened() - before, 1);
-  console.log(`Chromium ${browser().version()} restored the page from the back-forward cache and reconnected at once`);
-  console.log(JSON.stringify(await timeline()));
+  const times = await timeline();
+  console.log(
+    JSON.stringify({
+      engine,
+      step: 'page with a connected client',
+      restoredFromCache: true,
+      reconnectMs: between(times, 'return ', 'connected 2'),
+      timeline: times,
+    }),
+  );
 }
 
-// A client that waits for its retry timer holds no WebSocket, so a browser that refuses to cache a page with an open
-// WebSocket can cache this one. The restore then reaches the adapter through the events the browser fires.
+// A client that waits for its retry timer holds no WebSocket. The restore reaches the adapter through the events the
+// browser fires, and the adapter starts the attempt that the timer of 10 to 20 seconds would have started.
 async function navigateWaiting(engine: string): Promise<void> {
   consoleLog.length = 0;
-  const known = returns(await entries()).length;
+  const known = (await entries()).length;
+  const session = await generation();
   fixture.setMode('refuse');
   fixture.drop();
-  await until('retrying', 5000);
+  await until('retrying ', known);
   const refused = fixture.opened();
   fixture.setMode('forward');
-  const restored = await leaveAndGoBack(1000);
-  if (restored) {
-    const reconnectMs = await until('return ', 10_000);
-    await ready();
-    assert.equal(fixture.opened() - refused, 1);
+  const { restored } = await leaveAndGoBack(1000);
+  assert.equal(restored, caches(engine));
+  if (!restored) {
+    assert.equal(fixture.opened(), refused, 'The unloaded page opened no connection');
+    const events = [...consoleLog];
+    await start();
     console.log(
-      JSON.stringify({
-        engine,
-        step: 'page with a waiting client',
-        restoredFromCache: true,
-        returns: returns(await entries()).slice(known),
-        reconnectMs: Math.round(reconnectMs),
-        timeline: await timeline(),
-      }),
+      JSON.stringify({ engine, step: 'page with a waiting client', restoredFromCache: false, eventsOfTheUnloadedPage: events }),
     );
     return;
   }
-  await start();
-  console.log(JSON.stringify({ engine, step: 'page with a waiting client', restoredFromCache: false, events: consoleLog }));
+  await until(`connected ${String(session + 1)} `, known);
+  const log = (await entries()).slice(known);
+  assert.deepEqual(returns(log), ['return visibilitychange retried']);
+  assert.ok(log.indexOf('resume hidden') < log.indexOf('visibilitychange visible'), JSON.stringify(log));
+  assert.equal(fixture.opened() - refused, 1);
+  const times = await timeline();
+  console.log(
+    JSON.stringify({
+      engine,
+      step: 'page with a waiting client',
+      restoredFromCache: true,
+      reconnectMs: between(times, 'return ', `connected ${String(session + 1)} `),
+      log,
+    }),
+  );
 }
 
 async function check(engine: string): Promise<void> {
@@ -194,22 +231,22 @@ async function check(engine: string): Promise<void> {
   await navigateWaiting(engine);
 
   let session = await generation();
-  let known = returns(await entries()).length;
+  let known = (await entries()).length;
   let connections = fixture.opened();
   fixture.stall();
   await setVisibility('hidden');
   await setVisibility('visible');
-  const stalledMs = await until(`connected ${String(session + 1)} ERR_MQTT_TIMEOUT`);
+  const stalledMs = await until(`connected ${String(session + 1)} ERR_MQTT_TIMEOUT`, known);
   assert.ok(stalledMs >= 900 && stalledMs < 3000, `Reconnected after ${String(stalledMs)} ms`);
-  await until('return ');
-  assert.deepEqual(returns(await entries()).slice(known), ['return visibilitychange retried']);
+  await until('return ', known);
+  assert.deepEqual(returns((await entries()).slice(known)), ['return visibilitychange retried']);
   assert.equal(fixture.opened() - connections, 1);
   console.log(
     `${engine}: a silent connection ended at its ping deadline, and the next session connected ${String(Math.round(stalledMs))} ms after the return`,
   );
 
   session = await generation();
-  known = returns(await entries()).length;
+  known = (await entries()).length;
   connections = fixture.opened();
   fixture.stall();
   await setVisibility('hidden');
@@ -219,23 +256,24 @@ async function check(engine: string): Promise<void> {
   );
   assert.equal(pending.code, 'ERR_MQTT_TIMEOUT');
   assert.ok(pending.elapsedMs >= 900 && pending.elapsedMs < 2000, `Settled after ${String(pending.elapsedMs)} ms`);
-  await until('retrying');
+  await until('retrying ', known);
   await setVisibility('visible');
-  await until(`connected ${String(session + 1)} ERR_MQTT_TIMEOUT uncertain=1`, 3000);
-  assert.deepEqual(returns(await entries()).slice(known), ['return visibilitychange retried']);
+  const pendingMs = await until(`connected ${String(session + 1)} ERR_MQTT_TIMEOUT uncertain=1`, known, 3000);
+  await until('return ', known);
+  assert.deepEqual(returns((await entries()).slice(known)), ['return visibilitychange retried']);
   assert.equal(fixture.opened() - connections, 1);
   console.log(
-    `${engine}: a pending QoS 1 publication rejected after ${String(Math.round(pending.elapsedMs))} ms, and the return reconnected at once`,
+    `${engine}: a pending QoS 1 publication rejected after ${String(Math.round(pending.elapsedMs))} ms, and the next session connected ${String(Math.round(pendingMs))} ms after the return`,
   );
 
-  known = returns(await entries()).length;
+  known = (await entries()).length;
   connections = fixture.opened();
   await page.evaluate(async () => {
     (await import('/lifecycle.js')).dispatchRestore();
   });
-  await until('return pageshow');
+  await until('return pageshow', known);
   await sleep(500);
-  assert.deepEqual(returns(await entries()).slice(known), ['return pageshow answered']);
+  assert.deepEqual(returns((await entries()).slice(known)), ['return pageshow answered']);
   assert.equal(fixture.opened(), connections);
   await page.evaluate(async () => {
     await (await import('/lifecycle.js')).stop();
@@ -260,38 +298,6 @@ try {
       current = undefined;
     }
     await waitFor(() => fixture.open() === 0, 'the connections of ' + engine + ' to close');
-    if (engine === 'firefox') {
-      // PROBE: does Firefox restore from the cache once the session history may keep viewers?
-      const probes: Record<string, number | boolean>[] = [
-        { 'browser.sessionhistory.max_total_viewers': 8 },
-        { 'browser.sessionhistory.max_total_viewers': 8, 'fission.bfcacheInParent': true },
-      ];
-      for (const prefs of probes) {
-        current = await firefox.launch({ firefoxUserPrefs: prefs });
-        try {
-          active = await current.newPage();
-          tab().on('console', (message: Readonly<{ text: () => string }>) => {
-            const text = message.text();
-            if (text.startsWith('lifecycle ')) consoleLog.push(text.slice('lifecycle '.length));
-          });
-          console.log('PROBE', JSON.stringify(prefs));
-          const restored = await Promise.race([control(engine), sleep(20_000).then(() => 'timed out')]);
-          console.log('PROBE restored', restored);
-          if (restored === true) {
-            await tab().goto(fixture.origin + '/a');
-            await start();
-            const back = await Promise.race([leaveAndGoBack(2000), sleep(20_000).then(() => 'timed out')]);
-            console.log('PROBE connected page restored', back, JSON.stringify(consoleLog), JSON.stringify(await timeline()));
-          }
-        } catch (error) {
-          console.log('PROBE failed', String(error));
-        } finally {
-          active = undefined;
-          await current.close();
-          current = undefined;
-        }
-      }
-    }
   }
 } finally {
   fixture.close();

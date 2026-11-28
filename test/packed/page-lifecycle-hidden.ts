@@ -43,6 +43,17 @@ await waitFor(() => existsSync(portFile) && readFileSync(portFile, 'utf8').split
 const [port = '', browserPath = ''] = readFileSync(portFile, 'utf8').split('\n');
 const endpoint = `127.0.0.1:${port}`;
 
+// A step that hangs names itself, because a DevTools command to a hidden or discarded tab can stay unanswered.
+let watchdog: ReturnType<typeof setTimeout> | undefined;
+function enter(step: string, budgetMs = 60_000): void {
+  clearTimeout(watchdog);
+  watchdog = setTimeout(() => {
+    console.error(`The check hung in the step "${step}"`);
+    child.kill();
+    process.exit(1);
+  }, budgetMs);
+}
+
 let current: Browser | undefined;
 let client: Page | undefined;
 let cover: Page | undefined;
@@ -306,9 +317,17 @@ async function connectDevtools(): Promise<Devtools> {
   return {
     async send(method, params = {}, sessionId) {
       const reply = Promise.withResolvers<unknown>();
-      waiting.set(++last, reply);
-      socket.send(JSON.stringify({ id: last, method, params, sessionId }));
-      return reply.promise;
+      const id = ++last;
+      waiting.set(id, reply);
+      socket.send(JSON.stringify({ id, method, params, sessionId }));
+      const timer = setTimeout(() => {
+        reply.reject(new Error(`${method} got no reply`));
+      }, 15_000);
+      try {
+        return await reply.promise;
+      } finally {
+        clearTimeout(timer);
+      }
     },
     close() {
       socket.close();
@@ -351,14 +370,17 @@ function clientReport(index: number): Report | undefined {
 // A discarded tab loses its document and its connection, and it loads again when the user returns to it. The new
 // document starts with no state of the old one, so it must connect once.
 async function discarded(): Promise<void> {
+  enter('connect to the browser target');
   const cdp = await connectDevtools();
   try {
+    enter('open the tab to discard');
     const before = fixture.opened();
     const auto = text(await cdp.send('Target.createTarget', { url: fixture.origin + '/auto' }), 'targetId');
     await waitFor(() => fixture.reports().length === 1, 'the first report of the tab');
     assert.deepEqual(clientReport(0), { wasDiscarded: false, entries: ['connected 1  uncertain=0'] });
     assert.equal(fixture.opened() - before, 1);
 
+    enter('open chrome://discards');
     const discards = text(await cdp.send('Target.createTarget', { url: 'chrome://discards' }), 'targetId');
     const sessionId = text(await cdp.send('Target.attachToTarget', { targetId: discards, flatten: true }), 'sessionId');
     const row = async (action: string): Promise<string> => {
@@ -373,6 +395,7 @@ async function discarded(): Promise<void> {
       state = await row('');
     }
     assert.match(state, / hidden loaded /u, 'The tab is loaded and hidden before the discard');
+    enter('discard the tab');
     const clickedAt = performance.now();
     await row(clickUrgentDiscard);
     const closedMs = await waitFor(() => fixture.open() === 0, 'the connection of the discarded tab to close');
@@ -386,6 +409,7 @@ async function discarded(): Promise<void> {
     assert.equal(fixture.opened() - before, 1, 'A discarded tab opens no connection');
     assert.equal(fixture.reports().length, 1);
 
+    enter('return to the discarded tab');
     await cdp.send('Target.activateTarget', { targetId: auto });
     const reloadMs = await waitFor(() => fixture.reports().length === 2, 'the report of the reloaded tab', 10_000);
     assert.deepEqual(clientReport(1), { wasDiscarded: true, entries: ['connected 1  uncertain=0'] });
@@ -409,6 +433,7 @@ async function discarded(): Promise<void> {
 }
 
 try {
+  enter('attach Playwright');
   current = await chromium.connectOverCDP(`http://${endpoint}`, { noDefaults: true });
   const [context] = current.contexts();
   assert.ok(context !== undefined);
@@ -417,25 +442,32 @@ try {
   cover = await context.newPage();
   await cover.goto(fixture.origin + '/cover');
   try {
+    enter('throttled timers');
     await throttled();
+    enter('one wake-up a minute', 200_000);
     await intensive();
+    enter('frozen tab');
     await frozen();
   } catch (error) {
     console.log('The hidden tab check failed with this page log');
     console.log(JSON.stringify(await timeline().catch(() => 'The page was gone')));
     throw error;
   }
+  enter('stop the client');
   await tab().evaluate(async () => {
     await (await import('/lifecycle.js')).stop();
   });
+  enter('close the tab');
   await tab().close();
   await waitFor(() => fixture.open() === 0, 'the connection of the stopped client to close');
   const version = current.version();
   // connectOverCDP did not start the browser, so close() only detaches Playwright and its DevTools sessions.
+  enter('detach Playwright');
   await current.close();
   await discarded();
   console.log(`Packed chromium ${version} hidden, frozen and discarded tab check passed`);
 } finally {
+  clearTimeout(watchdog);
   child.kill();
   fixture.close();
   rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
