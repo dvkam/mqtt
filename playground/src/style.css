@@ -1,0 +1,60 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+  --error: #c62828;
+  --ok: #2e7d32;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --error: #ff8a80;
+    --ok: #81c784;
+  }
+}
+body {
+  background: Canvas;
+  color: CanvasText;
+  margin: 0 auto;
+  max-width: 72rem;
+  padding: 1rem;
+}
+main {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+}
+section {
+  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-radius: 0.5rem;
+  padding: 0 1rem 1rem;
+}
+label {
+  display: block;
+  margin: 0.4rem 0;
+}
+input:not([type='checkbox']),
+select {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}
+.log {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  max-height: 16rem;
+  overflow: auto;
+}
+ol {
+  padding-left: 1.5rem;
+}
+li[data-kind='error'],
+#state[data-kind='error'] {
+  color: var(--error);
+}
+li[data-kind='ok'],
+#state[data-kind='ok'] {
+  color: var(--ok);
+}
+pre {
+  font-size: 0.8rem;
+  overflow: auto;
+}

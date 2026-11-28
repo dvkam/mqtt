@@ -162,7 +162,7 @@ The [verification guide](.agents/skills/verify-mqtt-lifecycle/SKILL.md) describe
 
 The [measurement index](docs/measurements.md) links workloads, individual observations, environments and reproduction commands. The [Node framing comparison](docs/node-framing-experiment.md) records why supported TCP and WS/WSS input use compact assembly. The streaming alternative remains test-only.
 
-The [playground](https://github.com/dvkam/mqtt/issues/21), [human and agent API reference](https://github.com/dvkam/mqtt/issues/22), and remaining [documentation, attribution and conduct work](https://github.com/dvkam/mqtt/issues/48) are tracked separately. This preview has not settled its publishing identity.
+The [playground](playground/README.md) runs the browser client in a page against a scripted broker or a local Mosquitto, and [#21](https://github.com/dvkam/mqtt/issues/21) tracks the rest of it. The [human and agent API reference](https://github.com/dvkam/mqtt/issues/22) and the remaining [documentation, attribution and conduct work](https://github.com/dvkam/mqtt/issues/48) are tracked separately. This preview has not settled its publishing identity.
 
 ## Credits
 

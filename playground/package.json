@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "description": "Browser playground for the packed MQTT client. Install the packed tarball into it before building.",
+  "type": "module"
+}
