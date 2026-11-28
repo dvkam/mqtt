@@ -5,16 +5,6 @@ interface WriteTimer {
   wake?: (expiry: number) => void;
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The scheduled callback owns and clears the handle and wake function.
-function wakeWrites(timer: WriteTimer): () => void {
-  return () => {
-    const wake = timer.wake;
-    timer.handle = undefined;
-    timer.wake = undefined;
-    wake?.(timer.expiry);
-  };
-}
-
 /** Keep one deadline timer for the session's QoS 0 writes. Each write retains its own expiry. */
 export class QosZeroWrites {
   private readonly pending = new Map<Reject, number>();
@@ -28,7 +18,7 @@ export class QosZeroWrites {
     this.onTimeout = onTimeout;
   }
 
-  // oxlint-disable-next-line typescript/promise-function-async -- Return the promise settled by the writer or session retirement directly.
+  // oxlint-disable-next-line typescript/promise-function-async -- Removing this suppression would cost performance, because an async method would allocate a second promise around this one for every QoS 0 publish. publish in src/portable.ts awaits the returned promise, and test/bench/packed-qos0.ts measures that path.
   run(write: () => Promise<void>, release: () => void): Promise<void> {
     if (this.stopped) {
       release();
@@ -82,7 +72,13 @@ export class QosZeroWrites {
 
   private arm(delay: number, expiry: number): void {
     const timer: WriteTimer = { expiry, wake: this.wake };
-    timer.handle = setTimeout(wakeWrites(timer), delay);
+    // The callback reads only `timer`, so a pending idle timer keeps no reference to this object.
+    timer.handle = setTimeout(() => {
+      const wake = timer.wake;
+      timer.handle = undefined;
+      timer.wake = undefined;
+      wake?.(timer.expiry);
+    }, delay);
     this.timer = timer;
   }
 

@@ -15,7 +15,7 @@ Node's direct native WSS attempt against the local Mosquitto 2.0.18 listener end
 
 The pressure probe sends 64 KiB messages with a 128 KiB local admission budget and pauses the receiver. In one local run, ws admitted 39 sends and reported a 65,550 byte peak. Native Node and Chromium each admitted two sends and reported a 131,072 byte peak. The peer closed all three after about 500 ms. These values describe each API's bufferedAmount and kernel progress. They do not measure broker receipt or total memory. The public client also tests local termination when a paused peer does not finish the close handshake.
 
-Use the same MQTT bytes and failure schedules for callback, AsyncIterable and Web Streams measurements under #18. The production browser session and a reusable byte interface remain part of #8 and #37. Browser APIs have no Node stream drain or per-client TLS/proxy options.
+Use the same MQTT bytes and failure schedules for callback, AsyncIterable and Web Streams measurements under #18. The browser session is now `createBrowserClient`, and the reusable byte interface is the [byte transport](byte-transport.md), which #174 added and #182 made public. #171 tracked that work. A Web Streams adapter comparison remains part of #8. Browser APIs have no Node stream drain or per-client TLS/proxy options.
 
 ## Receive limits
 
