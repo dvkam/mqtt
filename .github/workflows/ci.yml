@@ -81,10 +81,10 @@ jobs:
           done
           (IFS=,; echo "${{ runner.os }}=${failed[*]}") >> "$GITHUB_OUTPUT"
 
-  # A failed check also reports as a status with the name of the check, such as lint (windows-latest), so a pull
-  # request shows which check failed. A run without a failed check starts no runner for this job.
-  failed:
-    name: ${{ matrix.check }}
+  # A failed check also reports as a status that names it, such as failed-check (lint (windows-latest)), so a pull
+  # request shows which check failed. A run without a failed check skips this job and starts no runner for it. The
+  # job has no `name`, because GitHub shows a skipped matrix job under its unexpanded name.
+  failed-check:
     needs: verify
     if: ${{ failure() && (needs.verify.outputs.Linux || needs.verify.outputs.Windows) }}
     strategy:
