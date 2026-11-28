@@ -5,9 +5,9 @@
 \* Source: test/experiments/streaming-node-decoder.ts (StreamingNodeDecoder)
 \* Tests: test/packet-framer.test.ts, test/tcp-packet-admission.test.ts, test/websocket-packet-admission.test.ts, test/bounded-node-decoder.test.ts
 \* Mapping: Mode "compact" is PacketFramer, which allocates the packet without its first byte. Mode "streaming" is
-\* the comparison decoder under test/experiments, which allocates nothing itself. Header, Declare and Copy are steps
-\* of push. Decode and the callback phase are flush calling onPacket. Stop is stop. Reject is reject. Finish is
-\* finish. InputAfterFailure is assertOpen.
+\* the comparison decoder under test/experiments, which allocates no packet region. Header, Declare and Copy are
+\* steps of push. Decode and the callback phase are flush calling onPacket. Stop is stop. Reject is reject. Finish
+\* is finish. InputAfterFailure is assertOpen.
 \* Not modeled: Fixed header checks, the Remaining Length encoding, which NodeCanonicalLength covers, the reentrancy
 \* guards and the allocator contract.
 EXTENDS Naturals

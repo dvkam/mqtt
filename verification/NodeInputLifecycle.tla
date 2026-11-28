@@ -7,7 +7,7 @@
 \* Tests: test/node-packet-input.test.ts
 \* Mapping: Begin and Boundary are the framer entering and leaving a partial packet. Register is listen. Retire is
 \* retire. RemoteEnd is remoteEnd. DetachCore is detachCore. UnlistenInput is the function that listen returns. The
-\* broken configurations add RepeatEnd, ReplaceCause and LateRead.
+\* expected faults add RepeatEnd, ReplaceCause and LateRead.
 \* Not modeled: Packet contents, the protocol error path, which ParserAckNotice covers, and teardown in the
 \* transport core.
 \* The name predates the shared byte core. The browser client uses the same class.
