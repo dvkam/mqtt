@@ -1,4 +1,15 @@
 --------------------------- MODULE ConnackAgreement ---------------------------
+\* Rule: CONNECT carries the client identifier that the constructor copied. A CONNACK with authentication properties
+\* or with an Assigned Client Identifier that disagrees with the request ends the session before acceptance. An AUTH
+\* packet ends the session in every phase.
+\* Source: src/portable.ts (PortableClient, receiveConnack, open, rejectProtocolInput)
+\* Source: src/inboundPackets.ts (inboundPacketListener)
+\* Tests: test/connack-agreement.test.ts
+\* Mapping: MutateOptions is a change to the options object after the constructor copied clientId. Send is open.
+\* Receive is receiveConnack, where method and data stand for the two authentication properties and assigned for the
+\* Assigned Client Identifier. Refuse is a nonzero reason code. Auth is the auth case of inboundPacketListener.
+\* Activate is open setting activation to active. Deliver is the onMessage call.
+\* Not modeled: The other CONNACK properties, the string checks on the assigned identifier, and Session Present.
 CONSTANT Fault
 VARIABLES requested, options, wire, phase, invalidAccepted, delivered, authSeen
 vars == <<requested, options, wire, phase, invalidAccepted, delivered, authSeen>>

@@ -1,4 +1,16 @@
 ----------------------------- MODULE NodeReceive -----------------------------
+\* Rule: An invalid WebSocket message limit rejects before a socket exists. The accepted limit reaches ws as
+\* maxPayload. A receive failure retires the session and terminates the socket.
+\* Source: src/websocketLimits.ts (resolveWebSocketMessageLimit)
+\* Source: src/websocketClient.ts (openSocket, maxPayload, terminate)
+\* Source: src/transportCore.ts (connectOverBytes, finish, teardown, forceClose)
+\* Source: src/packetInput.ts (PacketInput, listen, retire)
+\* Tests: test/node-receive-limit.test.ts
+\* Mapping: Configure is resolveWebSocketMessageLimit, which runs before the WebSocket constructor. Receive assumes
+\* that ws rejects a message above maxPayload without a message event. AttachObserver is PacketInput.listen. Notify
+\* is the socket's error handler calling inbound.fail, where retire tells a registered session and teardown closes
+\* the writer with terminate.
+\* Not modeled: The ws receiver itself. Wire tests check its behavior.
 EXTENDS Integers
 CONSTANT Fault
 VARIABLES requested, configured, constructed, nativeLimit, receiverFailed,

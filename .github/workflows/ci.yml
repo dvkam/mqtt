@@ -6,43 +6,111 @@ on:
   pull_request:
   schedule:
     - cron: '37 3 * * 2'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# A newer push to a pull request cancels the run of its older commit. A run on main or on the schedule gets a group of
+# its own, so it always finishes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
-  verify:
-    name: ${{ matrix.check }} (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-26.04, windows-latest]
-        check: [test, 'test:types', lint, 'format:check', build]
-    runs-on: ${{ matrix.os }}
-    steps:
+  # The main ruleset requires checks (ubuntu-26.04) and checks (windows-latest). Each platform job installs once and
+  # runs every check as a step of its own. A check still runs when an earlier check failed, and it starts without the
+  # dist and .type-fixtures output of an earlier check. Keep the platform jobs free of a job-level `if` and of `needs`.
+  # GitHub counts a skipped required job as passing. test/ci-required-checks.test.ts fails when either key appears.
+  verify-ubuntu:
+    name: checks (ubuntu-26.04)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    outputs: &outcomes
+      test: ${{ steps.test.outcome }}
+      test-types: ${{ steps.test-types.outcome }}
+      lint: ${{ steps.lint.outcome }}
+      format-check: ${{ steps.format-check.outcome }}
+      build: ${{ steps.build.outcome }}
+    steps: &checks
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
       - uses: pnpm/action-setup@v6
-      - run: pnpm install --frozen-lockfile
-      # Lint reads emitted declarations. Emitting them without a type check keeps a type error in the test:types check only.
-      - if: matrix.check == 'lint'
-        run: pnpm lint:declarations
-      - run: pnpm ${{ matrix.check }}
+      - id: install
+        run: pnpm install --frozen-lockfile
+      - name: test
+        id: test
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: git clean -ffdxq -e /node_modules && pnpm test
+      - name: test:types
+        id: test-types
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: git clean -ffdxq -e /node_modules && pnpm test:types
+      # Lint reads emitted declarations. Emitting them without a type check lets lint report when the sources have a
+      # type error. The type error fails test:types, and build when it is in src.
+      - name: lint
+        id: lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: git clean -ffdxq -e /node_modules && pnpm lint:declarations && pnpm lint
+      - name: format:check
+        id: format-check
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: git clean -ffdxq -e /node_modules && pnpm format:check
+      - name: build
+        id: build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: git clean -ffdxq -e /node_modules && pnpm build
 
-  # The main ruleset requires checks (ubuntu-26.04) and checks (windows-latest). Each fails unless every verify job passed
-  # on both platforms. It runs even after a cancel, because GitHub counts a skipped required job as passing.
-  checks:
-    if: ${{ always() }}
-    needs: verify
-    strategy:
+  verify-windows:
+    name: checks (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 10
+    outputs: *outcomes
+    steps: *checks
+
+  # Each check also reports as a status of its own on every run, such as lint (windows-latest). A report job reads the
+  # outcome of its step from the platform job and runs no checkout and no setup. It passes only when that step passed.
+  # It fails when the step failed or did not run. It needs one platform job, so the Ubuntu reports do not wait for
+  # Windows.
+  report-ubuntu:
+    name: ${{ matrix.check }} (ubuntu-26.04)
+    needs: verify-ubuntu
+    if: ${{ !cancelled() }}
+    strategy: &report
+      fail-fast: false
       matrix:
-        os: [ubuntu-26.04, windows-latest]
+        include:
+          - { check: test, step: test }
+          - { check: 'test:types', step: test-types }
+          - { check: lint, step: lint }
+          - { check: 'format:check', step: format-check }
+          - { check: build, step: build }
     runs-on: ubuntu-26.04
+    timeout-minutes: 5
     steps:
-      - name: Require every check on both platforms
-        run: test "${{ needs.verify.result }}" = success
+      - name: Require the step of the platform job to have passed
+        env:
+          OUTCOME: ${{ needs.verify-ubuntu.outputs[matrix.step] }}
+        run: |
+          echo "The ${{ matrix.check }} step of checks (ubuntu-26.04) ended as '${OUTCOME:-not run}'."
+          test "$OUTCOME" = success
+
+  report-windows:
+    name: ${{ matrix.check }} (windows-latest)
+    needs: verify-windows
+    if: ${{ !cancelled() }}
+    strategy: *report
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Require the step of the platform job to have passed
+        env:
+          OUTCOME: ${{ needs.verify-windows.outputs[matrix.step] }}
+        run: |
+          echo "The ${{ matrix.check }} step of checks (windows-latest) ended as '${OUTCOME:-not run}'."
+          test "$OUTCOME" = success
 
   packed-consumer:
     runs-on: ubuntu-26.04
@@ -99,25 +167,116 @@ jobs:
           MQTT_TEST_PORT=18883 timeout 20 node "$RUNNER_TEMP/mqtt-consumer/session-resume.mjs" | tee -a "$GITHUB_STEP_SUMMARY"
           MQTT_TEST_PORT=18883 timeout 30 node "$RUNNER_TEMP/mqtt-consumer/qos2.mjs" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Bundle the portable browser import
-        if: github.event_name != 'schedule'
         run: node test/packed/browser-build.mjs "$RUNNER_TEMP/mqtt-consumer" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Check the packed WebSocket browser graph
         run: node test/packed/websocket-check.mjs "$RUNNER_TEMP/mqtt-consumer" --bundle-only
-      - name: Install scheduled browser test engines
-        if: github.event_name == 'schedule'
-        run: pnpm exec playwright install --with-deps chromium firefox webkit
-      - name: Run the scheduled browser matrix
-        if: github.event_name == 'schedule'
-        run: node test/packed/browser-build.mjs "$RUNNER_TEMP/mqtt-consumer" chromium firefox webkit | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Compare packed native WebSocket in Node and Chromium
-        if: github.event_name == 'schedule'
-        run: timeout 30 node test/packed/websocket-check.mjs "$RUNNER_TEMP/mqtt-consumer"
-
       - name: Run packed MQTT 5 sessions over WS and WSS
+        run: MOSQUITTO_BIN="$GITHUB_WORKSPACE/test/packed/mosquitto-container.sh" MQTT_BROKER_DIR="$RUNNER_TEMP/mqtt-broker" bash test/packed/mosquitto-ws.sh "$RUNNER_TEMP/mqtt-consumer"
+
+  # Checks every TLA+ model in verification/ with TLC. The job has no path filter, because a filter would let a source
+  # change that breaks a model's mapping skip it. The image provides Java 21, the version the models were checked with.
+  models:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    env:
+      TLC_SHA256: 936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+      - uses: actions/cache@v6
+        id: tlc
+        with:
+          path: tla2tools.jar
+          key: tlc-1.7.4-${{ env.TLC_SHA256 }}
+      - name: Download TLC 1.7.4
+        if: steps.tlc.outputs.cache-hit != 'true'
+        run: curl -fsSL --retry 3 -o tla2tools.jar https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
+      - name: Check the TLC download
+        run: echo "$TLC_SHA256  tla2tools.jar" | sha256sum --check
+      - name: Run the models
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == schedule ]]; then
-            sudo apt-get update
-            sudo apt-get install -y libnss3-tools
-            export MQTT_TEST_CHROMIUM=1
+          export JAVA="${JAVA_HOME_21_X64:?}/bin/java"
+          "$JAVA" -version
+          TLC_JAR=tla2tools.jar node verification/check.ts | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # The browser checks download a browser each, so a pull request runs them only when it changes a path below. The
+  # schedule and a manual run always run them. A push to main does not. The browsers job has a job-level if, so it
+  # must not become a required check, because GitHub counts a skipped required job as passing.
+  browser-changes:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.changed.outputs.run }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - id: changed
+        shell: bash
+        run: |
+          run=true
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            run=false
+          elif [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            # The checkout of a pull request is its merge commit, whose first parent is the base.
+            # A diff that fails leaves run at true.
+            if git diff --quiet HEAD^1 HEAD -- src tsconfig.json package.json pnpm-lock.yaml .node-version test/packed \
+              test/experiments .github/workflows/ci.yml; then
+              run=false
+            fi
           fi
-          MOSQUITTO_BIN="$GITHUB_WORKSPACE/test/packed/mosquitto-container.sh" MQTT_BROKER_DIR="$RUNNER_TEMP/mqtt-broker" bash test/packed/mosquitto-ws.sh "$RUNNER_TEMP/mqtt-consumer"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+  browsers:
+    name: browsers (${{ matrix.browser }})
+    needs: browser-changes
+    if: needs.browser-changes.outputs.run == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+      - uses: pnpm/action-setup@v6
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Install the packed candidate
+        run: |
+          consumer="$RUNNER_TEMP/mqtt-consumer"
+          mkdir -p "$RUNNER_TEMP/mqtt-artifact" "$consumer" "$RUNNER_TEMP/mqtt-broker"
+          pnpm pack --pack-destination "$RUNNER_TEMP/mqtt-artifact"
+          cp test/packed/*.mjs test/packed/consumer.ts test/packed/tsconfig.json "$consumer/"
+          printf '{"private":true,"type":"module"}\n' > "$consumer/package.json"
+          npm install --prefix "$consumer" --engine-strict --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/mqtt-artifact/*.tgz \
+            "@types/node@$(node -p "require('./package.json').devDependencies['@types/node']")" "ws@$(node -p "require('./package.json').devDependencies.ws")"
+      - run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
+      - name: Run the packed browser checks
+        run: node test/packed/browser-build.mjs "$RUNNER_TEMP/mqtt-consumer" ${{ matrix.browser }} | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Compare packed native WebSocket in Node and Chromium
+        if: matrix.browser == 'chromium'
+        run: timeout 30 node test/packed/websocket-check.mjs "$RUNNER_TEMP/mqtt-consumer"
+      - name: Run packed MQTT 5 sessions over WS and WSS in Chromium
+        if: matrix.browser == 'chromium'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3-tools
+          timeout 180 bash test/packed/mosquitto-container.sh --pull
+          MQTT_TEST_CHROMIUM=1 MOSQUITTO_BIN="$GITHUB_WORKSPACE/test/packed/mosquitto-container.sh" MQTT_BROKER_DIR="$RUNNER_TEMP/mqtt-broker" bash test/packed/mosquitto-ws.sh "$RUNNER_TEMP/mqtt-consumer"
+      - name: Run the page lifecycle check
+        run: |
+          timeout 180 bash test/packed/mosquitto-container.sh --pull
+          MOSQUITTO_BIN="$GITHUB_WORKSPACE/test/packed/mosquitto-container.sh" MQTT_BROKER_DIR="$RUNNER_TEMP/mqtt-broker" \
+            bash test/packed/page-lifecycle.sh "$RUNNER_TEMP/mqtt-consumer" ${{ matrix.browser }} | tee -a "$GITHUB_STEP_SUMMARY"

@@ -1,4 +1,12 @@
 --------------------------- MODULE CodecEndOfInput ---------------------------
+\* Rule: The public decoder rejects an end of input inside a packet, returns no packet after the end, and keeps an
+\* earlier failure.
+\* Source: src/wireCodec.ts (PacketDecoder, pushBatch, finish)
+\* Tests: test/codec.test.ts
+\* Mapping: Begin and Complete are pushBatch holding and finishing a partial header or frame. Finish is finish.
+\* Reject is the catch in pushBatch. InputAfterEnd is pushBatch after finish. FinishAfterFailure is finish after a
+\* failure.
+\* Not modeled: Packet bytes, and PacketFramer.finish, which NodePacketAdmission covers.
 EXTENDS Naturals
 CONSTANT Fault
 VARIABLES phase, pending, truncationAccepted, outputAfterEnd, hiddenFailure

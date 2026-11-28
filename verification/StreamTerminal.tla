@@ -1,4 +1,12 @@
 ---------------------------- MODULE StreamTerminal ----------------------------
+\* Rule: The stream view closes at once on a graceful close with nothing queued, errors at once on a failure, and
+\* does not close before it enqueued a message that a pending pull already took.
+\* Source: test/experiments/message-queue.ts (createMessageQueue, stream, notifyTerminal, pull)
+\* Tests: test/browser-message-stream.test.ts
+\* Mapping: Offer is push. Pull is the pull callback up to its await. Resume is its continuation. Close and Fail are
+\* close and fail calling notifyTerminal. Cancel is the stream's cancel callback.
+\* Not modeled: More than one message, backpressure and the batch view, which ReadyBatch covers.
+\* This model covers test-only code under test/experiments. The package does not export the queue.
 EXTENDS Naturals
 CONSTANT Fault
 VARIABLES phase, queued, pulling, result, terminal, accepted, delivered

@@ -1,4 +1,14 @@
 ---------------------------- MODULE QosOneInbound ----------------------------
+\* Rule: The session handles one inbound QoS 1 PUBLISH at a time and holds at most one follower. It keeps a PUBLISH
+\* that arrives between CONNACK and activation. It writes PUBACK only after the handler succeeded and never after a
+\* stop. A handler failure during a graceful close does not retire the session.
+\* Source: src/portable.ts (receiveQosOne, deliverQosOne, advanceInbound, disconnect, fail)
+\* Tests: test/qos1-inbound.test.ts
+\* Mapping: Accept is receiveConnack accepting the CONNACK. Activate is open setting activation to active and
+\* calling advanceInbound. Receive is receiveQosOne. HandlerSuccess is onQosOneMessage settling. AckStart is
+\* deliverQosOne entering the acknowledging phase and writing PUBACK. AckSettled is its finally block. Stop is
+\* disconnect. Fail is fail. HandlerFailure is the catch in deliverQosOne.
+\* Not modeled: Packet Identifier and DUP validation, redelivery after a reconnect, and the handler deadline.
 EXTENDS Naturals
 CONSTANT Fault
 VARIABLE state

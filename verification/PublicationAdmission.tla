@@ -1,4 +1,15 @@
 -------------------------- MODULE PublicationAdmission --------------------------
+\* Rule: Pending publications stay within the item and byte limits. A reservation is held until its write settled,
+\* also after retirement. A control packet needs no publication slot.
+\* Source: src/publicationAdmission.ts (PublicationAdmission, reserve)
+\* Source: src/portable.ts (publish, fail)
+\* Source: src/qosZeroWrites.ts (QosZeroWrites, run, retire)
+\* Tests: test/outgoing-admission.test.ts
+\* Mapping: Reserve is reserve in publish. Complete is the release function that run calls when the write settles.
+\* Retire is fail, where retire rejects the callers and each reservation still returns from its own write. Control
+\* is a ping or a subscription change, which never calls reserve.
+\* Not modeled: The Maximum Packet Size check, the publishSize formula, the QoS 1 queue, which QosOneOutbound
+\* covers, and QoS 0 writes that wait for resends.
 EXTENDS Naturals, FiniteSets
 CONSTANT Fault
 VARIABLES held, reserved, retired, controlSent
