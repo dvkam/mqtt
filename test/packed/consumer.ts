@@ -7,7 +7,6 @@ import {
   type DiagnosticObserver,
   type DisconnectOptions,
   type NodeQosOneMessage,
-  type ReadonlyBytes,
   type SessionEnd,
   type SubscribeResult,
   type UnsubscribeResult,
@@ -33,9 +32,9 @@ export type PackedPayloadIsSpecific = RequireFalse<IsAny<Received['payload']>>;
 export type PackedPayloadIsBuffer = RequireTrue<Received['payload'] extends Buffer ? true : false>;
 // A transport passes a Buffer or any other Uint8Array to ByteInbound.bytes, whose parameter type the package exports by name.
 export type PackedInboundTakesReadonlyBytes = RequireTrue<
-  Parameters<Parameters<ByteTransport['open']>[0]['bytes']>[0] extends ReadonlyBytes ? true : false
+  Parameters<Parameters<ByteTransport['open']>[0]['bytes']>[0] extends import('mqtt').ReadonlyBytes ? true : false
 >;
-export type PackedReadonlyBytesAcceptsBuffer = RequireTrue<Buffer extends ReadonlyBytes ? true : false>;
+export type PackedReadonlyBytesAcceptsBuffer = RequireTrue<Buffer extends import('mqtt').ReadonlyBytes ? true : false>;
 export type PackedQosIsZero = RequireTrue<Received['qos'] extends 0 ? true : false>;
 export type PackedMessageIsFlat = RequireFalse<'properties' extends keyof Received ? true : false>;
 export type PackedMessageNamesItsProperties = RequireTrue<Received extends import('mqtt').MessageProperties ? true : false>;
