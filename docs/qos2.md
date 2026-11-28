@@ -109,7 +109,7 @@ The outcome of a handler changes only its own delivery. When the exchange has en
 
 ### Flow control
 
-A QoS 1 or QoS 2 handler makes the client advertise Receive Maximum 1. A QoS 2 publication holds that slot from its PUBLISH until the client has submitted its PUBCOMP. Another QoS 1 or QoS 2 PUBLISH before that ends the session with `ERR_MQTT_PROTOCOL` and DISCONNECT 0x93. One next PUBLISH may arrive while the PUBCOMP write is pending, and it is delivered when that write settles. A PUBREL that arrives while the handler still runs is a protocol error with reason 0x82. Identifiers that a resumed session brought along do not hold the slot, because the Receive Maximum starts over with each connection.
+A QoS 1 or QoS 2 handler makes the client advertise Receive Maximum 1. A QoS 2 publication holds that slot from its PUBLISH until the client has submitted its PUBCOMP. Another QoS 1 or QoS 2 PUBLISH before that ends the session with `ERR_MQTT_PROTOCOL` and DISCONNECT 0x93. One next PUBLISH may arrive while the PUBCOMP write is pending, and it is delivered when that write settles. A PUBREL that arrives while the handler of this connection still runs is a protocol error with reason 0x82. Identifiers that a resumed session brought along do not hold the slot, because the Receive Maximum starts over with each connection.
 
 After `disconnect()` the client answers no PUBLISH and no PUBREL. An identifier that waits for PUBREL stays in the session state.
 
@@ -145,7 +145,7 @@ These numbers come from Node 26.13.0 and an in-memory transport that answers eac
 
 A QoS 2 publish allocates 1.9 times the bytes of a QoS 1 publish, because it runs two acknowledged steps with a deadline each. On an otherwise idle machine it measured about 119,000 publishes per second, against about 196,000 at QoS 1. `test/bench/packed-qos1-qos2.ts` repeats the timing against an installed tarball. `MQTT_TEST_QOS` selects 1 or 2, and `MQTT_TEST_SESSION_STATE=1` adds a session state.
 
-`publish(topic, payload, { qos: 2 })` is a runtime option, so a bundler cannot drop the exchange code and every client carries it. The packed browser bundle grew from 84,021 to 90,117 bytes, and from 21,135 to 22,584 bytes gzipped.
+`publish(topic, payload, { qos: 2 })` is a runtime option, so a bundler cannot drop the exchange code and every client carries it. The packed check in CI bundles the portable browser import. That bundle measured 91,212 bytes and 22,777 bytes gzipped for this change, against 84,025 and 21,106 on `main` at d4c0573, which is 7,187 bytes and 1,671 gzipped more.
 
 ## Verification
 
