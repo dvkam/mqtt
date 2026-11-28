@@ -70,12 +70,7 @@ export class SubscriptionExchanges {
       throw new MqttError('ERR_MQTT_CAPACITY', 'MQTT subscription capacity exceeded');
     const identifier = this.identifiers.reserve();
     const { messageId } = identifier;
-    let resolve!: Entry['resolve'];
-    let reject!: Entry['reject'];
-    const acknowledged = new Promise<Acknowledgment>((accept, refuse) => {
-      resolve = accept;
-      reject = refuse;
-    });
+    const { promise: acknowledged, resolve, reject } = Promise.withResolvers<Acknowledgment>();
     const entry: Entry = { bytes, identifier, kind, requestedQos, accepted: false, resolve, reject };
     this.entries.set(messageId, entry);
     this.bytes += bytes;
