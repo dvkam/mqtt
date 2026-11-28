@@ -20,6 +20,11 @@ Refused CONNACK packets do not require an assigned identifier. Their existing re
 
 The portable codec reads and writes Assigned Client Identifier in CONNACK, rejects duplicate or misplaced occurrences, and forwards it through the browser adapter. The accepted identifier is available as `session.connection.clientId`. Sessions use Clean Start true unless the caller sets `cleanStart: false`, and a [reconnecting client](reconnect.md#resuming-the-session) with `resume` sends Clean Start false after its first session. Durable identity storage is tracked separately. [Connection metadata](public-types.md#broker-acknowledgment-results)
 
+## Session Present and a second CONNACK
+
+- A CONNACK with Session Present true after Clean Start true is a protocol error with reason code 0x82, and `connect()` rejects. After Clean Start false the client accepts either value. [Resuming the session](reconnect.md#resuming-the-session)
+- A second CONNACK on the same connection is a protocol error with reason code 0x82, even when it repeats the first. It ends the session, or rejects `connect()` when `connect()` has not resolved yet. The client checks for it before it reads the Session Present flag, the authentication properties or the Assigned Client Identifier.
+
 ## Verification
 
 The original agreement work ended with 54 cases. It covered every split in the portable codec, custom decoded transports, caller-option mutation, refusal ownership, coalesced success followed by AUTH, and native transport cleanup. The #149 cases exercise back-to-back QoS 0 delivery, refusal, and a CONNECT write failure after an accepted prefix. Public adapter tests also check peer closure and abort-listener removal before fixture cleanup.
@@ -29,7 +34,3 @@ ConnackAgreement explores empty and named requested IDs, caller-option mutation,
 The baseline replay passed 39 configurations and detected 137 expected faults. The updated replay passes 40 and detects 143. Eight actual source faults remove method rejection, data rejection, AUTH rejection, the missing-assignment check, identity replacement rejection, the wire-ID snapshot, browser assignment forwarding or codec duplicate rejection. Each fails a regression and was restored.
 
 Run `pnpm exec vitest run test/connack-agreement.test.ts test/portable.test.ts`. The project-local verification skill records the source mapping, complete replay and deliberate fault checks. Broader negotiated MQTT behavior remains under #16, enhanced-auth profile decisions under #19, and codec comparison under #9/#111.
-
-The [installed-package observations](baseline/connack-agreement-checks.md) record broker smoke results and their limits. They establish no performance advantage and use named IDs. Scripted public-adapter tests cover assignments; the scheduled browser engine matrix was not run locally.
-
-The [Session Present agreement](session-present-agreement.md) also checks CONNACK against the supported factories' Clean Start request before acceptance.
