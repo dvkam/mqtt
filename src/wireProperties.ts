@@ -126,7 +126,7 @@ export function responseTopic(value: string): string {
 class Section {
   offset: number;
   end: number;
-  private readonly bytes: Uint8Array;
+  private readonly bytes: ReadonlyBytes;
   private readonly name: string;
 
   constructor(bytes: ReadonlyBytes, offset: number, name: string) {
