@@ -4,9 +4,17 @@ Status: draft for discussion. Nothing in this proposal is built yet.
 
 ## Issues
 
-[#22](https://github.com/dvkam/mqtt/issues/22) owns this work. This proposal covers its second and third acceptance boxes and the tooling for its fourth. The first box, the content of the guides, is separate work.
+[#22](https://github.com/dvkam/mqtt/issues/22) owns this work, and this proposal keeps all four of its acceptance boxes. The first box, the content of the guides, is separate work. The table shows where the other three land.
 
-The fourth box of #22 says to consider a TypeScript content mapper "only if a real custom fixture format needs a typed module view and the Vite or runtime loader can match it". The owner's instruction in the working session on 26 November 2026 supersedes that wording for the guides. The instruction was to use a Markdown content mapper now, with the 7.1 beta, without waiting for the final release. [#26](https://github.com/dvkam/mqtt/issues/26) stays the experiment for a `.mqtttrace` fixture format. It can reuse the mapper mechanics and the external-code opt-in described here.
+| Box of #22 | Where this proposal meets it |
+| --- | --- |
+| 2. Type-check runnable snippets against the packed package, link each public export to its reference, flag documented APIs that the package does not export | Design items 2, 5 and 6 |
+| 3. The static site and the plain-text index are built from the same versioned source | Design items 2, 3 and 4 |
+| 4. Consider a content mapper only if a format needs a typed module view and the loader can match it | The rule below |
+
+**The rule for content mappers.** Box 4 guards against one failure. A mapper gives TypeScript a typed view of a file that code imports, and the Vite or runtime loader then produces something else, so the types lie. That failure needs an import. No code imports a guide. The Markdown mapper in this proposal is therefore check-only: `tsc` reads the guides through it with `noEmit`, nothing is emitted, and no module resolves to a `.md` file. The condition of box 4 stays in force for every format that code imports, which is the `.mqtttrace` experiment of [#26](https://github.com/dvkam/mqtt/issues/26). #26 can reuse the mapper mechanics and the external-code opt-in described here.
+
+The owner's instruction in the working session on 26 November 2026 was to use a Markdown content mapper now, with the 7.1 beta, without waiting for the final release. A wording for box 4 that holds both the instruction and the guard is "Use a content mapper freely for inputs that are only checked, such as the guides. For a format that code imports, use one only if the Vite or runtime loader produces the same module."
 
 The owner's comment on #22 of 23 November 2026 links this work to [#179](https://github.com/dvkam/mqtt/issues/179) and [#21](https://github.com/dvkam/mqtt/issues/21). The #179 walkthrough compares the documented exports and examples with the packed declarations, which is the check in design item 5. When the playground components of #21 land, the same generator reads their declarations and the same mapper checks their usage examples.
 
@@ -63,12 +71,14 @@ The first version of this proposal reported 103 exports, 33 with a doc comment, 
 2. **Model.** The generator reads the entry points from `exports` in `package.json` and the declaration files of the packed tarball. It writes `docs/api/model.json`, with one entry per declaration: the entry points that export it, name, kind, printed type, members, doc comment, tags and source location. A pull request that changes the public API also changes the model, so the change is visible in review.
 3. **Pages.** The owner wants fewer Markdown files, and a separate proposal is shrinking `docs/`, which holds 86 of them. The reference therefore adds no checked-in page per entry point. The VitePress site that #22 asks for renders the pages from the model when it builds. If the reference must also read on GitHub, the generator writes one file, `docs/api.md`.
 4. **Agent index.** The generator writes the small plain-text index that #22 asks for from the same model: one line per declaration with its entry points, kind, summary sentence and link. The site and the index come from one model in one run, and the drift check in item 6 covers both.
-5. **Examples.** The check runs in the project of the packed-consumer CI job, which already installs the tarball into a clean directory. CI copies `README.md`, `docs/*.md` and `docs/recipes/*.md` there, installs the mapper package from this repository and runs `tsc -p . --runExternalCode`. Imports of `mqtt` then resolve to the packed package, as #22 asks, and an import of a name that the package does not export is an error.
+5. **Examples.** One extractor module finds the fenced blocks and their positions. It has two front ends. The content mapper serves `tsc` and the editor, so an error shows at its line in the Markdown file. The in-memory front end adds each block with `createFileSystemLayer` and needs no external code. The prototype got the same errors from both. CI gates on the mapper. If a later beta changes the mapper protocol, the gate switches to the in-memory front end in one line and loses no coverage.
+   - The check runs in the project of the packed-consumer CI job, which already installs the tarball into a clean directory. CI copies `README.md`, `docs/*.md` and `docs/recipes/*.md` there, installs the mapper package from this repository and runs `tsc -p . --runExternalCode`. Imports of `mqtt` then resolve to the packed package, as #22 asks, and an import of a name that the package does not export is an error.
+   - `contentMappers` appears only in the tsconfig of that check. The tsconfig that builds the package lists no mapper and runs without `--runExternalCode`, so building and packing execute no external code.
    - A shared preamble declares the names the fragments use, such as `session: ClientSession` and `client: ClientFactory`, so a fragment stays short and still type-checks.
    - A block that should not compile carries a marker, and the mapper turns it into an expected diagnostic. This is the failing usage fixture that the owner's comment on #22 asks for.
    - The project installs the packages that a recipe imports, such as `pino`, or the preamble declares them.
    - The two `js` blocks, in `README.md` and `docs/measurements.md`, can go through the mapper with the `.js` extension. The prototype did not test that.
-   - A mapper cannot take `@example` blocks from doc comments, because `.ts` is a reserved extension that no mapper may claim. The generator extracts those blocks and checks them as in-memory files with `createFileSystemLayer`, as the second prototype script did for the guides. `src` has no `@example` block today.
+   - A mapper cannot take `@example` blocks from doc comments, because `.ts` is a reserved extension that no mapper may claim. The generator extracts those blocks and checks them through the in-memory front end. `src` has no `@example` block today.
    - The announcement says that in VS Code content mappers need workspace trust and the content mapper permission, and that the setting `js/ts.contentMappers.enabled` turns them off. The prototype did not test the editor.
 6. **Checks in CI.** CI runs three checks:
    - Every exported declaration and member has a doc comment. This check starts as a report, then fails CI once the existing gaps are filled.
@@ -92,7 +102,7 @@ The announcement lists mappers that were prototyped or implemented for Astro, CS
 - The API is a beta until 7.1 is final. A rename would break the generator but not the library. Pinning the exact version and keeping the generator small limits the cost.
 - `typeToString` prints types as the checker sees them, for example `Uint8Array<ArrayBufferLike>`. The pages may need a few printing rules.
 - A content mapper runs external code, so CI must opt in with `--runExternalCode`, and editors need workspace trust. The mapper is code in this repository, so the opt-in covers only our own script. #26 asks to document that opt-in and to keep it out of the package build, and the example check does both, because it runs after the build in its own project.
-- The mapper protocol may change before 7.1 is final. The mapper is small, and the example check fails when the compiler no longer accepts its answers.
+- The mapper protocol may change before 7.1 is final. The mapper is small, and the example check fails when the compiler no longer accepts its answers. The in-memory front end of design item 5 keeps the gate running while the mapper is updated.
 
 ## Steps
 
