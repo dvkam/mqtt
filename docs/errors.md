@@ -32,6 +32,7 @@ MQTT reason codes are in `error.reasonCode`, not `error.code`. `ProtocolInputErr
 | `ERR_MQTT_TIMEOUT` | The disconnect drain passed `drainTimeoutMs` without a PUBACK. The publication outcome is unknown and DISCONNECT proceeds. | `true` | None |
 | `ERR_MQTT_BROKER_DISCONNECT` | The broker sent DISCONNECT | `true` | The DISCONNECT reason code, 0 when omitted |
 | `ERR_MQTT_PROTOCOL` | Malformed or out-of-profile broker input, such as a PUBACK with packet identifier 0. The error is a `ProtocolInputError`, and an active session sends DISCONNECT with its reason code. | `true` | 0x81, 0x82 or 0x94 |
+| `ERR_MQTT_PROTOCOL` | A QoS 1 PUBLISH arrived before CONNACK on a client with an `onQosOneMessage` handler. The error is an `MqttError` that is not a `ProtocolInputError`. The client sends no DISCONNECT and closes the transport. | `true` | None |
 | `ERR_MQTT_PROTOCOL` | The broker's CONNACK set Maximum Packet Size from 1 to 3, which leaves no room for the client's 4-byte PUBACK | `true` | None |
 | `ERR_MQTT_PROTOCOL` | The broker sent more inbound QoS 1 messages than the client's Receive Maximum allows | `true` | 0x93 |
 | `ERR_MQTT_CLOSING` | The call came after `disconnect()` | `true` | None |

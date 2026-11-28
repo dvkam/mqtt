@@ -78,6 +78,6 @@ These are medians of three runs. Allocation samples include measurement overhead
 
 Encoding is slower and allocates more in this workload. Decoding is faster with fewer sampled bytes. This corpus does not establish a general performance advantage. Keep raw measurements with the local research or CI artifacts when rerunning the benchmark.
 
-The upstream mqtt-packet release checked for this work is v9.0.2. The v10 roadmap remains relevant to a later comparison with a published or pinned implementation. Profile expansion, broader differential cases, randomized wire inputs and package extraction remain in #37. The packed client-and-codec test harness reports its browser bundle size in CI.
+The upstream mqtt-packet release checked for this work is v9.0.2. The v10 roadmap remains relevant to a later comparison with a published or pinned implementation. Profile expansion is tracked in #15, broader differential cases and randomized wire inputs in #9, and package extraction in #111. The packed client-and-codec test harness reports its browser bundle size in CI.
 
 The wire rules come from MQTT 5 sections 1.5, 2.1, 2.2 and 3.1 through 3.14. [MQTT 5 specification](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html) · [Upstream codec roadmap](https://github.com/mqttjs/mqtt-packet/issues/159)
