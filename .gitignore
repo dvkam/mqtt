@@ -46,3 +46,6 @@ dist/**/*
 # dist
 dist
 /.type-fixtures/
+
+# Vitest reports
+.vitest/
