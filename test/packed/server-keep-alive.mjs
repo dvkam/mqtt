@@ -9,7 +9,7 @@ let connection;
 /** @type {number[]} */
 const commands = [];
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `socket` is typed `Socket`, and `Readonly<import('node:net').Socket>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `socket`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `Socket` is declared in `node:net`.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. This code calls `end` and `write` on `socket`, which is how it answers or ends the connection it scripts. The rule accepts only a read-only type, and that would be false for this parameter.
 const server = createServer((socket) => {
   connection = socket;
   let buffered = Buffer.alloc(0);

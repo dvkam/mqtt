@@ -28,7 +28,7 @@ async function peer(
   if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
   const packets: Packet[] = [];
   let closed = false;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `socket` is typed `WebSocket`, and the published package exports no name for that type, so the accepted type would be a hand-written copy of it. `WebSocket` is declared in `ws`.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. This code calls `send` on `socket`, which is how it answers or ends the connection it scripts. The rule accepts only a read-only type, and that would be false for this parameter.
   server.on('connection', (socket) => {
     socket.once('close', () => {
       closed = true;

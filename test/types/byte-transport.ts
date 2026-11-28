@@ -23,7 +23,7 @@ type Same<Left, Right> =
 
 declare function openMyTunnel(): Promise<Duplex>;
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `stream` is typed `Duplex`, and `Readonly<Duplex>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `stream`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `Duplex` is declared in `node:stream`.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. This code calls `destroy`, `end` and `write` on `stream`, which is how it answers or ends the connection it scripts. The rule accepts only a read-only type, and that would be false for this parameter.
 function useDuplex(stream: Duplex): ByteTransport {
   return {
     name: 'Duplex',
