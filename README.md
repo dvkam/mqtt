@@ -156,7 +156,7 @@ The [design decision record](docs/design-decisions.md) records decisions about t
 
 ## Development and evidence
 
-Read the [contribution guide](.github/contributing.md). CI runs tests, strict compiler checks, type-aware lint, formatting and builds on Ubuntu and Windows. The packed-consumer job installs the actual tarball, checks declarations and browser bundles, and exercises MQTT 5 against Mosquitto over TCP and WS/WSS with certificate and proxy cases. Scheduled runs add browser runtime tests across Chromium, Firefox and WebKit. Wider browser and fault coverage remains work under [#23](https://github.com/dvkam/mqtt/issues/23).
+Read the [contribution guide](.github/contributing.md). CI runs tests, strict compiler checks, type-aware lint, formatting and builds on Ubuntu and Windows. The packed-consumer job installs the actual tarball, checks declarations and browser bundles, and exercises MQTT 5 against Mosquitto over TCP and WS/WSS with certificate and proxy cases. The `browsers` job adds browser runtime tests in Chromium, Firefox and WebKit. It runs on the weekly schedule, on a manual run of the workflow, and on a pull request that changes a file under `src`, `test/packed` or `test/experiments`, or one of `tsconfig.json`, `package.json`, `pnpm-lock.yaml`, `.node-version` and `.github/workflows/ci.yml`. Wider browser and fault coverage remains work under [#23](https://github.com/dvkam/mqtt/issues/23).
 
 The [verification skill](.agents/skills/verify-mqtt-lifecycle/SKILL.md) and the [model notes](verification/README.md) describe bounded lifecycle models and their limits. Models supplement regression and integration tests; they do not prove the entire implementation correct.
 
