@@ -11,39 +11,106 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels the run of its older commit. A run on main or on the schedule gets a group of
+# its own, so it always finishes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
-  verify:
-    name: ${{ matrix.check }} (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-26.04, windows-latest]
-        check: [test, 'test:types', lint, 'format:check', build]
-    runs-on: ${{ matrix.os }}
-    steps:
+  # The main ruleset requires checks (ubuntu-26.04) and checks (windows-latest). Each platform job installs once and
+  # runs every check as a step of its own. A check still runs when an earlier check failed, and it starts without the
+  # dist and .type-fixtures output of an earlier check. Keep the platform jobs free of a job-level `if` and of `needs`.
+  # GitHub counts a skipped required job as passing. test/ci-required-checks.test.ts fails when either key appears.
+  verify-ubuntu:
+    name: checks (ubuntu-26.04)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    outputs: &outcomes
+      test: ${{ steps.test.outcome }}
+      test-types: ${{ steps.test-types.outcome }}
+      lint: ${{ steps.lint.outcome }}
+      format-check: ${{ steps.format-check.outcome }}
+      build: ${{ steps.build.outcome }}
+    steps: &checks
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
       - uses: pnpm/action-setup@v6
-      - run: pnpm install --frozen-lockfile
-      # Lint reads emitted declarations. Emitting them without a type check keeps a type error in the test:types check only.
-      - if: matrix.check == 'lint'
-        run: pnpm lint:declarations
-      - run: pnpm ${{ matrix.check }}
+      - id: install
+        run: pnpm install --frozen-lockfile
+      - name: test
+        id: test
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: git clean -ffdxq -e /node_modules && pnpm test
+      - name: test:types
+        id: test-types
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: git clean -ffdxq -e /node_modules && pnpm test:types
+      # Lint reads emitted declarations. Emitting them without a type check lets lint report when the sources have a
+      # type error. The type error fails test:types, and build when it is in src.
+      - name: lint
+        id: lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: git clean -ffdxq -e /node_modules && pnpm lint:declarations && pnpm lint
+      - name: format:check
+        id: format-check
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: git clean -ffdxq -e /node_modules && pnpm format:check
+      - name: build
+        id: build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: git clean -ffdxq -e /node_modules && pnpm build
 
-  # The main ruleset requires checks (ubuntu-26.04) and checks (windows-latest). Each fails unless every verify job passed
-  # on both platforms. It runs even after a cancel, because GitHub counts a skipped required job as passing.
-  checks:
-    if: ${{ always() }}
-    needs: verify
-    strategy:
+  verify-windows:
+    name: checks (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 10
+    outputs: *outcomes
+    steps: *checks
+
+  # Each check also reports as a status of its own on every run, such as lint (windows-latest). A report job reads the
+  # outcome of its step from the platform job and runs no checkout and no setup. It passes only when that step passed.
+  # It fails when the step failed or did not run. It needs one platform job, so the Ubuntu reports do not wait for
+  # Windows.
+  report-ubuntu:
+    name: ${{ matrix.check }} (ubuntu-26.04)
+    needs: verify-ubuntu
+    if: ${{ !cancelled() }}
+    strategy: &report
+      fail-fast: false
       matrix:
-        os: [ubuntu-26.04, windows-latest]
+        include:
+          - { check: test, step: test }
+          - { check: 'test:types', step: test-types }
+          - { check: lint, step: lint }
+          - { check: 'format:check', step: format-check }
+          - { check: build, step: build }
     runs-on: ubuntu-26.04
+    timeout-minutes: 5
     steps:
-      - name: Require every check on both platforms
-        run: test "${{ needs.verify.result }}" = success
+      - name: Require the step of the platform job to have passed
+        env:
+          OUTCOME: ${{ needs.verify-ubuntu.outputs[matrix.step] }}
+        run: |
+          echo "The ${{ matrix.check }} step of checks (ubuntu-26.04) ended as '${OUTCOME:-not run}'."
+          test "$OUTCOME" = success
+
+  report-windows:
+    name: ${{ matrix.check }} (windows-latest)
+    needs: verify-windows
+    if: ${{ !cancelled() }}
+    strategy: *report
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Require the step of the platform job to have passed
+        env:
+          OUTCOME: ${{ needs.verify-windows.outputs[matrix.step] }}
+        run: |
+          echo "The ${{ matrix.check }} step of checks (windows-latest) ended as '${OUTCOME:-not run}'."
+          test "$OUTCOME" = success
 
   packed-consumer:
     runs-on: ubuntu-26.04
