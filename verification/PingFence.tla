@@ -1,4 +1,14 @@
 ------------------------------ MODULE PingFence ------------------------------
+\* Rule: A failed ping exchange retires the session before the acknowledgment slot is free. A late PINGRESP cannot
+\* complete a later PINGREQ, and no PINGREQ follows a failure.
+\* Source: src/portable.ts (exchange, exchangePing, ping, abort, pendingAck)
+\* Tests: test/portable.test.ts, test/server-keep-alive.test.ts
+\* Mapping: Request is exchange installing pendingAck before it writes PINGREQ, for a manual or an automatic ping.
+\* Receive is a PINGRESP reaching pendingAck. FailExchange is a timeout or a failed write, where the catch in
+\* exchange awaits abort before the finally block clears the slot. Close is any other retirement. UnsafeRetry = TRUE
+\* keeps the session active after a failure.
+\* Not modeled: Clocks, the Server Keep Alive schedule, and a PINGRESP that is unsolicited or repeated. Reply
+\* identity is a model label, because PINGRESP carries no identifier.
 EXTENDS Naturals, FiniteSets
 
 CONSTANT UnsafeRetry

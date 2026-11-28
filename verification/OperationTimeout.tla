@@ -1,4 +1,13 @@
 ----------------------------- MODULE OperationTimeout -----------------------------
+\* Rule: An operation timeout retires the session in the timer callback, rejects every pending operation, requests
+\* one forced close, and stays the cause.
+\* Source: src/portable.ts (run, abort, fail, pendingOperations, forcedClose)
+\* Tests: test/operation-timeout.test.ts
+\* Mapping: Expire is the timer in run calling abort, whose fail records the failure and rejects pendingOperations.
+\* Admit is a publish, subscribe or ping after the timeout, which throws the failure. Cleanup is a later abort,
+\* which reuses forcedClose. LateFailure is a later fail, which the failure guard ignores.
+\* Not modeled: Clocks, the deadline owners that leave shutdown to disconnect(), and the QoS 0 write deadline, which
+\* QosZeroDeadline covers.
 EXTENDS Naturals
 CONSTANT Fault
 VARIABLES retired, pending, expired, reason, sends, requests, cleanupSeen, lateSeen

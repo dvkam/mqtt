@@ -1,4 +1,15 @@
 ----------------------------- MODULE BrowserClientHandoff -----------------------------
+\* Rule: An abort that arrives while the session opens never hands a session to the caller. A forced close of the
+\* browser socket settles without a wait for the native close event.
+\* Source: src/transportCore.ts (connectOverBytes, isAborted, forceClose)
+\* Source: src/browserClient.ts (openBrowserSocket, closeSeen)
+\* Tests: test/browser-client.test.ts, test/browser-core-changes.test.ts
+\* Mapping: CoreReady is connectPortable resolving. Cancel is the abort listener. Transfer is the isAborted check
+\* after connectPortable, which throws and closes the packet transport. Force is close(true) on the packet
+\* transport, which reaches the writer through forceClose. NativeClose is the close event, which the writer's forced
+\* close does not await.
+\* Not modeled: Deadlines, physical socket closure, and the Node writers, which await the close event after destroy
+\* or terminate.
 CONSTANT Fault
 VARIABLES phase, aborted, badTransfer, forcing, forceSettled
 vars == <<phase, aborted, badTransfer, forcing, forceSettled>>

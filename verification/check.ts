@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { availableParallelism, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -214,37 +214,102 @@ const models: readonly VerificationCase[] = [
   ['TcpTlsHandshake', 'TcpTlsHandshakeLeak', 'SettledFailureReleasesResources'],
 ];
 
-for (const [model, configuration, expectedInvariant] of models) {
+const java = process.env['JAVA'] ?? 'java';
+const modelDirectory = fileURLToPath(new URL('./', import.meta.url));
+
+// A module or a configuration without a row would never run, and nothing else would report it.
+const listed = new Set(models.flatMap(([model, configuration]) => [model + '.tla', configuration + '.cfg']));
+assert.deepEqual(
+  readdirSync(modelDirectory).filter((name) => /\.(?:tla|cfg)$/u.test(name) && !listed.has(name)),
+  [],
+  'Every .tla and .cfg file needs a row in models',
+);
+
+async function runTlc(model: string, configuration: string): Promise<Readonly<{ status: number | null; output: string }>> {
   const metadataDirectory = mkdtempSync(join(tmpdir(), 'mqtt-tlc-'));
   try {
-    const run = spawnSync(
-      process.env['JAVA'] ?? 'java',
-      [
-        '-cp',
-        jarPath,
-        'tlc2.TLC',
-        '-workers',
-        '1',
-        '-metadir',
-        metadataDirectory,
-        '-config',
-        configuration + '.cfg',
-        model + '.tla',
-      ],
-      { cwd: fileURLToPath(new URL('./', import.meta.url)), encoding: 'utf8' },
-    );
-    if (run.error) throw run.error;
-    const output = run.stdout + run.stderr;
-    if (expectedInvariant !== undefined) {
-      assert.notEqual(run.status, 0, output);
-      assert.match(output, new RegExp('Invariant ' + expectedInvariant + ' is violated'), output);
-      console.log(configuration + ' caught ' + expectedInvariant);
-    } else {
-      assert.equal(run.status, 0, output);
-      assert.match(output, /No error has been found/, output);
-      console.log(configuration + ' ' + /\d+ distinct states found/.exec(output)?.[0]);
-    }
+    return await new Promise((settle, reject) => {
+      const child = spawn(
+        java,
+        [
+          // Most models have under 1,000 states, so JVM start dominates a case. The serial collector and the first
+          // compiler tier start fewer threads per process. On four cores a run of all cases took 137 to 144 s without
+          // them and 56 to 97 s with them.
+          '-XX:+UseSerialGC',
+          '-XX:TieredStopAtLevel=1',
+          // A JVM that runs out of memory can hang. With this flag it exits with status 3, which fails the case.
+          '-XX:+ExitOnOutOfMemoryError',
+          // TLC unpacks its standard modules into the Java temporary directory. Two processes that share it fail to parse.
+          '-Djava.io.tmpdir=' + metadataDirectory,
+          '-cp',
+          jarPath,
+          'tlc2.TLC',
+          '-workers',
+          '1',
+          '-metadir',
+          metadataDirectory,
+          '-config',
+          configuration + '.cfg',
+          model + '.tla',
+        ],
+        { cwd: modelDirectory, stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+      let output = '';
+      const collect = (chunk: string) => {
+        output += chunk;
+      };
+      child.stdout.setEncoding('utf8').on('data', collect);
+      child.stderr.setEncoding('utf8').on('data', collect);
+      child.on('error', reject);
+      child.on('close', (status) => {
+        settle({ status, output });
+      });
+    });
   } finally {
     rmSync(metadataDirectory, { recursive: true, force: true });
   }
 }
+
+async function check([model, configuration, expectedInvariant]: VerificationCase): Promise<string> {
+  const { status, output } = await runTlc(model, configuration);
+  if (expectedInvariant !== undefined) {
+    assert.notEqual(status, 0, output);
+    assert.match(output, new RegExp('Invariant ' + expectedInvariant + ' is violated'), output);
+    return configuration + ' caught ' + expectedInvariant;
+  }
+  assert.equal(status, 0, output);
+  assert.match(output, /No error has been found/, output);
+  // A progress line of a long run also says "distinct states found", with thousands separators. Read the final line.
+  const states = /(\d+ distinct states found), 0 states left on queue/.exec(output)?.[1];
+  assert.ok(states !== undefined, output);
+  return configuration + ' ' + states;
+}
+
+// Each case is one single-worker TLC process with its own metadata and temporary directory, so the cases share no
+// state and run side by side. The lines print in table order.
+const jobs = Number(process.env['TLC_JOBS'] ?? availableParallelism());
+assert.ok(Number.isInteger(jobs) && jobs > 0, 'TLC_JOBS must be a positive integer');
+const lines: string[] = [];
+let next = 0;
+let printed = 0;
+let failed = false;
+
+async function worker(): Promise<void> {
+  while (!failed) {
+    const index = next++;
+    const verificationCase = models[index];
+    if (verificationCase === undefined) return;
+    try {
+      lines[index] = await check(verificationCase);
+    } catch (error) {
+      failed = true;
+      throw error;
+    }
+    for (let line = lines[printed]; line !== undefined; line = lines[++printed]) console.log(line);
+  }
+}
+
+// A failed case stops new cases. The cases already running finish first, so each removes its directory.
+const outcomes = await Promise.allSettled(Array.from({ length: jobs }, worker));
+for (const outcome of outcomes) if (outcome.status === 'rejected') throw outcome.reason;
+assert.equal(printed, models.length, 'Every case must report a result');

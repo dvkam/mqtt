@@ -1,4 +1,19 @@
 ------------------------------ MODULE QosOneOutbound ------------------------------
+\* Rule: Active QoS 1 exchanges stay within Receive Maximum, and held publications stay within the admission limits.
+\* Each exchange has a Packet Identifier that no other exchange or subscription uses. Only its own PUBACK settles
+\* it. Its reservation is held until its write settled and its PUBACK arrived or the session retired. A cancelled
+\* queued publication never dispatches, and nothing dispatches after a stop.
+\* Source: src/outboundQosOne.ts (OutboundQosOne, enqueue, drain, start, complete, accept, stop, retire, finishActive)
+\* Source: src/packetIdentifiers.ts (PacketIdentifiers, reserve)
+\* Source: src/publicationAdmission.ts (PublicationAdmission, reserve)
+\* Source: src/portable.ts (publish, transmitter)
+\* Tests: test/qos1-publish.test.ts
+\* Mapping: Enqueue is reserve followed by enqueue. Dispatch is drain reserving an identifier and calling start.
+\* Send is the PUBLISH write settling in transmitter. Ack is accept. Complete, and ReleaseRetired after a
+\* retirement, are complete. CancelQueued and CancelActive are the abort listener in enqueue. Stop is stop. Retire
+\* is retire.
+\* Not modeled: The resume and release methods with the resend phase, the stored session state, the drain deadline,
+\* which DisconnectDrain covers, and a write budget refusal, which QosOneNativeAdmission covers.
 EXTENDS Naturals, FiniteSets, Sequences
 CONSTANT Fault
 VARIABLES phase, queue, cost, identifier, quota, dispatched, sent, acked,
