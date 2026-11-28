@@ -31,7 +31,7 @@ Consequences, added by the pull request authors:
 - The `lts-consumers` CI job for Node 22 and 24 is gone, and the packed-consumer job installs the tarball with `--engine-strict`.
 - At 8398718 the 52 emitted JavaScript files are byte for byte the same with `target` ES2023 and with ES2025, so the higher target adds no syntax to the output yet.
 - ES2022 and later output keeps class fields as native fields. The optional `MqttError` fields use `declare`, so an error without a reason code has no `reasonCode` key.
-- #192 set `engines.node` to `^26.0.0`. Every CI job runs the Node version in `.node-version`, 26.13.0, and #55 asks that the declared minimum minor is a tested one. The pull request that adds this entry therefore narrows `engines.node` to `^26.13.0`. The narrowing was not put to the owner as a question. A CI job on an earlier Node 26 minor would let the range widen again.
+- #192 set `engines.node` to `^26.0.0`. Every CI job runs the Node version in `.node-version`, 26.13.0, and #55 asks that the declared minimum minor is a tested one. [#198](https://github.com/dvkam/mqtt/pull/198) therefore narrows `engines.node` to `^26.13.0`. The pull request author recommended the narrowing. On 28 November 2026 the owner answered "go with all your recommendations" to a question that named the `^26.13.0` range. A CI job on an earlier Node 26 minor would let the range widen again.
 
 What follows: the scheduled browser job has not run since the target left ES2020, so CI has not yet loaded this output in Chromium, Firefox and WebKit, which #159 asks for.
 
@@ -62,7 +62,7 @@ Consequences, added by the pull request author:
 
 What follows: the fenced journal that survives a process restart is #14, which waits for QoS 2 in #13. The finite models in `verification/` still assume Clean Start true.
 
-Update, 27 November 2026: [#196](https://github.com/dvkam/mqtt/pull/196) merged this work. In the working session of 26 November the owner had asked for it to follow the same flow as the reconnect work, which merges once review and CI pass. The options above were still not put to the owner as a question.
+Update, 28 November 2026: [#196](https://github.com/dvkam/mqtt/pull/196) merged this work on 27 November 2026. In the working session of 26 November the owner had asked for it to follow the same flow as the reconnect work, which merges once review and CI pass. The options above were still not put to the owner as a question.
 
 ## Check a reconnecting client from an optional page lifecycle adapter
 
@@ -82,7 +82,7 @@ Consequences: `retryNow()` counts its attempt toward `maxAttempts` and does noth
 
 What follows: Firefox and WebKit lifecycle tests, and the playground panel in #191.
 
-Update, 26 November 2026: [#195](https://github.com/dvkam/mqtt/pull/195) merged this work.
+Update, 28 November 2026: [#195](https://github.com/dvkam/mqtt/pull/195) merged this work on 26 November 2026.
 
 ## Leave the connection open when the page enters the back-forward cache
 
@@ -100,7 +100,7 @@ Reason given by the pull request author: in Chromium, the only engine the author
 
 What follows: the same check in Firefox and WebKit, where an open WebSocket may block the cache or close at another time.
 
-Update, 26 November 2026: [#195](https://github.com/dvkam/mqtt/pull/195) merged this work.
+Update, 28 November 2026: [#195](https://github.com/dvkam/mqtt/pull/195) merged this work on 26 November 2026.
 
 ## Reconnect with a supervisor that builds a factory per attempt
 
@@ -122,7 +122,7 @@ What follows: resuming a session with Clean Start false is #14. Page lifecycle e
 
 Update, 26 November 2026: the pull request for `feat/session-resume` adds the `resume` option, so later attempts can send Clean Start false and share one session state. [Resume a session with an in-memory session state](#resume-a-session-with-an-in-memory-session-state)
 
-Update, 27 November 2026: [#190](https://github.com/dvkam/mqtt/pull/190) merged this work on 26 November 2026, and [#196](https://github.com/dvkam/mqtt/pull/196) merged the `resume` option on 27 November 2026.
+Update, 28 November 2026: [#190](https://github.com/dvkam/mqtt/pull/190) merged this work on 26 November 2026, and [#196](https://github.com/dvkam/mqtt/pull/196) merged the `resume` option on 27 November 2026.
 
 ## Publish takes bytes, retain and the MQTT 5 PUBLISH properties
 
@@ -143,7 +143,7 @@ What follows: the client does not yet check a PUBLISH against the broker's Maxim
 
 Update, 26 November 2026: the pull request for `fix/maximum-packet-size` checks each PUBLISH, SUBSCRIBE and UNSUBSCRIBE against the broker's Maximum Packet Size. A larger packet rejects with `ERR_MQTT_CAPACITY` and `fatal: false` before the publication or subscription takes a slot, and before anything is written. [Outgoing admission](outgoing-admission.md#maximum-packet-size)
 
-Update, 27 November 2026: [#188](https://github.com/dvkam/mqtt/pull/188) merged this work on 26 November 2026, and [#194](https://github.com/dvkam/mqtt/pull/194) merged the Maximum Packet Size check on 27 November 2026.
+Update, 28 November 2026: [#188](https://github.com/dvkam/mqtt/pull/188) merged this work on 26 November 2026, and [#194](https://github.com/dvkam/mqtt/pull/194) merged the Maximum Packet Size check on 27 November 2026.
 
 ## Every client accepts a text or byte password
 
@@ -162,7 +162,7 @@ Consequences: a password over 65,535 bytes or of another type rejects `connect()
 
 What follows: nothing for this decision.
 
-Update, 26 November 2026: [#187](https://github.com/dvkam/mqtt/pull/187) merged this work.
+Update, 28 November 2026: [#187](https://github.com/dvkam/mqtt/pull/187) merged this work on 26 November 2026.
 
 ## Drain active QoS 1 exchanges before disconnect
 
@@ -182,7 +182,7 @@ Consequences: `disconnect()` takes `drain`, `drainTimeoutMs` and `reasonCode`. A
 
 What follows: inbound PUBLISH packets that arrive during the drain are dropped without a diagnostic, which #149 asks for.
 
-Update, 26 November 2026: [#185](https://github.com/dvkam/mqtt/pull/185) merged this work.
+Update, 28 November 2026: [#185](https://github.com/dvkam/mqtt/pull/185) merged this work on 26 November 2026.
 
 ## Derive the default WebSocket message limit from the packet limit
 
@@ -201,7 +201,7 @@ Consequences: this departs from the #150 acceptance item that asks to reject a m
 
 What follows: nothing for this decision.
 
-Update, 26 November 2026: [#185](https://github.com/dvkam/mqtt/pull/185) merged this work.
+Update, 28 November 2026: [#185](https://github.com/dvkam/mqtt/pull/185) merged this work on 26 November 2026.
 
 ## Register a Will in CONNECT
 
@@ -220,7 +220,7 @@ Consequences: the broker owns delivery of the Will, including Will QoS 2, while 
 
 What follows: nothing for this decision.
 
-Update, 26 November 2026: [#185](https://github.com/dvkam/mqtt/pull/185) merged this work.
+Update, 28 November 2026: [#185](https://github.com/dvkam/mqtt/pull/185) merged this work on 26 November 2026.
 
 ## Return the connection and subscription acknowledgment results
 
@@ -239,7 +239,7 @@ Consequences: the snapshot fills in MQTT defaults for properties the broker left
 
 What follows: refused SUBACK, UNSUBACK and PUBACK errors still carry no Reason String or User Properties, as docs/errors.md lists.
 
-Update, 26 November 2026: [#185](https://github.com/dvkam/mqtt/pull/185) merged this work.
+Update, 28 November 2026: [#185](https://github.com/dvkam/mqtt/pull/185) merged this work on 26 November 2026.
 
 ## Errors carry stable codes
 
@@ -267,7 +267,7 @@ The implementation departs from the #155 proposal in the places below. They were
 
 What follows: the errors listed in [docs/errors.md](errors.md#gaps). One #155 acceptance item is also open. Some tests still assert only the message of a rejection that now has a code, and no check fails when `src/` adds an uncoded error.
 
-Update, 26 November 2026: [#183](https://github.com/dvkam/mqtt/pull/183) merged the first part. The gaps and the open #155 acceptance item listed above remain.
+Update, 28 November 2026: [#183](https://github.com/dvkam/mqtt/pull/183) merged the first part on 26 November 2026. The gaps and the open #155 acceptance item listed above remain.
 
 ## Browser client takes on the Node inbound rules
 
