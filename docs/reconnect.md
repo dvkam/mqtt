@@ -112,5 +112,5 @@ In Node, the retry timer keeps the process alive until the client connects or st
 
 ## Not covered yet
 
-- A session state that survives a process restart, tracked in #14.
+- A session state that survives a process restart, tracked in #14. [Session journal](journal.md) describes the file format, which is the part that exists.
 - Server Reference redirects, tracked in #16.
