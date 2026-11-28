@@ -2,25 +2,24 @@ import { once } from 'node:events';
 import { Socket } from 'node:net';
 import { generate, parser, type Packet } from 'mqtt-packet';
 import { expect, test, vi } from 'vitest';
-import { WebSocket, WebSocketServer } from 'ws';
+import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import { createWebSocketClient } from '../src/ws.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 async function peer(earlyPublish = false, subscriptionReply?: readonly number[]) {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
   const address = server.address();
   if (address === null || typeof address === 'string') throw new Error('Expected a TCP address');
-  const packets: Packet[] = [];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+  const packets: ReadonlyDeep<Packet>[] = [];
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler calls `send` and `terminate` on `socket`, which is how this scripted peer answers, stalls or cuts off the client under test. The rule accepts only a read-only type, and that would be false for this parameter.
   server.on('connection', (socket) => {
     const codec = { protocolVersion: 5 };
     const decoder = parser(codec);
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    socket.on('message', (data) => {
+    socket.on('message', (data: ReadonlyDeep<RawData>) => {
       if (Buffer.isBuffer(data)) decoder.parse(data);
     });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    decoder.on('packet', (packet) => {
+    decoder.on('packet', (packet: ReadonlyDeep<Packet>) => {
       packets.push(packet);
       if (packet.cmd === 'connect') {
         if (earlyPublish)

@@ -24,6 +24,7 @@ Use `import type` for the named contracts. TypeScript 7.0.2 is the supported com
 | `SessionOptions`, `SessionState`, `createSessionState` | Both client entries and `mqtt/portable` | Clean Start, Session Expiry Interval and the state, held in memory, that keeps unfinished QoS 1 and QoS 2 exchanges for the next connection. Only `createSessionState` makes a `SessionState`. See [resuming the session](reconnect.md#resuming-the-session). |
 | `WebSocketOptions`                                                                | `mqtt/websocket`                        | Type for native WebSocket timeout and cancellation options                                                                                 |
 | `ByteClientOptions`, `ByteTransport`, `ByteInbound`, `ByteWriter`, `OpenContext` | `mqtt`, `mqtt/portable` | Session options and the [custom transport contract](#custom-transport-contract) |
+| `ReadonlyBytes` | `mqtt`, `mqtt/portable` | The parameter of `ByteInbound.bytes`: a `Uint8Array` that the receiver only reads. Every `Uint8Array` is assignable to it. |
 | `MqttError`, `isMqttError`, `MqttErrorCode`, `MqttErrorDetails` | `mqtt`, `mqtt/browser`, `mqtt/portable` | Session rejection with a stable `code`, a `fatal` flag and the MQTT `reasonCode`. See [error codes](errors.md). |
 | `ProtocolInputError`, `ProtocolInputCode`                                         | `mqtt/portable`                         | Decoder rejection. An `MqttError` with code `ERR_MQTT_PROTOCOL` and `reasonCode` 0x81, 0x82 or 0x94 |
 

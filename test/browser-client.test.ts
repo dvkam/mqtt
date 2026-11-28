@@ -1,10 +1,12 @@
 import { once } from 'node:events';
 import { generate, parser, type Packet } from 'mqtt-packet';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, type RawData } from 'ws';
 import { afterEach, expect, test, vi } from 'vitest';
 import { createBrowserClient } from '../src/browserClient.js';
 import * as portable from '../src/portable.js';
 import type { SessionEnd } from '../src/session.js';
+import type { PacketTransport, PortableOptions } from '../src/portable.js';
+import type { ReadonlyBytes, ReadonlyDeep } from '../src/util/bytes.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -26,20 +28,19 @@ async function peer(
   if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
   const packets: Packet[] = [];
   let closed = false;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. This code calls `send` on `socket`, which is how it answers or ends the connection it scripts. The rule accepts only a read-only type, and that would be false for this parameter.
   server.on('connection', (socket) => {
     socket.once('close', () => {
       closed = true;
     });
     const decoder = parser({ protocolVersion: 5 });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    socket.on('message', (bytes) => {
+    socket.on('message', (bytes: ReadonlyDeep<RawData>) => {
       if (Buffer.isBuffer(bytes)) decoder.parse(bytes);
     });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler stores `packet` and spreads a PUBLISH into the echo it passes to `send`, which hands it to `generate` of mqtt-packet. `generate` declares the writable `Packet`, and `ReadonlyDeep<Packet>` is not assignable to it (TS2345), so the peer would have to copy every packet.
     decoder.on('packet', (packet) => {
       packets.push(packet);
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `value` is handed to `generate` of mqtt-packet, which declares the writable `Packet`. `ReadonlyDeep<Packet>` is not assignable to it (TS2345), so the fixture would have to copy the packet first.
       const send = (value: Packet) => {
         socket.send(generate(value, { protocolVersion: 5 }));
       };
@@ -93,11 +94,11 @@ test('forwards broker limits and PUBACK to the portable session', async () => {
   const broker = await peer(0, false, { receiveMaximum: 1, maximumQoS: 0 });
   const connect = portable.connectPortable;
   const received: unknown[] = [];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The test observes the existing mutable packet transport contract.
-  vi.spyOn(portable, 'connectPortable').mockImplementation(async (transport, options) => {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. This function writes to `transport` (Cannot assign to 'listen' because it is a read-only property), and the rule accepts no parameter that is written, so the code would have to copy the value first. `PacketTransport` is declared in `src/portable.ts`.
+  vi.spyOn(portable, 'connectPortable').mockImplementation(async (transport, options: ReadonlyDeep<PortableOptions>) => {
     const listen = transport.listen.bind(transport);
     transport.listen = (onPacket, onClose) =>
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Forward the adapter's original mutable packets to the session.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The fixture hands `packet` to the session's packet listener, which becomes its owner and delivers it to the application, where the fields are writable (`PacketTopicIsWritable` in test/types/mutable-contracts.ts). The rule accepts only a read-only type, and that would be false for this parameter.
       listen((packet) => {
         if (packet.cmd === 'connack' || packet.cmd === 'puback') received.push(packet);
         onPacket(packet);
@@ -235,12 +236,13 @@ test('rejects cancellation during portable-to-browser connection handoff', async
   const controller = new AbortController();
   const reason = new Error('cancel final handoff');
   const connect = portable.connectPortable;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  vi.spyOn(portable, 'connectPortable').mockImplementation(async (transport, options) => {
-    const client = await connect(transport, options);
-    controller.abort(reason);
-    return client;
-  });
+  vi.spyOn(portable, 'connectPortable').mockImplementation(
+    async (transport: Readonly<PacketTransport>, options: ReadonlyDeep<PortableOptions>) => {
+      const client = await connect(transport, options);
+      controller.abort(reason);
+      return client;
+    },
+  );
   try {
     await expect(createBrowserClient({ url: broker.url, clientId: 'handoff', signal: controller.signal }).connect()).rejects.toBe(
       reason,
@@ -264,8 +266,7 @@ test('ping timeout retires locally without waiting for a second native-close dea
         this.dispatchEvent(new Event('open'));
       });
     }
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    send(bytes: Uint8Array) {
+    send(bytes: ReadonlyBytes) {
       if (bytes[0] === 0x10)
         queueMicrotask(() => {
           this.dispatchEvent(new MessageEvent('message', { data: Uint8Array.of(0x20, 3, 0, 0, 0).buffer }));

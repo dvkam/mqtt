@@ -1,11 +1,12 @@
 import { once } from 'node:events';
 import { generate, parser, type Packet } from 'mqtt-packet';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, type RawData } from 'ws';
 import { expect, test, vi } from 'vitest';
 import { createBrowserClient } from '../src/browserClient.js';
 import { encodePacket, PacketDecoder, type WirePacket } from '../src/codec.js';
 import { ProtocolInputError } from '../src/protocolInputError.js';
 import type { SessionEnd } from '../src/session.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 function decode(bytes: readonly number[]): WirePacket[] {
   return new PacketDecoder().push(Uint8Array.from(bytes));
@@ -61,11 +62,13 @@ const vectors: [string, WirePacket, number[]][] = [
   ],
 ];
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-test.each(vectors)('decodes and encodes the fixed vector for %s', (_name, packet, bytes) => {
-  expect(decode(bytes)).toEqual([packet]);
-  expect(Array.from(encodePacket(packet))).toEqual(bytes);
-});
+test.each(vectors)(
+  'decodes and encodes the fixed vector for %s',
+  (_name, packet: ReadonlyDeep<WirePacket>, bytes: readonly number[]) => {
+    expect(decode(bytes)).toEqual([packet]);
+    expect(Array.from(encodePacket(packet))).toEqual(bytes);
+  },
+);
 
 test.each([
   0x04, 0x80, 0x81, 0x82, 0x83, 0x87, 0x89, 0x8b, 0x8d, 0x8e, 0x8f, 0x90, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b,
@@ -104,22 +107,20 @@ async function broker(connack: readonly number[]) {
   await once(server, 'listening');
   const address = server.address();
   if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler calls `send` on `socket`, which is how this scripted peer answers, stalls or cuts off the client under test. The rule accepts only a read-only type, and that would be false for this parameter.
   server.on('connection', (socket) => {
     const decoder = parser({ protocolVersion: 5 });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    socket.on('message', (bytes) => {
+    socket.on('message', (bytes: ReadonlyDeep<RawData>) => {
       if (Buffer.isBuffer(bytes)) decoder.parse(bytes);
     });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    decoder.on('packet', (packet) => {
+    decoder.on('packet', (packet: ReadonlyDeep<Packet>) => {
       if (packet.cmd === 'connect') socket.send(Buffer.from(connack));
       if (packet.cmd === 'pingreq') socket.send(generate({ cmd: 'pingresp' }, { protocolVersion: 5 }));
     });
   });
   return {
     url: 'ws://127.0.0.1:' + address.port,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is handed to `generate` of mqtt-packet, which declares the writable `Packet`. `ReadonlyDeep<Packet>` is not assignable to it (TS2345), so the fixture would have to copy the packet first.
     send(packet: Packet) {
       for (const socket of server.clients) socket.send(generate(packet, { protocolVersion: 5 }));
     },

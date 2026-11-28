@@ -5,7 +5,7 @@ import { checkWills } from './will-scenario.mjs';
 
 /** @param {string} url */
 export async function mqttWillNotifications(url) {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Pass the caller's signal and byte options to the browser factory.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `options` is typed `WillClientOptions`, which this file cannot write in a read-only form by name, so the accepted type would be a hand-written copy of it. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports.
   return checkWills((options) => createBrowserClient({ ...options, url }));
 }
 
@@ -37,11 +37,11 @@ export async function mqttClientSession(url) {
   const client = await createBrowserClient({
     url,
     clientId: 'browser-client-ci',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `BrowserMessage`, which this file cannot write in a read-only form by name, so the accepted type would be a hand-written copy of it. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `BrowserMessage` is declared in `src/browserClient.ts`.
     onMessage(packet) {
       receive?.({ topic: packet.topic, payload: Array.from(packet.payload) });
     },
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Check the mutable browser payload through the installed API.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `BrowserQosOneMessage`, which this file cannot write in a read-only form by name, so the accepted type would be a hand-written copy of it. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `BrowserQosOneMessage` is declared in `src/browserClient.ts`.
     async onQosOneMessage(packet) {
       if (!(packet.payload instanceof Uint8Array) || packet.messageId <= 0) throw new Error('Unexpected browser QoS 1 message');
       inbound.push(new TextDecoder().decode(packet.payload));
@@ -97,8 +97,7 @@ export async function mqttSession(url, packets) {
     wake?.();
   }
   /** @param {Uint8Array} bytes */
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  function receive(bytes) {
+  function receive(/** @type {Readonly<Uint8Array<Readonly<ArrayBufferLike>>>} */ bytes) {
     try {
       for (const packet of decoder.push(bytes)) received.push(Array.from(encodePacket(packet)));
     } catch (error) {
@@ -132,7 +131,7 @@ export async function mqttSession(url, packets) {
   });
   socket.addEventListener('close', fail);
   socket.addEventListener('error', fail);
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `event` is typed `MessageEvent<any>`, and `Readonly<MessageEvent<any>>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `event`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `MessageEvent` is declared in `the DOM library`.
   socket.addEventListener('message', (/** @type {MessageEvent} */ event) => {
     if (event.data instanceof ArrayBuffer) receive(new Uint8Array(event.data));
     else fail();

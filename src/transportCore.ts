@@ -198,7 +198,6 @@ async function connectOverBytes<Bytes extends Uint8Array>(
   signal?.addEventListener('abort', abort, { once: true });
 
   const inbound: ByteInbound = {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views are mutable; the framer copies admitted input.
     bytes(chunk) {
       const reason = input.push(chunk);
       if (reason) finish(reason);

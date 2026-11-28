@@ -12,15 +12,13 @@ export async function trace() {
   /** @type {import('mqtt/portable').ByteTransport} */
   const transport = {
     name: 'Scripted browser peer',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares this ByteInbound parameter, whose bytes method takes a Uint8Array.
-    async open(input) {
+    async open(/** @type {Readonly<import('mqtt/portable').ByteInbound>} */ input) {
       inbound = input;
       const decoder = new PacketDecoder();
       let release = () => {};
       return Promise.resolve({
         bufferedBytes: 0,
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteWriter.write in src/byteTransport.ts declares a Uint8Array chunk, which has a mutable index signature.
-        async write(bytes) {
+        async write(/** @type {import('mqtt/portable').ReadonlyBytes} */ bytes) {
           const [packet] = decoder.push(bytes);
           if (packet === undefined) throw new Error('Missing request packet');
           packets.push(packet.cmd);
@@ -42,8 +40,7 @@ export async function trace() {
   /** @type {Parameters<typeof createTransportClient>[1]} */
   const options = {
     clientId: 'browser-ci',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onMessage: (/** @type {Readonly<{payload: Uint8Array}>} */ packet) => {
+    onMessage: (/** @type {Readonly<{ payload: import('mqtt/portable').ReadonlyBytes }>} */ packet) => {
       messages.push(new TextDecoder().decode(packet.payload));
     },
   };

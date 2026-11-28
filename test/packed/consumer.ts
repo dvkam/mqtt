@@ -32,6 +32,11 @@ export type WebSocketEndNoticeUsesNamedType = RequireTrue<WebSocketEndNotice ext
 type Received = Parameters<NonNullable<import('mqtt').TcpClientOptions['onMessage']>>[0];
 export type PackedPayloadIsSpecific = RequireFalse<IsAny<Received['payload']>>;
 export type PackedPayloadIsBuffer = RequireTrue<Received['payload'] extends Buffer ? true : false>;
+// A transport passes a Buffer or any other Uint8Array to ByteInbound.bytes, whose parameter type the package exports by name.
+export type PackedInboundTakesReadonlyBytes = RequireTrue<
+  Parameters<Parameters<ByteTransport['open']>[0]['bytes']>[0] extends import('mqtt').ReadonlyBytes ? true : false
+>;
+export type PackedReadonlyBytesAcceptsBuffer = RequireTrue<Buffer extends import('mqtt').ReadonlyBytes ? true : false>;
 export type PackedQosIsZero = RequireTrue<Received['qos'] extends 0 ? true : false>;
 export type PackedMessageIsFlat = RequireFalse<'properties' extends keyof Received ? true : false>;
 export type PackedMessageNamesItsProperties = RequireTrue<Received extends import('mqtt').MessageProperties ? true : false>;
@@ -102,8 +107,7 @@ export function checkWillOptionTypes() {
   createTcpClient({ ...options, will: { topic: 'status', payload: 'offline', qos: 3 } });
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-export async function checkTcpDeclarations(signal: AbortSignal) {
+export async function checkTcpDeclarations(signal: Readonly<AbortSignal>) {
   const observer: DiagnosticObserver = (event: ClientDiagnostic) => {
     if (event.kind === 'connection') event.state.toUpperCase();
   };
@@ -115,7 +119,7 @@ export async function checkTcpDeclarations(signal: AbortSignal) {
     maxPendingSubscriptions: 4,
     maxPendingSubscriptionBytes: 4096,
     signal,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. This consumer writes into the delivered payload on purpose, to check that the published types keep the consumer's `Buffer` writable. A read-only parameter type would be false and would remove that check.
     onMessage(packet) {
       const payload: Buffer = packet.payload;
       payload[0] = packet.qos;
@@ -133,8 +137,7 @@ export async function checkTcpDeclarations(signal: AbortSignal) {
   return granted;
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-export async function checkWebSocketDeclarations(signal: AbortSignal) {
+export async function checkWebSocketDeclarations(signal: Readonly<AbortSignal>) {
   const factory = createWebSocketClient({
     url: new URL('wss://localhost/mqtt'),
     clientId: 'consumer',
@@ -143,7 +146,7 @@ export async function checkWebSocketDeclarations(signal: AbortSignal) {
     maxWebSocketMessageBytes: 4096,
     maxPacketBytes: 4096,
     signal,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. This consumer writes into the delivered payload on purpose, to check that the published types keep the consumer's `Buffer` writable. A read-only parameter type would be false and would remove that check.
     onMessage(packet) {
       const payload: Buffer = packet.payload;
       payload[0] = packet.qos;
@@ -155,8 +158,7 @@ export async function checkWebSocketDeclarations(signal: AbortSignal) {
 }
 import { createBrowserClient } from 'mqtt/browser';
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-export async function checkBrowserClientDeclarations(signal: AbortSignal) {
+export async function checkBrowserClientDeclarations(signal: Readonly<AbortSignal>) {
   const client = await createBrowserClient({
     url: 'wss://localhost/mqtt',
     clientId: 'consumer',
@@ -164,7 +166,7 @@ export async function checkBrowserClientDeclarations(signal: AbortSignal) {
     maxPendingSubscriptionBytes: 4096,
     maxWebSocketMessageBytes: 4096,
     signal,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler assigns the payload to a `Uint8Array` constant to pin the type the browser client delivers. A parameter type written here would replace the delivered type, and the assignment would check nothing.
     onMessage(message) {
       const bytes: Uint8Array = message.payload;
       bytes.byteLength.toFixed();

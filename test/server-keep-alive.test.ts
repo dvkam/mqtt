@@ -1,5 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { createTransportClient, type ByteInbound, type ByteTransport, type SessionEnd } from '../src/index.js';
+import type { ReadonlyBytes } from '../src/util/bytes.js';
 
 const connack = Uint8Array.of(0x20, 6, 0, 0, 3, 0x13, 0, 1);
 const pingresp = Uint8Array.of(0xd0, 0);
@@ -8,8 +9,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer passes the given byte view to the inbound endpoint.
-function scriptedPeer(reply: Readonly<Uint8Array> = connack, connackDelayMs = 0, timeoutMs = 250) {
+function scriptedPeer(reply: ReadonlyBytes = connack, connackDelayMs = 0, timeoutMs = 250) {
   let inbound: ByteInbound | undefined;
   const commands: number[] = [];
   const closed: boolean[] = [];
@@ -21,13 +21,11 @@ function scriptedPeer(reply: Readonly<Uint8Array> = connack, connackDelayMs = 0,
   let holdDisconnect = false;
   const transport: ByteTransport = {
     name: 'Keep Alive peer',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer retains the inbound endpoint to answer requests later.
-    async open(input) {
+    async open(input: Readonly<ByteInbound>) {
       inbound = input;
       return Promise.resolve({
         bufferedBytes: 0,
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The writer receives the core's native bytes.
-        async write(bytes) {
+        async write(bytes: ReadonlyBytes) {
           const command = (bytes[0] ?? 0) >> 4;
           commands.push(command);
           if (command === 1) {
@@ -109,8 +107,7 @@ test('the broker override schedules an idle PINGREQ and successful writes defer 
 
 test.each([Uint8Array.of(0x20, 3, 0, 0, 0), Uint8Array.of(0x20, 6, 0, 0, 3, 0x13, 0, 0)])(
   'CONNECT Keep Alive 0 sends no automatic pings if the server value is absent or zero (%j)',
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Vitest passes the fixed byte fixture by identity.
-  async (reply) => {
+  async (reply: ReadonlyBytes) => {
     vi.useFakeTimers();
     const peer = scriptedPeer(reply);
     const client = await peer.factory.connect();

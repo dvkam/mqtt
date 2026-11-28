@@ -1,6 +1,7 @@
 import { once } from 'node:events';
 import { parser, generate, type Packet } from 'mqtt-packet';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, type RawData } from 'ws';
+import type { ReadonlyDeep } from '../../src/util/bytes.js';
 
 export async function startProtocolPeer(receiveMaximum?: number) {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
@@ -9,7 +10,7 @@ export async function startProtocolPeer(receiveMaximum?: number) {
   if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
   const commands: string[] = [];
   const acknowledgments: { messageId: number | undefined; reasonCode: number }[] = [];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer drives the native mutable WebSocket object.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler calls `close` and `send` on `socket`, which is how this scripted peer answers, stalls or cuts off the client under test. The rule accepts only a read-only type, and that would be false for this parameter.
   server.on('connection', (socket) => {
     const decoder = parser({ protocolVersion: 5 });
     let ignorePing = false;
@@ -17,11 +18,10 @@ export async function startProtocolPeer(receiveMaximum?: number) {
     socket.once('close', () => {
       clearInterval(pace);
     });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The external parser consumes native Buffer objects.
-    socket.on('message', (bytes) => {
+    socket.on('message', (bytes: ReadonlyDeep<RawData>) => {
       if (Buffer.isBuffer(bytes)) decoder.parse(bytes);
     });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The external encoder consumes its mutable Packet union.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `reply` is handed to `generate` of mqtt-packet, which declares the writable `Packet`. `ReadonlyDeep<Packet>` is not assignable to it (TS2345), so the fixture would have to copy the packet first.
     const send = (reply: Packet) => {
       socket.send(generate(reply, { protocolVersion: 5 }));
     };
@@ -42,7 +42,7 @@ export async function startProtocolPeer(receiveMaximum?: number) {
         }
       }, 5);
     };
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The external codec preserves its mutable Packet contract.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is echoed through `send`, which hands it to `generate` of mqtt-packet, which declares the writable `Packet`. `ReadonlyDeep<Packet>` is not assignable to it (TS2345), so the fixture would have to copy the packet first.
     decoder.on('packet', (packet: Packet) => {
       commands.push(packet.cmd);
       if (packet.cmd === 'connect')

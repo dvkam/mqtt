@@ -122,6 +122,24 @@ test('cancels an in-flight handshake and removes its open listener before a late
   }
 });
 
+test('a completed opening leaves no timer and no abort listener behind', async () => {
+  const controller = new AbortController();
+  vi.useFakeTimers();
+  vi.stubGlobal('WebSocket', TestSocket);
+  try {
+    const opening = openMqttWebSocket('ws://127.0.0.1', { signal: controller.signal });
+    const socket = TestSocket.instance;
+    socket.dispatchEvent(new Event('open'));
+    await expect(opening).resolves.toBe(socket);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(getEventListeners(controller.signal, 'abort')).toEqual([]);
+    expect(socket.closeCalls).toBe(0);
+  } finally {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  }
+});
+
 test('times out a stalled opening and leaves no handshake listeners', async () => {
   vi.stubGlobal('WebSocket', TestSocket);
   vi.useFakeTimers();

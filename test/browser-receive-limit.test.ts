@@ -1,8 +1,9 @@
 import { expect, test, vi } from 'vitest';
-import { createBrowserClient } from '../src/browserClient.js';
+import { createBrowserClient, type BrowserMessage } from '../src/browserClient.js';
 import { createWebSocketClient } from '../src/websocketClient.js';
 import { PacketDecoder } from '../src/codec.js';
 import { startReceivePeer } from './experiments/receive-peer.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 test.each(['browser', 'node'])('%s accepts two large valid MQTT packets in one default WebSocket message', async (platform) => {
   const peer = await startReceivePeer();
@@ -92,8 +93,7 @@ test.each(['exact', 'ws-fragments', 'mqtt-split', 'coalesced'])(
         clientId: mode,
         maxWebSocketMessageBytes: mode === 'mqtt-split' ? 4 : mode === 'coalesced' ? 16 : 8,
         maxPacketBytes: 8,
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The public callback retains its native mutable payload contract.
-        onMessage(message) {
+        onMessage(message: ReadonlyDeep<BrowserMessage>) {
           messages.push(new TextDecoder().decode(message.payload));
         },
       }).connect();

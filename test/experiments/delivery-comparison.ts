@@ -1,5 +1,6 @@
 import type { BrowserMessage } from '../../src/browserClient.js';
 import { createMessageQueue } from './message-queue.ts';
+import type { ReadonlyDeep } from '../../src/util/bytes.js';
 
 export type DeliveryMode = 'callback' | 'iterator' | 'web-stream';
 
@@ -13,8 +14,7 @@ export async function compareDelivery(mode: DeliveryMode, count = 2000, payloadB
   let ordered = true;
   let checksum = 0;
   let acknowledge: (() => void) | undefined;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- All modes consume the same native mutable publication contract.
-  const consume = (message: Readonly<BrowserMessage>) => {
+  const consume = (message: ReadonlyDeep<BrowserMessage>) => {
     const sequence = new DataView(message.payload.buffer, message.payload.byteOffset, message.payload.byteLength).getUint32(0);
     ordered &&= sequence === received;
     checksum += sequence;

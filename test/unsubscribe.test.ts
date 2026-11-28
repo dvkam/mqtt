@@ -4,6 +4,10 @@ import { expect, test, vi } from 'vitest';
 import { encodePacket, PacketDecoder, type ClientPacket } from '../src/codec.js';
 import { PacketIdentifiers } from '../src/packetIdentifiers.js';
 import { connectPortable, type PacketTransport, type PortableOptions } from '../src/portable.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
+
+/** The scripted transport. Its `send` only reads the packet, so an override may forward the read-only view to it. */
+type ReadingTransport = Omit<PacketTransport, 'send'> & { send: (packet: ReadonlyDeep<ClientPacket>) => Promise<void> };
 
 test('encodes UNSUBSCRIBE without subscription option bytes and decodes split frames', () => {
   const packet = { cmd: 'unsubscribe', messageId: 1, topics: ['a', 'b'] } as const;
@@ -46,13 +50,13 @@ test.each([
 async function peer(limits: Readonly<Pick<PortableOptions, 'maxPendingSubscriptions' | 'maxPendingSubscriptionBytes'>> = {}) {
   let receive!: Parameters<PacketTransport['listen']>[0];
   let retire!: Parameters<PacketTransport['listen']>[1];
-  const packets: ClientPacket[] = [];
-  const transport: PacketTransport = {
-    // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- The fixture records mutable packets and can reply synchronously.
-    async send(packet) {
+  const packets: ReadonlyDeep<ClientPacket>[] = [];
+  const transport: ReadingTransport = {
+    async send(packet: ReadonlyDeep<ClientPacket>) {
       packets.push(packet);
       if (packet.cmd === 'connect') receive({ cmd: 'connack', reasonCode: 0, sessionPresent: false, receiveMaximum: 1 });
       if (packet.cmd === 'pingreq') receive({ cmd: 'pingresp' });
+      return Promise.resolve();
     },
     listen(onPacket, onClose) {
       receive = onPacket;
@@ -69,11 +73,13 @@ test('preserves mixed-kind ACK ownership when the shared identifier range is exh
   const broker = await peer();
   expect(typeof broker.client.unsubscribe).toBe('function');
   const completed: string[] = [];
-  // oxlint-disable-next-line typescript/unbound-method -- Invoke the original allocator on the session receiver.
+  // oxlint-disable-next-line typescript/unbound-method -- Removing it would cost developer experience. The spy forwards to the original `PacketIdentifiers.reserve` with `reserve.call(this)`, which needs the method without a receiver. The form the rule accepts for that read is `Reflect.get`, which returns `any`, so the forwarded call would lose its receiver and result types.
   const reserve = PacketIdentifiers.prototype.reserve;
   const held: ReturnType<PacketIdentifiers['reserve']>[] = [];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Fill the actual mutable session allocator after the three live exchanges reserve IDs.
-  const allocator = vi.spyOn(PacketIdentifiers.prototype, 'reserve').mockImplementation(function (this: PacketIdentifiers) {
+  const allocator = vi.spyOn(PacketIdentifiers.prototype, 'reserve').mockImplementation(function (
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The spy calls the original `PacketIdentifiers.reserve` on `this` with `reserve.call(this)`, and `reserve` changes the object it is called on, which is the state this test fills. The rule accepts only a read-only type, and that would be false for this parameter.
+    this: PacketIdentifiers,
+  ) {
     const lease = reserve.call(this);
     if (lease.messageId === 3) {
       for (let index = 3; index < 65_535; index++) held.push(reserve.call(this));
@@ -140,13 +146,9 @@ test.each([
   async (limits: Readonly<Pick<PortableOptions, 'maxPendingSubscriptions' | 'maxPendingSubscriptionBytes'>>) => {
     const broker = await peer(limits);
     expect(typeof broker.client.unsubscribe).toBe('function');
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    const { promise: held, resolve: release } = Promise.withResolvers<void>();
     const original = broker.transport.send.bind(broker.transport);
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture holds the original mutable UNSUBSCRIBE packet send.
-    broker.transport.send = async (packet) => {
+    broker.transport.send = async (packet: ReadonlyDeep<ClientPacket>) => {
       await original(packet);
       if (packet.cmd === 'unsubscribe') await held;
     };

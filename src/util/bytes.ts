@@ -5,10 +5,36 @@ const arrayByteLength = Reflect.getOwnPropertyDescriptor(typedArrayPrototype, 'b
 export const maxBinaryBytes = 65_535;
 
 /**
- * A Uint8Array that a function only reads. Every Uint8Array is assignable to it, and `TextDecoder.decode` accepts it.
- * `Readonly<Uint8Array>` alone fails prefer-readonly-parameter-types, because its `buffer` keeps the writable buffer type.
+ * A `Uint8Array` that the receiver only reads. `ByteInbound.bytes` takes it, so a transport may pass any `Uint8Array`,
+ * a `Buffer` included, without a conversion. The type forbids writing an element through it. It does not freeze the
+ * bytes, and `fill`, `set` and the other methods stay callable, so the receiver's promise not to write rests on its code.
+ * `TextDecoder.decode` accepts it. `Readonly<Uint8Array>` alone fails prefer-readonly-parameter-types, because its
+ * `buffer` keeps the writable buffer type.
  */
 export type ReadonlyBytes = Readonly<Uint8Array<Readonly<ArrayBufferLike>>>;
+
+/**
+ * A view of `Value` for a function that only reads it, at every depth. A byte view becomes `ReadonlyBytes`, a function
+ * keeps its type, and every other object gets read-only members. Every `Value` is assignable to it. It is internal and
+ * no entry point exports it.
+ *
+ * Its limits:
+ * - It forbids assignments and nothing else. A mutating method stays callable on the view, such as `Map.set`,
+ *   `bytes.fill` or `socket.destroy`, so the annotation is true only where the function calls none.
+ * - A view is assignable back to the writable type, so the compiler does not stop the function from handing the value
+ *   to code that writes it.
+ * - A `Buffer` and a view over its own `ArrayBuffer` both become `ReadonlyBytes`. The `Buffer` methods and the
+ *   own-buffer type are gone.
+ * - A class with private members loses them in the view, which is then not assignable back. Do not apply it to such a
+ *   class.
+ */
+export type ReadonlyDeep<Value> = Value extends Uint8Array
+  ? ReadonlyBytes
+  : Value extends (...parameters: readonly never[]) => unknown
+    ? Value
+    : Value extends object
+      ? { readonly [Key in keyof Value]: ReadonlyDeep<Value[Key]> }
+      : Value;
 
 export function copyBinaryData(value: unknown): Uint8Array<ArrayBuffer> | 'not bytes' | 'too long' {
   if (!isBytes(value)) return 'not bytes';

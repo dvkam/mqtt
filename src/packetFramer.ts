@@ -1,6 +1,7 @@
 import { decodeFramedPacket, isClientOnlyCommand, type FramedPacket } from './wireCodec.ts';
 import { ReceiveLimitError } from './mqttError.ts';
 import { brokerPacketDirectionError, ProtocolInputError } from './protocolInputError.ts';
+import type { ReadonlyBytes } from './util/bytes.js';
 
 export const DEFAULT_MAX_PACKET_BYTES = 1024 * 1024;
 
@@ -51,7 +52,7 @@ export type FramerOptions = Readonly<{
   maxPacketBytes?: number;
   /** Defaults to `new Uint8Array(size)`. The Node decoder passes an unpooled Node allocation. */
   allocate?: PacketAllocator;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The framer delivers mutable packets and byte views of its allocation.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The receiver of `onPacket` becomes the owner of the packet and delivers it to the application, which may write its fields (`PacketTopicIsWritable` in test/types/mutable-contracts.ts). A read-only parameter type in this declaration would state the opposite contract.
   onPacket: (packet: FramedPacket) => void;
 }>;
 
@@ -86,8 +87,7 @@ export class PacketFramer {
     this.allocate = options.allocate ?? plainAllocation;
   }
 
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native views keep mutable backing storage; admitted data is copied before decoding.
-  push(bytes: Readonly<Uint8Array>): void {
+  push(bytes: ReadonlyBytes): void {
     this.assertOpen();
     if (this.ended) throw new Error('MQTT decoder has ended');
     if (this.pushing) throw this.reject(new Error('MQTT decoder input is reentrant'));

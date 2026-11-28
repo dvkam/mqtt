@@ -5,6 +5,7 @@ import { connectPortable, type PacketTransport } from '../src/portable.js';
 import { ProtocolInputError } from '../src/protocolInputError.js';
 import type { SessionEnd } from '../src/session.js';
 import { echo, sentText, utf8 } from './experiments/portable-packets.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 test.each(['', '+', 'a/#', 'a+b', 'a\u0000b', '\uD800', '\uDC00', 'a'.repeat(65_536), 'é'.repeat(32_768)])(
   'rejects an invalid publication before transport send and keeps the session active',
@@ -68,8 +69,7 @@ test('invalid subscription input cannot replace an established terminal failure'
 
 test('a matching refused CONNACK owns the result before a synchronous trailing close', async () => {
   const broker = peer();
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The transport retains its mutable packet callback contract.
-  broker.transport.send = async (packet) => {
+  broker.transport.send = async (packet: ReadonlyDeep<ClientPacket>) => {
     if (packet.cmd === 'connect') {
       broker.receive({ cmd: 'connack', sessionPresent: false, reasonCode: 135 });
       broker.close(new Error('trailing input closed'));
@@ -132,10 +132,10 @@ test('broker DISCONNECT retires an idle session without a pending exchange', asy
 
 test('DISCONNECT after CONNACK but before handoff rejects the opening attempt', async () => {
   const broker = peer();
-  // oxlint-disable-next-line typescript/require-await -- The fixture delivers the two broker packets synchronously before send completion.
   broker.transport.send = async () => {
     broker.receive({ cmd: 'connack', reasonCode: 0, sessionPresent: false });
     broker.receive({ cmd: 'disconnect', reasonCode: 0x8e });
+    return Promise.resolve();
   };
   await expect(connectPortable(broker.transport, { clientId: 'opening-disconnect' })).rejects.toMatchObject({
     message: 'MQTT broker disconnected',
@@ -145,17 +145,16 @@ test('DISCONNECT after CONNACK but before handoff rejects the opening attempt', 
 });
 
 function peer() {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  let receive: (packet: ReceivedPacket) => void;
+  let receive: (packet: ReadonlyDeep<ReceivedPacket>) => void;
   let closed: (error: Readonly<Error>) => void;
   let rejectProtocolInput: NonNullable<Parameters<PacketTransport['listen']>[2]> | undefined;
-  const packets: ClientPacket[] = [];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  const sent: PacketTransport['send'] = async (packet) => {
+  const packets: ReadonlyDeep<ClientPacket>[] = [];
+  const sent: PacketTransport['send'] = async (packet: ReadonlyDeep<ClientPacket>) => {
     packets.push(packet);
     if (packet.cmd === 'connect') receive({ cmd: 'connack', sessionPresent: false, reasonCode: 0 });
     if (packet.cmd === 'subscribe') receive({ cmd: 'suback', messageId: packet.messageId, granted: [0] });
     if (packet.cmd === 'publish') receive(echo(packet));
+    return Promise.resolve();
   };
   const transport: PacketTransport = {
     send: sent,
@@ -170,7 +169,7 @@ function peer() {
   return {
     transport,
     packets,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The fixture hands `packet` to the session's packet listener, which becomes its owner and delivers it to the application, where the fields are writable (`PacketTopicIsWritable` in test/types/mutable-contracts.ts). The rule accepts only a read-only type, and that would be false for this parameter.
     receive: (packet: ReceivedPacket) => {
       receive(packet);
     },
@@ -248,10 +247,9 @@ test('retires a ping whose transport write rejects after admitting bytes', async
   const { transport, packets } = peer();
   const client = await connectPortable(transport, { clientId: 'tracer' });
   const writeError = new Error('could not confirm the write');
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  transport.send = async (packet) => {
+  transport.send = async (packet: ReadonlyDeep<ClientPacket>) => {
     packets.push(packet);
-    throw writeError;
+    return Promise.reject(writeError);
   };
   await expect(client.ping()).rejects.toBe(writeError);
   await expect(client.ping()).rejects.toBe(writeError);
@@ -477,13 +475,7 @@ test('starts the protocol DISCONNECT notice before a session observer can reente
 });
 
 function deferredEnd() {
-  let resolve!: () => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<void>((accept, refuse) => {
-    resolve = accept;
-    reject = refuse;
-  });
-  return { promise, resolve, reject };
+  return Promise.withResolvers<void>();
 }
 
 test('synchronous listen failure keeps its first cause when listener cleanup throws', async () => {

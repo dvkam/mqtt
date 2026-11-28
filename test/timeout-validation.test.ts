@@ -5,6 +5,8 @@ import { connectPortable, type PacketTransport } from '../src/portable.js';
 import { createWebSocketClient } from '../src/websocketClient.js';
 import { openMqttWebSocket } from '../src/websocket.js';
 import { startCancellationPeer } from './experiments/node-cancellation-peer.js';
+import type { ClientPacket } from '../src/wireCodec.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -93,16 +95,15 @@ test.each(invalidTimeouts)('rejects Node WebSocket timeout %s before endpoint ac
 
 test.each([1, 3000, 2_147_483_647])('uses validated timeout %s for the active session after caller mutation', async (timeoutMs) => {
   vi.useFakeTimers();
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The injected transport retains the mutable packet callback contract.
-  let receive: (packet: ReceivedPacket) => void;
+  let receive: (packet: ReadonlyDeep<ReceivedPacket>) => void;
   const transport: PacketTransport = {
     listen(onPacket) {
       receive = onPacket;
       return () => {};
     },
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- The transport supplies its acknowledgment synchronously through the callback contract.
-    async send(packet) {
+    async send(packet: ReadonlyDeep<ClientPacket>) {
       if (packet.cmd === 'connect') receive({ cmd: 'connack', reasonCode: 0, sessionPresent: false });
+      return Promise.resolve();
     },
     async close() {},
   };

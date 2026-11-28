@@ -3,6 +3,7 @@
 import { availableParallelism, cpus, release } from 'node:os';
 import { generate, type Packet } from 'mqtt-packet';
 import { NodePacketDecoder } from '../../dist/nodePacketDecoder.js';
+import type { ReadonlyBytes } from '../../dist/index.js';
 
 const userProperties = { region: 'eu', tenant: 'a'.repeat(32), tag: ['x', 'y', 'z'] };
 const workloads: [string, Packet][] = [
@@ -79,12 +80,10 @@ const batches = 40;
 const warmupBatches = 10;
 let sink = 0;
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The decoder reads native mutable byte views.
-function run(wire: Readonly<Uint8Array>): number {
+function run(wire: ReadonlyBytes): number {
   const decoder = new NodePacketDecoder({
     maxPacketBytes: wire.length,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Decoded packets carry mutable byte views.
-    onPacket(packet) {
+    onPacket(packet: Readonly<{ cmd: string }>) {
       sink += packet.cmd.length;
     },
   });

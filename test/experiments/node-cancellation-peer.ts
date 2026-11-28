@@ -1,7 +1,8 @@
 import { once } from 'node:events';
 import { createServer, type Socket } from 'node:net';
-import { generate, parser } from 'mqtt-packet';
-import { WebSocketServer, type WebSocket } from 'ws';
+import { generate, parser, type Packet } from 'mqtt-packet';
+import { WebSocketServer, type WebSocket, type RawData } from 'ws';
+import type { ReadonlyDeep } from '../../src/util/bytes.js';
 
 export async function startCancellationPeer(kind: 'tcp' | 'websocket') {
   const commands: string[] = [];
@@ -14,11 +15,9 @@ export async function startCancellationPeer(kind: 'tcp' | 'websocket') {
     sawClose = resolve;
   });
   const sockets = new Set<Socket | WebSocket>();
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The scripted writer accepts the external codec's native Buffer result.
-  const packets = (write: (bytes: Buffer) => void) => {
+  const packets = (write: (bytes: Readonly<Buffer<Readonly<ArrayBufferLike>>>) => void) => {
     const decoder = parser({ protocolVersion: 5 });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The external parser preserves its mutable packet contract.
-    decoder.on('packet', (packet) => {
+    decoder.on('packet', (packet: ReadonlyDeep<Packet>) => {
       commands.push(packet.cmd);
       if (packet.cmd === 'connect')
         write(generate({ cmd: 'connack', sessionPresent: false, reasonCode: 0 }, { protocolVersion: 5 }));
@@ -28,32 +27,28 @@ export async function startCancellationPeer(kind: 'tcp' | 'websocket') {
   };
   const server = kind === 'tcp' ? createServer() : new WebSocketServer({ host: '127.0.0.1', port: 0 });
   if (server instanceof WebSocketServer) {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture drives native mutable WebSocket objects.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler calls `send` on `socket`, which is how this scripted peer answers, stalls or cuts off the client under test. The rule accepts only a read-only type, and that would be false for this parameter.
     server.on('connection', (socket) => {
       sockets.add(socket);
       socket.on('error', () => {});
       socket.on('close', sawClose);
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture forwards the codec's native Buffer to its socket.
-      const decoder = packets((bytes) => {
+      const decoder = packets((bytes: Readonly<Buffer<Readonly<ArrayBufferLike>>>) => {
         socket.send(bytes);
       });
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The external parser accepts native Buffer input.
-      socket.on('message', (bytes) => {
+      socket.on('message', (bytes: ReadonlyDeep<RawData>) => {
         if (Buffer.isBuffer(bytes)) decoder.parse(bytes);
       });
     });
   } else {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture drives native mutable TCP sockets.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler writes its replies to `socket` and adds it to `sockets`, which the peer uses later to reach the connection. The rule accepts only a read-only type, and that would be false for this parameter.
     server.on('connection', (socket) => {
       sockets.add(socket);
       socket.on('error', () => {});
       socket.on('close', sawClose);
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture forwards the codec's native Buffer to its socket.
-      const decoder = packets((bytes) => {
+      const decoder = packets((bytes: Readonly<Buffer<Readonly<ArrayBufferLike>>>) => {
         socket.write(bytes);
       });
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The external parser accepts native Buffer input.
-      socket.on('data', (bytes) => {
+      socket.on('data', (bytes: string | Readonly<Buffer<Readonly<ArrayBufferLike>>>) => {
         decoder.parse(typeof bytes === 'string' ? Buffer.from(bytes) : bytes);
       });
     });

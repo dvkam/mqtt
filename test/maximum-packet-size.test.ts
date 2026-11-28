@@ -2,6 +2,7 @@ import { expect, test, vi } from 'vitest';
 import type { ByteInbound, ByteTransport } from '../src/byteTransport.js';
 import { encodePacket, PacketDecoder, type ClientPacket } from '../src/codec.js';
 import { createTransportClient } from '../src/portableClient.js';
+import type { ReadonlyBytes } from '../src/util/bytes.js';
 
 // A broker that sends `maximumPacketSize` in CONNACK and answers PINGREQ, and SUBSCRIBE, UNSUBSCRIBE and QoS 1 PUBLISH
 // unless `withhold` is set. It records the size and command of every write and the packet it decoded from it. The codec
@@ -10,13 +11,11 @@ function broker(maximumPacketSize: number | undefined, withhold = false) {
   const writes: { bytes: number; cmd: string; messageId?: number; packet?: ClientPacket }[] = [];
   const transport: ByteTransport = {
     name: 'Limited broker',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- ByteTransport.open in src/byteTransport.ts takes the mutable ByteInbound and returns a promise, and promise-function-async requires an async function for that. This opener settles without waiting for anything.
-    async open(inbound: ByteInbound) {
+    async open(inbound: Readonly<ByteInbound>) {
       const decoder = new PacketDecoder({ maxPacketBytes: 268_435_460 });
-      return {
+      return Promise.resolve({
         bufferedBytes: 0,
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- ByteWriter.write in src/byteTransport.ts takes the encoded Uint8Array by identity and returns a promise. This writer replies synchronously.
-        async write(bytes: Uint8Array) {
+        async write(bytes: ReadonlyBytes) {
           const header = bytes[0];
           if (header === 0x82 || header === 0xa2) {
             let offset = 1;
@@ -25,7 +24,7 @@ function broker(maximumPacketSize: number | undefined, withhold = false) {
             const cmd = header === 0x82 ? 'subscribe' : 'unsubscribe';
             writes.push({ bytes: bytes.byteLength, cmd, messageId });
             if (!withhold) inbound.bytes(encodePacket({ cmd: header === 0x82 ? 'suback' : 'unsuback', messageId, granted: [0] }));
-            return;
+            return Promise.resolve();
           }
           for (const packet of decoder.push(bytes)) {
             if (packet.cmd === 'connack' || packet.cmd === 'suback' || packet.cmd === 'unsuback' || packet.cmd === 'pingresp')
@@ -44,9 +43,10 @@ function broker(maximumPacketSize: number | undefined, withhold = false) {
               reply = { cmd: 'puback', messageId: packet.messageId, reasonCode: 0 };
             if (reply !== undefined) inbound.bytes(encodePacket(reply));
           }
+          return Promise.resolve();
         },
         async close() {},
-      };
+      });
     },
   };
   const connect = async (

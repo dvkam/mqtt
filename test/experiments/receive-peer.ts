@@ -1,6 +1,8 @@
 import { once } from 'node:events';
-import { generate, parser } from 'mqtt-packet';
-import { WebSocketServer } from 'ws';
+import { generate, parser, type Packet } from 'mqtt-packet';
+import { WebSocketServer, type RawData } from 'ws';
+import type { IncomingMessage } from 'node:http';
+import type { ReadonlyDeep } from '../../src/util/bytes.js';
 
 const publication = Uint8Array.of(0x30, 6, 0, 1, 0x61, 0, 0x68, 0x69);
 const connack = Uint8Array.of(0x20, 3, 0, 0, 0);
@@ -10,16 +12,14 @@ export async function startReceivePeer() {
   await once(server, 'listening');
   const address = server.address();
   if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer owns the native WebSocket and upgrade request.
-  server.on('connection', (socket, request) => {
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler calls `send` and `pause` on `socket`, which is how this scripted peer answers, stalls or cuts off the client under test. The rule accepts only a read-only type, and that would be false for this parameter.
+  server.on('connection', (socket, request: ReadonlyDeep<IncomingMessage>) => {
     const mode = new URL(request.url ?? '/', 'http://localhost').searchParams.get('mode');
     const decoder = parser({ protocolVersion: 5 });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The external parser consumes native Buffer objects.
-    socket.on('message', (bytes) => {
+    socket.on('message', (bytes: ReadonlyDeep<RawData>) => {
       if (Buffer.isBuffer(bytes)) decoder.parse(bytes);
     });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The external parser retains its mutable packet contract.
-    decoder.on('packet', (packet) => {
+    decoder.on('packet', (packet: ReadonlyDeep<Packet>) => {
       if (packet.cmd === 'connect') {
         if (mode === 'oversized-connect') socket.send(Uint8Array.from([...connack, ...publication]));
         else if (mode === 'mqtt-split') {

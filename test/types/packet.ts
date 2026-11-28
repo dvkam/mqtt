@@ -10,12 +10,13 @@ type InvalidMatch<Kind extends Packet['cmd'], Expected extends Kind> = Kind exte
 const invalidDistributedMatch: InvalidMatch<'publish' | 'puback', 'publish'> | undefined = undefined;
 Object.is(invalidDistributedMatch, undefined);
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Use the complete upstream PUBLISH and PUBACK types so the negative member check catches a declaration change.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `packet` is typed `PacketOf<"puback" | "publish">`, and `Readonly<PacketOf<'publish' | 'puback'>>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `packet`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports.
 export function publishTopic(packet: PacketOf<'publish' | 'puback'>): string | undefined {
   if (packet.cmd === 'publish') return packet.topic;
 
   // @ts-expect-error PUBACK carries no topic.
-  return packet.topic; // oxlint-disable-line typescript/no-unsafe-return -- PUBACK member access is deliberately invalid in this compiler regression.
+  const topic: unknown = packet.topic;
+  return typeof topic === 'string' ? topic : undefined;
 }
 
 // @ts-expect-error PUBLISH requires a topic.

@@ -25,9 +25,9 @@ export interface PublishMessage<Bytes extends Uint8Array = Uint8Array> extends M
 
 /** Build the received message for a decoded PUBLISH. A QoS 1 caller adds `qos`, `messageId` and `dup`. */
 export function publishMessage<Bytes extends Uint8Array>(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Decoded packets carry mutable byte views that the message hands to the application.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The message keeps the payload and Correlation Data of `packet` without a copy, and the application receives it as its own writable payload (the handlers in test/types/public-client-types.ts fill it). A read-only parameter type would be false for bytes that are handed on as writable.
   packet: Extract<FramedPacket, { cmd: 'publish' }>,
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The converter returns a view of the same mutable bytes.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `bytes` returns the memory of `value` as `Bytes`, and the application receives it as its own writable payload (the handlers in test/types/public-client-types.ts fill it). A read-only parameter type would be false for bytes that are handed on as writable.
   bytes: (value: Uint8Array) => Bytes,
 ): PublishMessage<Bytes> {
   const message: PublishMessage<Bytes> = {

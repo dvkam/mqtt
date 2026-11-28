@@ -15,8 +15,7 @@ export async function measureEcho(options: Readonly<{ url: string; qos: 0 | 1; w
     url,
     clientId: 'packed-browser-bench',
     signal: controller.signal,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The client hands over a mutable Uint8Array.
-    onMessage(message: Readonly<{ topic: string; qos: number; payload: Uint8Array }>) {
+    onMessage(message: Readonly<{ topic: string; qos: number; payload: Readonly<Uint8Array<Readonly<ArrayBufferLike>>> }>) {
       if (
         echo === undefined ||
         message.topic !== topic ||

@@ -8,8 +8,12 @@ import {
   type ByteWriter,
   type ClientFactory,
   type OpenContext,
+  type ReadonlyBytes,
 } from '../../dist/index.js';
-import { createTransportClient as createPortableTransportClient } from '../../dist/portableClient.js';
+import {
+  createTransportClient as createPortableTransportClient,
+  type ReadonlyBytes as PortableReadonlyBytes,
+} from '../../dist/portableClient.js';
 
 type RequireTrue<Value extends true> = Value;
 type Same<Left, Right> =
@@ -19,12 +23,11 @@ type Same<Left, Right> =
 
 declare function openMyTunnel(): Promise<Duplex>;
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- A Node Duplex has mutable stream state, and the adapter calls write, end and destroy on it.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. This code calls `destroy`, `end` and `write` on `stream`, which is how it answers or ends the connection it scripts. The rule accepts only a read-only type, and that would be false for this parameter.
 function useDuplex(stream: Duplex): ByteTransport {
   return {
     name: 'Duplex',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares this ByteInbound and OpenContext, and OpenContext holds a native AbortSignal.
-    async open(inbound, { timeoutMs }) {
+    async open(inbound: Readonly<ByteInbound>, { timeoutMs }: Readonly<Pick<OpenContext, 'timeoutMs'>>) {
       stream.on('data', inbound.bytes).on('end', inbound.end).on('error', inbound.fail);
       const closed = new Promise<void>((resolve) => {
         stream.once('close', () => {
@@ -36,11 +39,9 @@ function useDuplex(stream: Duplex): ByteTransport {
         get bufferedBytes() {
           return stream.writableLength;
         },
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteWriter.write in src/byteTransport.ts declares a Uint8Array chunk, which has a mutable index signature.
-        async write(bytes) {
+        async write(bytes: ReadonlyBytes) {
           return new Promise<void>((resolve, reject) => {
-            // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Writable.write in @types/node passes its callback a mutable Error.
-            stream.write(bytes, (error) => {
+            stream.write(bytes, (error: Readonly<Error | null | undefined>) => {
               if (error) reject(error);
               else resolve();
             });
@@ -74,6 +75,9 @@ export async function publishOverTunnel(): Promise<void> {
 }
 
 type OpenParameters = Parameters<ByteTransport['open']>;
+// ByteInbound.bytes names its parameter type, and both entry points that export ByteInbound export that name.
+export type InboundTakesReadonlyBytes = RequireTrue<Same<Parameters<ByteInbound['bytes']>[0], ReadonlyBytes>>;
+export type PortableExportsTheSameType = RequireTrue<Same<ReadonlyBytes, PortableReadonlyBytes>>;
 export type OpenReceivesInbound = RequireTrue<Same<OpenParameters[0], ByteInbound>>;
 export type OpenReceivesContext = RequireTrue<Same<OpenParameters[1], OpenContext>>;
 export type OpenReturnsWriter = RequireTrue<Same<ReturnType<ByteTransport['open']>, Promise<ByteWriter>>>;

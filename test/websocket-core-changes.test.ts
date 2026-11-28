@@ -10,19 +10,17 @@ import { createWebSocketClient } from '../src/ws.js';
 const options = { url: 'ws://127.0.0.1:9/mqtt', clientId: 'core-changes' };
 const connack = Buffer.of(0x20, 0x03, 0x00, 0x00, 0x00);
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer drives native ws sockets and requests.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. Each `onConnect` in this file sends on the socket, closes it or pauses the request's socket to script the broker side. The rule accepts only read-only types, and they would be false for these parameters.
 type OnConnect = (socket: WebSocket, request: IncomingMessage) => void;
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ws passes its own Set of offered subprotocols.
-type SelectProtocol = (offered: Set<string>) => string | false;
+type SelectProtocol = (offered: Readonly<Set<string>>) => string | false;
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ws passes its own Set of offered subprotocols.
-const selectMqtt: SelectProtocol = (offered) => offered.has('mqtt') && 'mqtt';
+const selectMqtt: SelectProtocol = (offered: Readonly<Set<string>>) => offered.has('mqtt') && 'mqtt';
 
 /** A WebSocket peer that speaks the mqtt subprotocol and hands each socket to `onConnect` after the client's CONNECT. */
 async function peer(onConnect: OnConnect, protocols: SelectProtocol = selectMqtt) {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0, handleProtocols: protocols });
   let connections = 0;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer drives native ws sockets and requests.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The peer hands `request` to the test's `onConnect`, which sends on the socket, closes it or pauses the request's socket to script the broker side. The rule accepts only a read-only type, and that would be false for this parameter. Removing it would cost developer experience. The peer hands `socket` to the test's `onConnect`, which sends on the socket, closes it or pauses the request's socket to script the broker side. The rule accepts only a read-only type, and that would be false for this parameter.
   server.on('connection', (socket, request) => {
     connections++;
     socket.on('error', () => {});
@@ -71,7 +69,7 @@ describe('changes from the ws client on main', () => {
   });
 
   test('a failed attempt reports its first failure even when the caller aborts afterwards', async () => {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer drives native ws sockets and requests.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler calls `send` on `socket`, which is how this scripted peer answers, stalls or cuts off the client under test. The rule accepts only a read-only type, and that would be false for this parameter.
     const server = await peer((socket) => {
       socket.send('text');
     });
@@ -93,7 +91,7 @@ describe('changes from the ws client on main', () => {
   });
 
   test('a write over the budget on a closing socket reports the budget refusal', async () => {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer drives native ws sockets and requests.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler calls `request.socket.pause()`, which stops the peer from reading so that the client stays in the state the test checks. The rule accepts only a read-only type, and that would be false for this parameter. Removing it would cost developer experience. The handler calls `close` and `send` on `socket`, which is how this scripted peer answers, stalls or cuts off the client under test. The rule accepts only a read-only type, and that would be false for this parameter.
     const server = await peer((socket, request) => {
       // Send the close frame right behind CONNACK, then stop reading so the client stays in the closing handshake.
       socket.send(connack);
@@ -144,7 +142,7 @@ describe('behavior the ws client keeps on the core', () => {
   });
 
   test('a text frame during a graceful close ends the close at once', async () => {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The peer drives native ws sockets and requests.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler calls `request.socket.pause()`, which stops the peer from reading so that the client stays in the state the test checks. The rule accepts only a read-only type, and that would be false for this parameter. Removing it would cost developer experience. The handler calls `send` on `socket`, which is how this scripted peer answers, stalls or cuts off the client under test. The rule accepts only a read-only type, and that would be false for this parameter.
     const server = await peer((socket, request) => {
       socket.send(connack);
       // Stop reading so the client's closing handshake gets no answer, then send a text frame.
