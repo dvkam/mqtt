@@ -63,6 +63,8 @@ The last seven fields are the PUBLISH properties, and `MessageProperties` names 
 
 On Node, `payload` and `correlationData` are views of the one allocation the decoder made for the packet. Keeping either one keeps the whole packet in memory. Copy the bytes with `Buffer.from(message.payload)` to keep a payload for a long time.
 
+The client does not check a received payload as UTF-8 when `payloadFormatIndicator` is 1. MQTT 5 section 3.3.2.3.2 makes that check optional for a receiver.
+
 ### Change from the mqtt-packet shape
 
 `NodeMessage` used to be mqtt-packet's `IPublishPacket` with a Buffer payload. It now matches `BrowserMessage`. `BrowserMessage` gained the six properties other than `userProperties`, which it dropped before.
@@ -118,7 +120,7 @@ Refs #50.
 Set `onSessionEnd` on a TCP, Node WebSocket, browser or custom transport client to observe its first MQTT retirement. The observer runs after pending protocol work has been retired. It can run during MQTT connection setup if the transport has already reached the portable session. Use the `connect()` rejection for failures before that point.
 
 - `{ kind: 'disconnect' }` means the local MQTT DISCONNECT write completed and won the retirement race. An application queue can drain its admitted messages. The native socket may still be closing, so await `disconnect()` for that result.
-- `{ kind: 'error', error }` carries the original Error used to retire protocol work. A broker DISCONNECT, transport close, cancellation and protocol failure can all produce this outcome. Treat the error as application data. Use `onDiagnostic` for redacted command and state metadata.
+- `{ kind: 'error', error }` carries the original Error used to retire protocol work. A broker DISCONNECT, transport close, cancellation and protocol failure can all produce this outcome. Treat the error as application data. Use `onDiagnostic` for redacted command and state metadata. After a broker DISCONNECT the client sends no DISCONNECT in reply and force-closes the transport.
 
 The callback is queued once. Its return value never delays socket closure or protocol settlement, and thrown or rejected callbacks leave the first outcome intact. Application cancellation of a message consumer is separate from cancellation of its session.
 
