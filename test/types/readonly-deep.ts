@@ -22,3 +22,25 @@ export type PayloadIsReadonlyBytes = RequireTrue<
 >;
 type Callback = (length: number) => number;
 export type FunctionKeepsItsType = RequireTrue<ReadonlyDeep<Callback> extends Callback ? true : false>;
+
+// The limits that the doc comment of ReadonlyDeep states.
+// A mutating method stays callable on the view.
+export type MapSetStaysCallable = RequireTrue<
+  ReadonlyDeep<Map<string, number>>['set'] extends (key: string, value: number) => unknown ? true : false
+>;
+export type FillStaysCallable = RequireTrue<
+  ReadonlyDeep<{ payload: Uint8Array }>['payload']['fill'] extends (value: number) => unknown ? true : false
+>;
+// A Buffer and an own-buffer view collapse to ReadonlyBytes.
+type Same<Left, Right> =
+  (<Value>(_value: Value) => Value extends Left ? 1 : 2) extends <Value>(_value: Value) => Value extends Right ? 1 : 2
+    ? true
+    : false;
+export type BufferCollapses = RequireTrue<Same<ReadonlyDeep<Buffer>, ReadonlyBytes>>;
+export type OwnBufferViewCollapses = RequireTrue<Same<ReadonlyDeep<Uint8Array<ArrayBuffer>>, ReadonlyBytes>>;
+// A class with a private member loses it, so the view is not assignable back to the class.
+declare class Counter {
+  private readonly count: number;
+  increment(): void;
+}
+export type PrivateMemberIsLost = RequireTrue<[ReadonlyDeep<Counter>] extends [Counter] ? false : true>;

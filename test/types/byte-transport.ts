@@ -8,8 +8,12 @@ import {
   type ByteWriter,
   type ClientFactory,
   type OpenContext,
+  type ReadonlyBytes,
 } from '../../dist/index.js';
-import { createTransportClient as createPortableTransportClient } from '../../dist/portableClient.js';
+import {
+  createTransportClient as createPortableTransportClient,
+  type ReadonlyBytes as PortableReadonlyBytes,
+} from '../../dist/portableClient.js';
 
 type RequireTrue<Value extends true> = Value;
 type Same<Left, Right> =
@@ -35,7 +39,7 @@ function useDuplex(stream: Duplex): ByteTransport {
         get bufferedBytes() {
           return stream.writableLength;
         },
-        async write(bytes: Readonly<Uint8Array<Readonly<ArrayBufferLike>>>) {
+        async write(bytes: ReadonlyBytes) {
           return new Promise<void>((resolve, reject) => {
             stream.write(bytes, (error: Readonly<Error | null | undefined>) => {
               if (error) reject(error);
@@ -71,6 +75,9 @@ export async function publishOverTunnel(): Promise<void> {
 }
 
 type OpenParameters = Parameters<ByteTransport['open']>;
+// ByteInbound.bytes names its parameter type, and both entry points that export ByteInbound export that name.
+export type InboundTakesReadonlyBytes = RequireTrue<Same<Parameters<ByteInbound['bytes']>[0], ReadonlyBytes>>;
+export type PortableExportsTheSameType = RequireTrue<Same<ReadonlyBytes, PortableReadonlyBytes>>;
 export type OpenReceivesInbound = RequireTrue<Same<OpenParameters[0], ByteInbound>>;
 export type OpenReceivesContext = RequireTrue<Same<OpenParameters[1], OpenContext>>;
 export type OpenReturnsWriter = RequireTrue<Same<ReturnType<ByteTransport['open']>, Promise<ByteWriter>>>;
