@@ -133,15 +133,15 @@ The session state lives in memory. A journal that survives a process restart is 
 
 ## Cost
 
-These numbers come from Node 26.13.0 and an in-memory transport that answers each packet at once, so they show the client's own work. The heap bytes are the growth of `total_allocated_bytes` from `v8.getHeapStatistics()` over 200,000 publishes of a 16-byte text payload.
+These numbers come from Node 26.13.0 and an in-memory transport that answers each packet from inside the write call, so they show the client's own work. The heap bytes are the growth of `total_allocated_bytes` from `v8.getHeapStatistics()` over 200,000 publishes of a 16-byte text payload, as the median of four rounds in one process. The counter does not depend on machine load, and repeated runs differ by a few bytes.
 
-| Publish | Heap bytes per publish at 8398718, before QoS 2 | With QoS 2 |
+| Publish | Heap bytes per publish on `main` at d4c0573, before QoS 2 | With QoS 2 |
 | --- | ---: | ---: |
-| QoS 0 | 3,011 | 3,011 |
-| QoS 1 | 9,921 | 9,920 |
-| QoS 1 with a session state | 10,377 | 10,378 |
-| QoS 2 | | 18,462 |
-| QoS 2 with a session state | | 19,183 |
+| QoS 0 | 3,012 | 3,012 |
+| QoS 1 | 9,923 | 9,921 |
+| QoS 1 with a session state | 10,380 | 10,377 |
+| QoS 2 | | 18,453 |
+| QoS 2 with a session state | | 19,181 |
 
 A QoS 2 publish allocates 1.9 times the bytes of a QoS 1 publish, because it runs two acknowledged steps with a deadline each. On an otherwise idle machine it measured about 119,000 publishes per second, against about 196,000 at QoS 1. `test/bench/packed-qos1-qos2.ts` repeats the timing against an installed tarball. `MQTT_TEST_QOS` selects 1 or 2, and `MQTT_TEST_SESSION_STATE=1` adds a session state.
 
