@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { availableParallelism, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -217,6 +217,14 @@ const models: readonly VerificationCase[] = [
 const java = process.env['JAVA'] ?? 'java';
 const modelDirectory = fileURLToPath(new URL('./', import.meta.url));
 
+// A module or a configuration without a row would never run, and nothing else would report it.
+const listed = new Set(models.flatMap(([model, configuration]) => [model + '.tla', configuration + '.cfg']));
+assert.deepEqual(
+  readdirSync(modelDirectory).filter((name) => /\.(?:tla|cfg)$/u.test(name) && !listed.has(name)),
+  [],
+  'Every .tla and .cfg file needs a row in models',
+);
+
 async function runTlc(model: string, configuration: string): Promise<Readonly<{ status: number | null; output: string }>> {
   const metadataDirectory = mkdtempSync(join(tmpdir(), 'mqtt-tlc-'));
   try {
@@ -225,9 +233,12 @@ async function runTlc(model: string, configuration: string): Promise<Readonly<{ 
         java,
         [
           // Most models have under 1,000 states, so JVM start dominates a case. The serial collector and the first
-          // compiler tier start fewer threads per process. A four-core run of all cases takes under half the time with them.
+          // compiler tier start fewer threads per process. On four cores a run of all cases took 137 to 144 s without
+          // them and 56 to 97 s with them.
           '-XX:+UseSerialGC',
           '-XX:TieredStopAtLevel=1',
+          // A JVM that runs out of memory can hang. With this flag it exits with status 3, which fails the case.
+          '-XX:+ExitOnOutOfMemoryError',
           // TLC unpacks its standard modules into the Java temporary directory. Two processes that share it fail to parse.
           '-Djava.io.tmpdir=' + metadataDirectory,
           '-cp',
