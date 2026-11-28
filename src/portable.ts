@@ -92,7 +92,7 @@ export interface PortableOptions<Bytes extends Uint8Array = Uint8Array> extends 
    * Receives each inbound QoS 2 publication once. The client sends PUBREC after the handler returns or its promise
    * fulfills. A handler that throws or rejects ends the session without PUBREC.
    */
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- QosTwoMessage in src/session.ts keeps `payload` as the adapter's writable byte type. The onQosTwoMessage handler in test/types/mutable-contracts.ts assigns it.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Developer experience: a deeply readonly message would type `payload` as a read-only view, so a handler that passes it to an API that takes a Buffer or Uint8Array would need a copy or a type assertion. The onQosTwoMessage handler in test/types/mutable-contracts.ts assigns the payload.
   onQosTwoMessage?: (packet: QosTwoMessage<PublishMessage<Bytes>>) => void | Promise<void>;
 }
 
@@ -544,7 +544,7 @@ class PortableClient<Bytes extends Uint8Array> {
    * duplicate PUBLISH never starts a second delivery. A handler that fails removes it again, so the next PUBLISH with that
    * Packet Identifier is delivered.
    */
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The handler gets this packet by identity, and PortableOptions.onQosTwoMessage declares its fields writable. 'a handler that changes messageId does not change the PUBREC' in test/qos2-inbound.test.ts covers the identifier.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Performance: PortableOptions.onQosTwoMessage takes a writable message, so a readonly parameter here could reach the handler only through a copy of the message or a closure per delivery. 'a handler that changes messageId does not change the PUBREC' in test/qos2-inbound.test.ts covers the identifier.
   private async deliverQosTwo(packet: QosTwoMessage<PublishMessage<Bytes>>): Promise<void> {
     const { messageId } = packet;
     const delivered = (this.delivered ??= new Set());
@@ -604,8 +604,9 @@ class PortableClient<Bytes extends Uint8Array> {
     const matched = this.outbound?.received(messageId, code);
     if (matched === undefined) {
       // MQTT-4.3.3-4 asks for a PUBREL after each accepting PUBREC. For a Packet Identifier without an exchange it
-      // carries Packet Identifier not found, so the broker can drop what it holds.
-      if (code < 128 && this.activation === 'active')
+      // carries Packet Identifier not found, so the broker can drop what it holds. A graceful close answers nothing,
+      // because the drain deadline may just have dropped an exchange that the session state keeps for a resume.
+      if (code < 128 && this.activation === 'active' && !this.closing)
         this.answer({ cmd: 'pubrel', messageId, reasonCode: this.unknownIdentifierReason() });
     } else if (matched !== 'ignored') this.session?.received(messageId, code, matched === 'resent');
   }
@@ -718,7 +719,7 @@ class PortableClient<Bytes extends Uint8Array> {
   }
 
   /**
-   * Write the PUBREL of an outbound QoS 2 exchange and wait for its PUBCOMP. Both reason codes of a PUBCOMP end the
+   * Write the PUBREL of an outbound QoS 2 exchange at once and wait for its PUBCOMP. Both reason codes of a PUBCOMP end the
    * exchange. 0x92 says the broker no longer knows the Packet Identifier, which happens when it already released the
    * message and its first PUBCOMP was lost with an earlier connection.
    */

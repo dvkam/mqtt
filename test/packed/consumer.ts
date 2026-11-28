@@ -133,24 +133,6 @@ export async function checkTcpDeclarations(signal: AbortSignal) {
   return granted;
 }
 
-export function checkQosTwoHandlers() {
-  return createTcpClient({
-    host: '127.0.0.1',
-    clientId: 'consumer-qos2',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onQosOneMessage(packet) {
-      const quality: 1 = packet.qos;
-      packet.payload[0] = quality;
-    },
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    onQosTwoMessage(packet) {
-      const payload: Buffer = packet.payload;
-      const quality: 2 = packet.qos;
-      payload[0] = quality + packet.messageId;
-    },
-  });
-}
-
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
 export async function checkWebSocketDeclarations(signal: AbortSignal) {
   const factory = createWebSocketClient({

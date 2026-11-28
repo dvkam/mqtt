@@ -22,11 +22,11 @@ let publications = 0;
 let releases = 0;
 const transport: ByteTransport = {
   name: 'benchmark writer',
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- The packed writer retains the inbound interface and opens synchronously.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- Developer experience: ByteTransport.open in the installed package hands an adapter a writable ByteInbound and returns a promise. This writer takes that parameter, and promise-function-async wants it async although it awaits nothing.
   async open(inbound) {
     return {
       bufferedBytes: 0,
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/promise-function-async -- Return one settled write promise so the fixture adds no promise allocation per packet.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/promise-function-async -- Performance: an async write would allocate a promise per packet inside the measured loop, so this writer returns one settled promise. ByteWriter.write hands it the encoded Uint8Array by identity.
       write(bytes) {
         const header = bytes[0];
         if (header === 0x10) inbound.bytes(Uint8Array.of(0x20, 3, 0, 0, 0));
@@ -41,7 +41,7 @@ const transport: ByteTransport = {
         } else if (header !== 0xe0) throw new Error('Unexpected packet');
         return completed;
       },
-      // oxlint-disable-next-line typescript/promise-function-async -- Reuse the settled fixture promise to close.
+      // oxlint-disable-next-line typescript/promise-function-async -- Performance: close returns the settled promise of the writes, as the write above does, so the fixture allocates nothing per call.
       close: () => completed,
     };
   },

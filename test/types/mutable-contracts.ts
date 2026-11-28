@@ -40,7 +40,7 @@ export const browserFactory = createBrowserClient({
     message.topic = 'consumer-normalized';
     message.payload = new Uint8Array();
   },
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Developer experience: this handler is the evidence that an application may write a QoS 2 message, which the suppressions on onQosTwoMessage in src/portable.ts and src/browserClient.ts cite. A readonly parameter could not make these assignments.
   onQosTwoMessage(message) {
     message.payload = new Uint8Array();
     message.messageId = 0;

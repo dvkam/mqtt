@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { ByteTransport } from '../src/byteTransport.js';
-import type { BrokerPacket } from '../src/codec.js';
 import {
   createSessionState,
   createTransportClient,
@@ -9,8 +8,7 @@ import {
   type SessionState,
 } from '../src/portableClient.js';
 import { createReconnectingClient, type ReconnectEvent } from '../src/reconnect.js';
-import { acknowledge, exchangeBroker, settle, type ExchangeConnection } from './experiments/exchange-broker.js';
-import { utf8 } from './experiments/portable-packets.js';
+import { acknowledge, exchangeBroker, settle, type Delivery, type ExchangeConnection } from './experiments/exchange-broker.js';
 
 const qosTwo = { qos: 2 } as const;
 const qosOne = { qos: 1 } as const;
@@ -49,7 +47,7 @@ async function lose(
   await settle();
 }
 
-function pubrec(messageId: number, reasonCode = 0): BrokerPacket {
+function pubrec(messageId: number, reasonCode = 0): Delivery {
   return { cmd: 'pubrec', messageId, reasonCode };
 }
 
@@ -205,8 +203,7 @@ test('a stored PUBREL goes out to a broker whose Maximum QoS is now 0', async ()
 function supervise(transport: Readonly<ByteTransport>) {
   const events: ReconnectEvent[] = [];
   const client = createReconnectingClient<ByteClientOptions>(
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteClientOptions in src/transportCore.ts holds a native AbortSignal and Uint8Array callbacks, which createTransportClient keeps by identity.
-    (attempt) => createTransportClient(transport, attempt),
+    createTransportClient.bind(undefined, transport),
     { clientId: 'resume', sessionExpiryInterval: 600 },
     {
       random: () => 0,
@@ -311,8 +308,7 @@ test('the reconnecting client lists dropped QoS 2 publications after Session Pre
 test('the reconnecting client restores a QoS 2 subscription and rejects an invalid QoS', async () => {
   const peer = exchangeBroker();
   const client = createReconnectingClient<ByteClientOptions>(
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteClientOptions in src/transportCore.ts holds a native AbortSignal and Uint8Array callbacks, which createTransportClient keeps by identity.
-    (attempt) => createTransportClient(peer.transport, attempt),
+    createTransportClient.bind(undefined, peer.transport),
     { clientId: 'resume', onQosOneMessage() {}, onQosTwoMessage() {} },
     { subscriptions: [{ topic: 'a', qos: 2 }] },
   );
@@ -329,31 +325,35 @@ test('the reconnecting client restores a QoS 2 subscription and rejects an inval
   }).toThrow(new RangeError('Invalid MQTT subscription QoS'));
 });
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The handler appends each delivery to the caller's array.
-function receiverOptions(delivered: string[]): Options {
+/** Handlers that record each QoS 2 delivery as its Packet Identifier, with ` dup` when DUP is set. */
+function receiver(): { delivered: string[]; handlers: Options } {
+  const delivered: string[] = [];
   return {
-    onQosOneMessage() {},
-    onQosTwoMessage(message: Readonly<{ messageId: number; dup: boolean }>) {
-      delivered.push(`${String(message.messageId)}${message.dup ? ' dup' : ''}`);
+    delivered,
+    handlers: {
+      onQosOneMessage() {},
+      onQosTwoMessage(message: Readonly<{ messageId: number; dup: boolean }>) {
+        delivered.push(`${String(message.messageId)}${message.dup ? ' dup' : ''}`);
+      },
     },
   };
 }
 
-function inbound(messageId: number, dup = false): BrokerPacket {
-  return { cmd: 'publish', topic: 'a', payload: utf8('hi'), qos: 2, messageId, dup };
+function inbound(messageId: number, dup = false): Delivery {
+  return { cmd: 'publish', topic: 'a', payload: 'hi', qos: 2, messageId, dup };
 }
 
 test('an inbound QoS 2 Packet Identifier survives a resume, so the duplicate PUBLISH is not delivered again', async () => {
   const peer = exchangeBroker({ connack: (index) => ({ sessionPresent: index === 2 }) });
   const sessionState = createSessionState();
-  const delivered: string[] = [];
-  await connect(peer.transport, sessionState, receiverOptions(delivered)).connecting;
+  const { delivered, handlers } = receiver();
+  await connect(peer.transport, sessionState, handlers).connecting;
   peer.connection(0).deliver(inbound(7));
   await settle();
   expect(peer.connection(0).frames).toEqual([[0x50, 2, 0, 7]]);
   peer.connection(0).end();
   await settle();
-  const second = await connect(peer.transport, sessionState, { ...receiverOptions(delivered), cleanStart: false }).connecting;
+  const second = await connect(peer.transport, sessionState, { ...handlers, cleanStart: false }).connecting;
   peer.connection(1).deliver(inbound(7, true));
   await settle();
   peer.connection(1).deliver({ cmd: 'pubrel', messageId: 7, reasonCode: 0 });
@@ -373,19 +373,19 @@ test.each([
   ['PUBREL', [0x70, 2, 0, 7]],
   ['duplicate PUBLISH', [0x50, 2, 0, 7]],
 ] as const)('a %s in one chunk with the CONNACK of a resumed session finds the stored identifier', async (kind, answer) => {
-  const packet: BrokerPacket = kind === 'PUBREL' ? { cmd: 'pubrel', messageId: 7, reasonCode: 0 } : inbound(7, true);
+  const packet: Delivery = kind === 'PUBREL' ? { cmd: 'pubrel', messageId: 7, reasonCode: 0 } : inbound(7, true);
   const peer = exchangeBroker({
     connack: (index) => ({ sessionPresent: index === 2 }),
     answer: (received, index) => (index === 2 && received.cmd === 'connect' ? [packet] : undefined),
   });
   const sessionState = createSessionState();
-  const delivered: string[] = [];
-  await connect(peer.transport, sessionState, receiverOptions(delivered)).connecting;
+  const { delivered, handlers } = receiver();
+  await connect(peer.transport, sessionState, handlers).connecting;
   peer.connection(0).deliver(inbound(7));
   await settle();
   peer.connection(0).end();
   await settle();
-  const second = await connect(peer.transport, sessionState, { ...receiverOptions(delivered), cleanStart: false }).connecting;
+  const second = await connect(peer.transport, sessionState, { ...handlers, cleanStart: false }).connecting;
   await settle();
   expect(delivered).toEqual(['7']);
   expect(peer.connection(1).frames).toEqual([answer]);
@@ -395,13 +395,13 @@ test.each([
 test('a new session forgets the inbound QoS 2 Packet Identifiers', async () => {
   const peer = exchangeBroker();
   const sessionState = createSessionState();
-  const delivered: string[] = [];
-  await connect(peer.transport, sessionState, receiverOptions(delivered)).connecting;
+  const { delivered, handlers } = receiver();
+  await connect(peer.transport, sessionState, handlers).connecting;
   peer.connection(0).deliver(inbound(7));
   await settle();
   peer.connection(0).end();
   await settle();
-  const second = await connect(peer.transport, sessionState, { ...receiverOptions(delivered), cleanStart: false }).connecting;
+  const second = await connect(peer.transport, sessionState, { ...handlers, cleanStart: false }).connecting;
   peer.connection(1).deliver(inbound(7));
   await settle();
   expect(delivered).toEqual(['7', '7']);
@@ -413,13 +413,13 @@ test('a PUBLISH in one chunk with the CONNACK of a new session is delivered alth
     answer: (received, index) => (index === 2 && received.cmd === 'connect' ? [inbound(7)] : undefined),
   });
   const sessionState = createSessionState();
-  const delivered: string[] = [];
-  await connect(peer.transport, sessionState, receiverOptions(delivered)).connecting;
+  const { delivered, handlers } = receiver();
+  await connect(peer.transport, sessionState, handlers).connecting;
   peer.connection(0).deliver(inbound(7));
   await settle();
   peer.connection(0).end();
   await settle();
-  const second = await connect(peer.transport, sessionState, { ...receiverOptions(delivered), cleanStart: false }).connecting;
+  const second = await connect(peer.transport, sessionState, { ...handlers, cleanStart: false }).connecting;
   await settle();
   expect(delivered).toEqual(['7', '7']);
   expect(peer.connection(1).frames).toEqual([[0x50, 2, 0, 7]]);
@@ -429,7 +429,7 @@ test('a PUBLISH in one chunk with the CONNACK of a new session is delivered alth
 test('a handler that failed does not store the identifier, so the resumed session delivers the PUBLISH again', async () => {
   const peer = exchangeBroker({ connack: (index) => ({ sessionPresent: index === 2 }) });
   const sessionState = createSessionState();
-  const delivered: string[] = [];
+  const { delivered, handlers } = receiver();
   await connect(peer.transport, sessionState, {
     onQosOneMessage() {},
     onQosTwoMessage() {
@@ -439,7 +439,7 @@ test('a handler that failed does not store the identifier, so the resumed sessio
   peer.connection(0).deliver(inbound(7));
   await settle();
   expect(peer.connection(0).frames).toEqual([]);
-  const second = await connect(peer.transport, sessionState, { ...receiverOptions(delivered), cleanStart: false }).connecting;
+  const second = await connect(peer.transport, sessionState, { ...handlers, cleanStart: false }).connecting;
   peer.connection(1).deliver(inbound(7, true));
   await settle();
   expect(delivered).toEqual(['7 dup']);
@@ -450,7 +450,7 @@ test('a handler that failed does not store the identifier, so the resumed sessio
 test('a handler that finishes after its connection ended keeps the identifier for the resumed session', async () => {
   const peer = exchangeBroker({ connack: (index) => ({ sessionPresent: index === 2 }) });
   const sessionState = createSessionState();
-  const delivered: string[] = [];
+  const { delivered, handlers } = receiver();
   let finish: () => void = () => {};
   await connect(peer.transport, sessionState, {
     onQosOneMessage() {},
@@ -466,7 +466,7 @@ test('a handler that finishes after its connection ended keeps the identifier fo
   await settle();
   finish();
   await settle();
-  const second = await connect(peer.transport, sessionState, { ...receiverOptions(delivered), cleanStart: false }).connecting;
+  const second = await connect(peer.transport, sessionState, { ...handlers, cleanStart: false }).connecting;
   peer.connection(1).deliver(inbound(7, true));
   await settle();
   expect(delivered).toEqual([]);

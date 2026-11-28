@@ -1,7 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import type { BrokerPacket } from '../src/codec.js';
 import { createSessionState, createTransportClient, type ByteClientOptions, type SessionEnd } from '../src/portableClient.js';
-import { acknowledge, exchangeBroker, settle, type ExchangeScript } from './experiments/exchange-broker.js';
+import { acknowledge, exchangeBroker, settle, type Delivery, type ExchangeScript } from './experiments/exchange-broker.js';
 
 const qosTwo = { qos: 2 } as const;
 const qosOne = { qos: 1 } as const;
@@ -26,11 +25,11 @@ async function publisher(script: Readonly<ExchangeScript> = {}, options: Limits 
   return { session, connection: peer.connection(0), ends, sent, releaseWrites: peer.releaseWrites };
 }
 
-function pubrec(messageId: number, reasonCode = 0): BrokerPacket {
+function pubrec(messageId: number, reasonCode = 0): Delivery {
   return { cmd: 'pubrec', messageId, reasonCode };
 }
 
-function pubcomp(messageId: number, reasonCode = 0): BrokerPacket {
+function pubcomp(messageId: number, reasonCode = 0): Delivery {
   return { cmd: 'pubcomp', messageId, reasonCode };
 }
 
@@ -220,18 +219,32 @@ test.each([
   expect(ends).toMatchObject([{ kind: 'error', error: failure }]);
 });
 
-test('PUBREL waits for the PUBLISH write to settle', async () => {
-  const { session, connection, sent, releaseWrites } = await publisher({ hold: (packet) => packet.cmd === 'publish' });
-  const publishing = session.publish('a', 'hi', qosTwo);
+test.each([
+  ['the order of the PUBLISH packets', [1, 2]],
+  ['the reverse order', [2, 1]],
+] as const)('PUBREL follows its PUBREC at once, in %s, while the first PUBLISH write is pending', async (_name, order) => {
+  // MQTT-4.6.0-4: the client sends PUBREL packets in the order in which the PUBREC packets arrived.
+  const { session, connection, sent, releaseWrites } = await publisher({
+    hold: (packet) => packet.cmd === 'publish' && packet.topic === 'a',
+  });
+  const first = session.publish('a', 'one', qosTwo);
+  const second = session.publish('b', 'two', qosTwo);
   await settle();
-  connection.deliver(pubrec(1));
+  for (const messageId of order) connection.deliver(pubrec(messageId));
   await settle();
-  expect(sent()).toEqual(['publish a qos 2 id 1']);
-  releaseWrites();
-  await settle();
-  expect(sent()).toEqual(['publish a qos 2 id 1', 'pubrel 1']);
+  expect(sent()).toEqual([
+    'publish a qos 2 id 1',
+    'publish b qos 2 id 2',
+    `pubrel ${String(order[0])}`,
+    `pubrel ${String(order[1])}`,
+  ]);
   connection.deliver(pubcomp(1));
-  await expect(publishing).resolves.toBeUndefined();
+  connection.deliver(pubcomp(2));
+  await expect(second).resolves.toBeUndefined();
+  // The first exchange keeps its slot until its PUBLISH write settles.
+  await expect(stateOf(first)).resolves.toBe('pending');
+  releaseWrites();
+  await expect(first).resolves.toBeUndefined();
   await session.disconnect();
 });
 
@@ -298,6 +311,7 @@ test('disconnect() drains a QoS 2 exchange through PUBREL and PUBCOMP before DIS
   await expect(session.publish('b', 'late', qosTwo)).rejects.toMatchObject({ code: 'ERR_MQTT_CLOSING' });
   await settle();
   expect(sent()).toEqual(['publish a qos 2 id 1']);
+  connection.deliver(pubrec(9));
   connection.deliver(pubrec(1));
   await settle();
   expect(sent()).toEqual(['publish a qos 2 id 1', 'pubrel 1']);
@@ -328,7 +342,7 @@ test('a drain deadline rejects a QoS 2 publication without PUBCOMP, and nothing 
   expect(vi.getTimerCount()).toBe(0);
 });
 
-test('a drain deadline that passes while the PUBLISH write is pending sends no PUBREL for an accepting PUBREC', async () => {
+test('a drain deadline rejects a publication whose PUBLISH write is still pending after PUBREC and PUBREL', async () => {
   vi.useFakeTimers();
   const { session, connection, sent, releaseWrites } = await publisher(
     { hold: (packet) => packet.cmd === 'publish' },
@@ -344,7 +358,7 @@ test('a drain deadline that passes while the PUBLISH write is pending sends no P
   releaseWrites();
   await closing;
   await settle();
-  expect(sent()).toEqual(['publish a qos 2 id 1', 'disconnect']);
+  expect(sent()).toEqual(['publish a qos 2 id 1', 'pubrel 1', 'disconnect']);
   expect(vi.getTimerCount()).toBe(0);
 });
 

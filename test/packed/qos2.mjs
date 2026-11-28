@@ -24,7 +24,7 @@ async function waitFor(condition) {
 // drops it and closes the connection, so the check decides which packet of an exchange is lost.
 /** @type {{ from: 'client' | 'broker', type: number } | undefined} */
 let cut;
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The connection listener of createServer in node:net receives a native net.Socket, and the proxy calls its mutating write and destroy methods.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Developer experience: createServer in node:net hands its connection listener a native net.Socket, and the proxy has to call its write and destroy methods. No readonly type of a socket allows that.
 const proxy = createServer((client) => {
   const upstream = connect(brokerPort, host);
   const close = () => {
@@ -32,15 +32,14 @@ const proxy = createServer((client) => {
     upstream.destroy();
   };
   /**
-   * Forward each complete MQTT packet from one side to the other.
+   * Forward each complete MQTT packet that one side sent to the other side.
    * @param {'client' | 'broker'} from
-   * @param {import('node:net').Socket} to
    */
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The relay writes to a native net.Socket from node:net.
-  const relay = (from, to) => {
+  const relay = (from) => {
+    const to = from === 'client' ? upstream : client;
     let pending = Buffer.alloc(0);
     /** @param {Buffer} chunk */
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The data listener of net.Socket in node:net receives a native Buffer.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Developer experience: the data event of net.Socket in node:net hands its listener a native Buffer, and no readonly type takes one.
     return (chunk) => {
       pending = Buffer.concat([pending, chunk]);
       for (;;) {
@@ -63,8 +62,8 @@ const proxy = createServer((client) => {
       }
     };
   };
-  client.on('data', relay('client', upstream)).on('error', close).on('close', close);
-  upstream.on('data', relay('broker', client)).on('error', close).on('close', close);
+  client.on('data', relay('client')).on('error', close).on('close', close);
+  upstream.on('data', relay('broker')).on('error', close).on('close', close);
 });
 proxy.listen(0, host);
 await once(proxy, 'listening');
@@ -78,13 +77,11 @@ const clientReceived = [];
 /** @type {import('mqtt').ReconnectEvent[]} */
 const events = [];
 
-/** @type {NonNullable<import('mqtt').TcpClientOptions['onQosTwoMessage']>} */
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- TcpClientOptions.onQosTwoMessage in src/tcpClient.ts passes a NodeQosTwoMessage, whose payload is a native Buffer.
+/** @param {Readonly<{ payload: Readonly<{ toString(): string }> }>} message */
 const onPeerMessage = (message) => {
   peerReceived.push(message.payload.toString());
 };
-/** @type {NonNullable<import('mqtt').TcpClientOptions['onQosTwoMessage']>} */
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- TcpClientOptions.onQosTwoMessage in src/tcpClient.ts passes a NodeQosTwoMessage, whose payload is a native Buffer.
+/** @param {Readonly<{ payload: Readonly<{ toString(): string }>, dup: boolean }>} message */
 const onClientMessage = (message) => {
   clientReceived.push({ payload: message.payload.toString(), dup: message.dup });
 };

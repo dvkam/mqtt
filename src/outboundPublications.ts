@@ -11,8 +11,8 @@ interface Publication<Item> {
 }
 
 /**
- * Where a QoS 2 exchange stands. `publish` waits for PUBREC, or for the PUBLISH write after an accepting PUBREC.
- * `release` waits for PUBCOMP. `complete` has its PUBCOMP and waits for the PUBREL write.
+ * Where a QoS 2 exchange stands. `publish` waits for PUBREC. `release` has written PUBREL and waits for PUBCOMP.
+ * `complete` has its PUBCOMP and waits for the PUBLISH and PUBREL writes.
  */
 type Phase = 'publish' | 'release' | 'complete';
 
@@ -28,6 +28,13 @@ interface Exchange<Item> {
   acknowledgmentCode: number | undefined;
   /** Present on a QoS 2 exchange only, so QoS 1 exchanges share one object shape. */
   phase?: Phase;
+  /**
+   * On a QoS 2 exchange only. Writes PUBREL, enters the release phase and sets `releasing`. `resent` is true when a
+   * resumed session sends the PUBREL of an earlier connection again.
+   */
+  readonly release?: (resent: boolean) => void;
+  /** The promise of the PUBCOMP reason code, once `release` ran. */
+  releasing?: Readonly<Promise<number>>;
 }
 
 const noneInFlight: readonly never[] = [];
@@ -187,7 +194,10 @@ export class OutboundPublications<Item> {
     if (exchange === undefined) return undefined;
     if (exchange.phase !== 'publish' || exchange.acknowledgmentCode !== undefined) return 'ignored';
     exchange.acknowledgmentCode = code;
-    exchange.acknowledge(code);
+    const { acknowledge } = exchange;
+    // MQTT-4.6.0-4: each PUBREL goes out when its PUBREC arrives, so in PUBREC order, also while a PUBLISH write is pending.
+    if (code < 128) exchange.release?.(false);
+    acknowledge(code);
     return exchange.resent ? 'resent' : 'sent';
   }
 
@@ -341,33 +351,47 @@ export class OutboundPublications<Item> {
   /** `released` is true when a resumed session continues an exchange that has its PUBREC, so only PUBREL goes out. */
   private startTwoPhase(publication: Publication<Item>, identifier: IdentifierLease, resent: boolean, released: boolean): void {
     const { messageId } = identifier;
+    let acknowledge: Exchange<Item>['acknowledge'] = ignore;
+    let rejectAck: Exchange<Item>['rejectAck'] = ignore;
+    const received = new Promise<number>((resolve, reject) => {
+      acknowledge = resolve;
+      rejectAck = reject;
+    });
     const exchange: Exchange<Item> = {
       publication,
       identifier,
       resent,
-      acknowledge: ignore,
-      rejectAck: ignore,
+      acknowledge,
+      rejectAck,
       // An earlier connection received the PUBREC that accepted a released publication.
       acknowledgmentCode: released ? 0 : undefined,
       phase: 'publish',
+      release: (resentRelease) => {
+        const completion = new Promise<number>((resolve, reject) => {
+          exchange.phase = 'release';
+          exchange.acknowledge = resolve;
+          exchange.rejectAck = reject;
+        });
+        const releasing = this.release(messageId, completion, resentRelease);
+        // The exchange awaits this promise only after its PUBLISH step, which a session end can reject first.
+        releasing.catch(ignore);
+        exchange.releasing = releasing;
+      },
+      releasing: undefined,
     };
-    const awaited = async (phase: Phase): Promise<number> =>
-      new Promise<number>((resolve, reject) => {
-        exchange.phase = phase;
-        exchange.acknowledge = resolve;
-        exchange.rejectAck = reject;
-      });
     this.active.set(messageId, exchange);
     void (async () => {
       try {
-        const code = released
-          ? 0
-          : await (resent ? this.retransmit : this.transmit)(publication.outgoing, messageId, awaited('publish'));
-        if (code >= 128) reportAcknowledgment(publication, code);
+        if (released) exchange.release?.(true);
         else {
-          await this.release(messageId, awaited('release'), released);
-          publication.resolve();
+          const code = await (resent ? this.retransmit : this.transmit)(publication.outgoing, messageId, received);
+          if (code >= 128) {
+            reportAcknowledgment(publication, code);
+            return;
+          }
         }
+        await exchange.releasing;
+        publication.resolve();
       } catch (reason) {
         publication.reject(reason);
       } finally {

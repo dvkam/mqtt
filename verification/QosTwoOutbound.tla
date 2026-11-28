@@ -1,4 +1,18 @@
 ---------------------------- MODULE QosTwoOutbound ----------------------------
+\* Rule: An outbound QoS 2 exchange keeps its quota slot until PUBCOMP or a refusing PUBREC. The client writes PUBREL
+\* only after an accepting PUBREC and never writes the PUBLISH again afterwards, also on a resumed session. The publish
+\* promise resolves only on PUBCOMP, and nothing is written once DISCONNECT is due.
+\* Source: src/outboundPublications.ts (startTwoPhase, received, completed, stop, waitForActive, finishActive, resume)
+\* Source: src/sessionState.ts (record, received, completed, resume)
+\* Source: src/portable.ts (releasePublication, endWrites)
+\* Tests: test/qos2-publish.test.ts, test/qos2-resume.test.ts
+\* Mapping: Dispatch is the identifier lease, record and the PUBLISH write in startTwoPhase. Accept is received with a
+\* reason below 0x80, which stores the release phase and writes PUBREL. Refuse is received with 0x80 or above. Complete is
+\* completed. Stop is stop. Expire is the drain deadline in waitForActive and finishActive. Disconnect is endWrites and
+\* the DISCONNECT write. LateAccept is a PUBREC in releasePublication after endWrites. Drop ends the connection.
+\* Resume and Continue are resume in the session state and the queue. Fresh is resume after Session Present false.
+\* Not modeled: The settlement of a write apart from the write, reason codes, the identifier allocator, the order of
+\* the resends and QoS 1 exchanges in the same queue.
 EXTENDS Naturals, FiniteSets
 CONSTANT Fault
 VARIABLES connection, phase, stored, outcome, accepted, completed, released, live, drops, violation

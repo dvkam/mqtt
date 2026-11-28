@@ -1,19 +1,14 @@
 import { expect, test } from 'vitest';
-import type { ByteInbound, ByteTransport } from '../src/byteTransport.js';
-import type { BrokerPacket } from '../src/codec.js';
 import { createTransportClient, type ByteClientOptions, type SessionEnd } from '../src/portableClient.js';
-import { exchangeBroker, settle, type ExchangeScript } from './experiments/exchange-broker.js';
-import { utf8 } from './experiments/portable-packets.js';
-
-const decoder = new TextDecoder();
+import { exchangeBroker, settle, type Delivery, type ExchangeScript } from './experiments/exchange-broker.js';
 
 /** A QoS 2 PUBLISH of 'hi' to topic 'a' with Packet Identifier 7. */
 function publishBytes(dup: boolean): number[] {
   return [dup ? 0x3c : 0x34, 8, 0, 1, 0x61, 0, 7, 0, 0x68, 0x69];
 }
 
-function publication(messageId: number, qos: 1 | 2 = 2, dup = false): BrokerPacket {
-  return { cmd: 'publish', topic: 'a', payload: utf8('hi'), qos, messageId, dup };
+function publication(messageId: number, qos: 1 | 2 = 2, dup = false): Delivery {
+  return { cmd: 'publish', topic: 'a', payload: 'hi', qos, messageId, dup };
 }
 
 /** The PUBACK, PUBREC, PUBREL, PUBCOMP and DISCONNECT frames among the frames the client wrote. */
@@ -58,9 +53,9 @@ test('a duplicate QoS 2 PUBLISH gets PUBREC again and reaches the handler once',
   const session = await createTransportClient(peer.transport, {
     clientId: 'receiver',
     onQosOneMessage() {},
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PortableOptions.onQosTwoMessage in src/portable.ts passes the message with the adapter's mutable Uint8Array payload.
-    onQosTwoMessage(message) {
-      delivered.push([message.topic, message.messageId, message.qos, message.dup, decoder.decode(message.payload)].join(' '));
+    onQosTwoMessage(message: Readonly<{ topic: string; messageId: number; qos: 2; dup: boolean; payload: ArrayLike<number> }>) {
+      const text = String.fromCharCode(...Array.from(message.payload));
+      delivered.push([message.topic, message.messageId, message.qos, message.dup, text].join(' '));
     },
   }).connect();
   await session.subscribe('a', { qos: 2 });
@@ -157,7 +152,7 @@ test('a handler that changes messageId does not change the PUBREC', async () => 
   const { session, connection } = await receiver(
     {},
     {
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The handler writes the delivered message, which PortableOptions.onQosTwoMessage in src/portable.ts declares writable.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Developer experience: PortableOptions.onQosTwoMessage in src/portable.ts gives the handler a writable message, so that applications can pass its payload on without a copy. This handler writes messageId to show that the PUBREC keeps the identifier.
       onQosTwoMessage(message) {
         message.messageId = 99;
       },
@@ -321,7 +316,7 @@ test('a QoS 2 subscription delivers each publication to the handler of its own Q
     },
   );
   await session.subscribe('a', { qos: 2 });
-  connection.deliver({ cmd: 'publish', topic: 'a', payload: utf8('hi') });
+  connection.deliver({ cmd: 'publish', topic: 'a', payload: 'hi' });
   connection.deliver(publication(3, 1));
   await settle();
   connection.deliver(publication(4));
@@ -378,21 +373,8 @@ test('a handler that finishes after disconnect() sends no PUBREC', async () => {
 });
 
 test('a QoS 2 PUBLISH before CONNACK ends the connection attempt', async () => {
-  const transport: ByteTransport = {
-    name: 'Early broker',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- ByteTransport.open in src/byteTransport.ts takes the mutable ByteInbound and returns a promise, and promise-function-async requires an async function for that. This opener settles without waiting for anything.
-    async open(inbound: ByteInbound) {
-      return {
-        bufferedBytes: 0,
-        async write() {
-          await Promise.resolve();
-          inbound.bytes(Uint8Array.from(publishBytes(false)));
-        },
-        async close() {},
-      };
-    },
-  };
-  const connecting = createTransportClient(transport, { clientId: 'receiver', onQosTwoMessage() {} }).connect();
+  const peer = exchangeBroker({ early: publishBytes(false) });
+  const connecting = createTransportClient(peer.transport, { clientId: 'receiver', onQosTwoMessage() {} }).connect();
   await expect(connecting).rejects.toMatchObject({
     code: 'ERR_MQTT_PROTOCOL',
     message: 'Inbound QoS 2 PUBLISH arrived before CONNACK',
