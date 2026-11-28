@@ -424,6 +424,7 @@ class PortableClient<Bytes extends Uint8Array> {
       this.identifiers,
       this.transmitter(false),
       this.releasePublication.bind(this),
+      isQosTwo,
       this.session?.record,
     );
     this.outbound = outbound;
@@ -690,8 +691,7 @@ class PortableClient<Bytes extends Uint8Array> {
     );
     const release = this.publications.reserve(topic, publication.payloadBytes, publication.propertyBytes, qos);
     if (qos !== 0 && this.outbound) {
-      if (qos === 1) await this.outbound.enqueue(publication, release, signal);
-      else await this.outbound.enqueue({ ...publication, qos }, release, signal, true);
+      await this.outbound.enqueue(qos === 1 ? publication : { ...publication, qos }, release, signal);
       return;
     }
     if (this.resendPhase !== undefined)
@@ -1136,6 +1136,10 @@ function publishPacket(
     correlationData: p.correlationData,
     userProperties: p.userProperties,
   };
+}
+
+function isQosTwo({ qos }: Readonly<Pick<OutgoingPublication, 'qos'>>): boolean {
+  return qos === 2;
 }
 
 function uncertainPublication(

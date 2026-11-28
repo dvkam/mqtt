@@ -8,8 +8,6 @@ interface Publication<Item> {
   readonly cancelIfAborted: () => boolean;
   readonly resolve: () => void;
   readonly reject: (reason: unknown) => void;
-  /** Present on a QoS 2 publication only, so QoS 1 publications share one object shape. */
-  readonly twoPhase?: true;
 }
 
 /**
@@ -83,12 +81,14 @@ export class OutboundPublications<Item> {
   private readonly transmit: Transmit<Item>;
   private readonly dispatched: ((outgoing: Item, messageId: number) => void) | undefined;
   private readonly release: Release;
+  private readonly twoPhase: (outgoing: Item) => boolean;
   private retransmit: Transmit<Item>;
   private stopped?: Readonly<Error>;
   private activeSettled?: () => void;
   private draining = false;
 
   /**
+   * `twoPhase` says whether a publication is QoS 2, whose exchange continues with `release` after an accepting PUBREC.
    * `dispatched` learns the Packet Identifier of each new exchange before `transmit` writes it. When it throws, the
    * publication rejects with that error and its identifier returns.
    */
@@ -97,6 +97,7 @@ export class OutboundPublications<Item> {
     identifiers: Readonly<Pick<PacketIdentifiers, 'reserve'>>,
     transmit: Transmit<Item>,
     release: Release,
+    twoPhase: (outgoing: Item) => boolean,
     dispatched?: (outgoing: Item, messageId: number) => void,
   ) {
     this.quota = quota;
@@ -104,11 +105,11 @@ export class OutboundPublications<Item> {
     this.transmit = transmit;
     this.retransmit = transmit;
     this.release = release;
+    this.twoPhase = twoPhase;
     this.dispatched = dispatched;
   }
 
-  /** `twoPhase` is true for a QoS 2 publication, whose exchange continues with PUBREL after an accepting PUBREC. */
-  async enqueue(outgoing: Item, releaseBudget: () => void, signal?: Readonly<AbortSignal>, twoPhase = false): Promise<void> {
+  async enqueue(outgoing: Item, releaseBudget: () => void, signal?: Readonly<AbortSignal>): Promise<void> {
     return new Promise((resolve, reject) => {
       if (this.stopped) {
         releaseBudget();
@@ -116,9 +117,7 @@ export class OutboundPublications<Item> {
         return;
       }
       let cancellation: AbortSignal | undefined;
-      const publication: Publication<Item> = twoPhase
-        ? { outgoing, releaseBudget, detach, cancelIfAborted, resolve, reject, twoPhase }
-        : { outgoing, releaseBudget, detach, cancelIfAborted, resolve, reject };
+      const publication: Publication<Item> = { outgoing, releaseBudget, detach, cancelIfAborted, resolve, reject };
       const queue = this.queued;
       function detach() {
         cancellation?.removeEventListener('abort', cancel);
@@ -303,7 +302,7 @@ export class OutboundPublications<Item> {
           publication.reject(reason);
           continue;
         }
-        if (publication.twoPhase === true) this.startTwoPhase(publication, identifier, false, false);
+        if (this.twoPhase(publication.outgoing)) this.startTwoPhase(publication, identifier, false, false);
         else this.start(publication, identifier, false);
       }
     } finally {
