@@ -8,7 +8,7 @@ import {
   type SessionState,
 } from '../src/portableClient.js';
 import { createReconnectingClient, type ReconnectEvent } from '../src/reconnect.js';
-import type { ReadonlyBytes, ReadonlyDeep } from '../src/util/bytes.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 import { acknowledge, exchangeBroker, settle, type Delivery, type ExchangeConnection } from './experiments/exchange-broker.js';
 
 const qosTwo = { qos: 2 } as const;
@@ -684,30 +684,28 @@ test('a handler of an earlier connection that fulfills late answers the duplicat
 });
 
 test('a QoS 2 PUBLISH without DUP is a new message although an earlier connection stored its identifier', async () => {
-  const peer = exchangeBroker({ connack: (index) => ({ sessionPresent: index === 3 }) });
   let opens = 0;
+  let lost: Readonly<ByteInbound> | undefined;
+  const peer = exchangeBroker({
+    connack: (index) => ({ sessionPresent: index === 3 }),
+    answer(packet, index) {
+      // The broker read the second CONNECT, and the connection ends before the client reads the CONNACK.
+      if (index === 2 && packet.cmd === 'connect')
+        queueMicrotask(() => {
+          lost?.end();
+        });
+      return undefined;
+    },
+  });
   // The second connection reaches the broker, which has lost the session and starts a new one. Its CONNACK with Session
-  // Present false is lost with the connection, so the client keeps its state.
+  // Present false goes nowhere, so the client keeps its state.
   const lossy: ByteTransport = {
     name: 'lossy',
     async open(inbound: Readonly<ByteInbound>, context: ReadonlyDeep<OpenContext>) {
       opens += 1;
       if (opens !== 2) return peer.transport.open(inbound, context);
-      const writer = await peer.transport.open({ bytes() {}, end() {}, fail() {} }, context);
-      return {
-        get bufferedBytes() {
-          return writer.bufferedBytes;
-        },
-        async write(bytes: ReadonlyBytes) {
-          await writer.write(bytes);
-          queueMicrotask(() => {
-            inbound.end();
-          });
-        },
-        async close(force) {
-          await writer.close(force);
-        },
-      };
+      lost = inbound;
+      return peer.transport.open({ bytes() {}, end() {}, fail() {} }, context);
     },
   };
   const sessionState = createSessionState();
