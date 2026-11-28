@@ -211,8 +211,14 @@ function uint32(value: number, minimum = 0): Uint8Array<ArrayBuffer> {
   return Uint8Array.of(value >>> 24, (value >>> 16) & 255, (value >>> 8) & 255, value & 255);
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
-function binary(value: Readonly<Uint8Array>): Uint8Array<ArrayBuffer> {
+/** The members the encoder reads from a byte view. The `buffer` member is left out because prefer-readonly-parameter-types rejects it. */
+interface ReadonlyBytes {
+  readonly [index: number]: number;
+  readonly length: number;
+  readonly byteLength: number;
+}
+
+function binary(value: ReadonlyBytes): Uint8Array<ArrayBuffer> {
   return join([uint16(value.byteLength), value]);
 }
 
@@ -227,9 +233,7 @@ function variable(value: number): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(bytes);
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
-function join(parts: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
+function join(parts: readonly ReadonlyBytes[]): Uint8Array<ArrayBuffer> {
   const result = new Uint8Array(parts.reduce((size, part) => size + part.byteLength, 0));
   let offset = 0;
   for (const part of parts) {
@@ -340,16 +344,20 @@ function topic(value: string, filter: boolean, sharedSubscriptions = false): voi
     throw new Error('Invalid MQTT topic filter');
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The parts are the Uint8Array fields that join in this file takes. Readonly<Uint8Array> keeps the writable index signature, so no element type satisfies the rule.
-function propertySection(parts: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
+function propertySection(parts: readonly ReadonlyBytes[]): Uint8Array<ArrayBuffer> {
   // MQTT encodes an empty property section as one byte with value zero.
   if (parts.length === 0) return new Uint8Array(1);
   const body = join(parts);
   return join([variable(body.length), body]);
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- WillMessage in src/will.ts declares payload and correlationData as Uint8Array. Readonly<WillMessage> leaves their index signatures writable, so no type for this parameter satisfies the rule.
-function encodeWill(will: Readonly<WillMessage>): Uint8Array<ArrayBuffer> {
+/** The Will fields that `encodeWill` reads. `WillMessage` in src/will.ts declares the two byte fields as `Uint8Array`, whose `buffer` member prefer-readonly-parameter-types rejects. */
+interface EncodableWill extends Readonly<Omit<WillMessage, 'payload' | 'correlationData'>> {
+  readonly payload: ReadonlyBytes;
+  readonly correlationData?: ReadonlyBytes;
+}
+
+function encodeWill(will: EncodableWill): Uint8Array<ArrayBuffer> {
   const payload = binary(will.payload);
   const parts: Uint8Array[] = [];
   for (const [key, value] of will.userProperties ?? []) parts.push(Uint8Array.of(0x26), utf8(key), utf8(value));

@@ -18,7 +18,7 @@ export class QosZeroWrites {
     this.onTimeout = onTimeout;
   }
 
-  // oxlint-disable-next-line typescript/promise-function-async -- An async method would wrap this promise in a second one for every QoS 0 publish. publish in src/portable.ts awaits the returned promise, and test/bench/packed-qos0.ts measures that path.
+  // oxlint-disable-next-line typescript/promise-function-async -- Removing this suppression would cost performance, because an async method would allocate a second promise around this one for every QoS 0 publish. publish in src/portable.ts awaits the returned promise, and test/bench/packed-qos0.ts measures that path.
   run(write: () => Promise<void>, release: () => void): Promise<void> {
     if (this.stopped) {
       release();

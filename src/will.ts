@@ -42,7 +42,7 @@ function optionalSeconds(value: unknown, field: string): number | undefined {
   return value;
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The payload is a Uint8Array, and Readonly<Uint8Array> keeps the writable index signature, so no type for these bytes satisfies the rule. captureWill in this file and decodeBody in src/wireCodec.ts pass their bytes without a copy.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The rule rejects the `buffer` member of Readonly<Uint8Array>, and TextDecoder.decode rejects a read-only type without that member (TS2345). Removing this suppression would cost performance, because a type that passes both needs a copy of the payload, up to 65,535 bytes, for each Will that captureWill in this file or decodeBody in src/wireCodec.ts validates.
 export function validateWillPayload(payload: Readonly<Uint8Array>, format: 0 | 1 | undefined): void {
   if (format !== 1) return;
   try {
