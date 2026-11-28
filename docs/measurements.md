@@ -118,6 +118,22 @@ Set `MQTT_QOS0_WORKLOAD` to `bytes` to publish the payload as a Uint8Array, or t
 
 The full lifecycle replay passed 43 positive models and found all 152 expected faults. The packed Chromium retirement probe observed no remaining timers or listeners after close. [Operation tests](../test/operation-timeout.test.ts) · [Deadline model](../verification/QosZeroDeadline.tla) · [#156](https://github.com/dvkam/mqtt/issues/156)
 
+### Forwarded and async promises
+
+`promise-function-async` asks for an `async` function wherever a function returns a promise, and `require-await` asks an `async` function to wait for something or to return a promise. [The benchmark](../test/bench/promise-forwarding.ts) measures what each form costs for a call that returns a promise it was given, which is what the QoS 0 publish path and a transport writer do. It has no client and no I/O. Three runs under Node 26.13.0 on Linux x64, 4,000,000 calls per timing and 100,000 calls per allocation reading:
+
+| Form | Awaited call, ns | Call in a burst of 64, ns | Heap bytes per call |
+| --- | ---: | ---: | ---: |
+| Returns the given promise, no `async` | 31.1, 33.3, 37.7 | 1.9, 2.0, 3.0 | 0.2, 0.2, 0.2 |
+| `async`, returns the given promise | 81.3, 86.8, 87.8 | 39.7, 46.2, 55.4 | 96.9, 97.2, 97.5 |
+| `async`, nothing awaited | 42.7, 46.6, 54.2 | 8.6, 8.6, 8.9 | 48.0, 48.0, 48.1 |
+
+The `async` form of a forwarding call allocates about 97 bytes more and takes 44 to 57 ns longer per awaited call in these runs. A rerun by the reviewer of the pull request measured about 41 ns. An `async` function that returns a promise costs about 49 bytes and 40 ns more than one that awaits nothing. The numbers are for the call alone and say nothing about a whole publish.
+
+```sh
+node --expose-gc --max-semi-space-size=256 test/bench/promise-forwarding.ts
+```
+
 ### Will codec comparison
 
 Five paired runs before and after the Will change measured steady echo with no Will configured. They checked 50,000 TCP and 5,000 Chromium echoes per process and QoS. Values are medians, with p99 ranges in parentheses. The observed timing ranges overlap. The broker checks separately registered and observed Will messages on all three transports. [Will checks](will-message.md)

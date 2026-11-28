@@ -1,13 +1,15 @@
 import { resolveTimeout } from './timeout.js';
 import type { WebSocketOptions } from './websocketOptions.js';
 import { MqttError } from './mqttError.js';
+import type { ReadonlyDeep } from './util/bytes.js';
+
+/** How the opening ended. Every value but the first two completes the message of the error that is thrown. */
+type Opening = 'open' | 'aborted' | 'handshake failed' | 'subprotocol was not negotiated' | 'handshake timed out';
 
 /** Open a binary MQTT WebSocket. The returned socket retains native send and close semantics. */
 export async function openMqttWebSocket(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native WebSocket accepts caller-owned URL and AbortSignal objects.
-  url: Readonly<string | URL>,
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native WebSocket accepts caller-owned URL and AbortSignal objects.
-  { signal, timeoutMs = 3000 }: Readonly<WebSocketOptions> = {},
+  url: string | ReadonlyDeep<URL>,
+  { signal, timeoutMs = 3000 }: ReadonlyDeep<WebSocketOptions> = {},
 ) {
   if (signal?.aborted === true) throw signal.reason;
   resolveTimeout(timeoutMs);
@@ -16,7 +18,8 @@ export async function openMqttWebSocket(
 
   const socket = new WebSocket(url, 'mqtt');
   socket.binaryType = 'arraybuffer';
-  return new Promise<WebSocket>((resolve, reject) => {
+  let abortReason: unknown;
+  const outcome = await new Promise<Opening>((resolve) => {
     const cleanup = () => {
       clearTimeout(timer);
       signal?.removeEventListener('abort', aborted);
@@ -24,32 +27,36 @@ export async function openMqttWebSocket(
       socket.removeEventListener('close', failed);
       socket.removeEventListener('error', failed);
     };
-    const fail = (reason: unknown) => {
+    const fail = (result: Exclude<Opening, 'open'>) => {
       cleanup();
       if (socket.readyState < WebSocket.CLOSING) socket.close();
-      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- Preserve AbortSignal.reason, including native non-Error reasons.
-      reject(reason);
+      resolve(result);
     };
     const failed = () => {
-      fail(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket handshake failed'));
+      fail('handshake failed');
     };
     const aborted = () => {
-      fail(signal?.reason);
+      abortReason = signal?.reason;
+      fail('aborted');
     };
     const opened = () => {
       if (socket.protocol !== 'mqtt') {
-        fail(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket subprotocol was not negotiated'));
+        fail('subprotocol was not negotiated');
         return;
       }
       cleanup();
-      resolve(socket);
+      resolve('open');
     };
     const timer = setTimeout(() => {
-      fail(new MqttError('ERR_MQTT_TIMEOUT', 'MQTT WebSocket handshake timed out'));
+      fail('handshake timed out');
     }, timeoutMs);
     socket.addEventListener('open', opened);
     socket.addEventListener('close', failed);
     socket.addEventListener('error', failed);
     signal?.addEventListener('abort', aborted, { once: true });
   });
+  if (outcome === 'open') return socket;
+  // The caller's own abort reason, read when the abort was observed, passes through unchanged, whatever its type.
+  if (outcome === 'aborted') throw abortReason;
+  throw new MqttError(outcome === 'handshake timed out' ? 'ERR_MQTT_TIMEOUT' : 'ERR_MQTT_TRANSPORT', 'MQTT WebSocket ' + outcome);
 }

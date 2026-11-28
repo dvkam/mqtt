@@ -9,15 +9,14 @@ let connection;
 /** @type {number[]} */
 const commands = [];
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- net.createServer passes a mutable net.Socket, which the peer writes to and destroys.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. This code calls `end` and `write` on `socket`, which is how it answers or ends the connection it scripts. The rule accepts only a read-only type, and that would be false for this parameter.
 const server = createServer((socket) => {
   connection = socket;
   let buffered = Buffer.alloc(0);
   socket.on('error', (/** @type {Readonly<Error>} */ error) => {
     peer.emit('error', error);
   });
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- net.Socket emits Buffer chunks, and Buffer has a mutable index signature.
-  socket.on('data', (chunk) => {
+  socket.on('data', (/** @type {string | Readonly<Buffer<Readonly<ArrayBufferLike>>>} */ chunk) => {
     assert.ok(Buffer.isBuffer(chunk));
     buffered = Buffer.concat([buffered, chunk]);
     while (buffered.length >= 2) {

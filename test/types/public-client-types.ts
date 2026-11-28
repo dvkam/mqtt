@@ -46,7 +46,7 @@ export type SessionIsNamed = RequireTrue<Awaited<ReturnType<ClientFactory['conne
 const tcpOptions: TcpClientOptions = {
   host: '127.0.0.1',
   clientId: 'named-tcp-types',
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The callback contract preserves the original mutable Node Buffer.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler assigns the payload to a `Buffer` constant and the QoS to `0` to pin the types the TCP client delivers. A parameter type written here would replace the delivered type, and the assignments would check nothing.
   onMessage(message) {
     const payload: Buffer = message.payload;
     const qualityOfService: 0 = message.qos;
@@ -56,7 +56,7 @@ const tcpOptions: TcpClientOptions = {
 const websocketOptions: WebSocketClientOptions = {
   url: 'wss://localhost/mqtt',
   clientId: 'named-ws-types',
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The callback contract preserves the original mutable Node Buffer.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler fills the delivered payload on purpose, to check that the published types keep the consumer's bytes writable. A read-only parameter type would be false and would remove that check.
   onMessage(message) {
     message.payload.subarray(0, 1).fill(0);
   },
@@ -99,8 +99,7 @@ export type PublishOptionsCarryProperties = RequireTrue<
   NonNullable<Parameters<Publish>[2]> extends Readonly<PublishProperties> ? true : false
 >;
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- AbortSignal is a native mutable object, and ClientSession.publish takes it by identity.
-export async function publishWithProperties(session: Readonly<ClientSession>, signal: AbortSignal): Promise<void> {
+export async function publishWithProperties(session: Readonly<ClientSession>, signal: Readonly<AbortSignal>): Promise<void> {
   await session.publish('bytes', Buffer.from([1, 2]), { signal });
   await session.publish('reply', 'text', {
     qos: 1,

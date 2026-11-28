@@ -4,6 +4,7 @@
 import { getEventListeners } from 'node:events';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createBrowserClient } from '../src/browserClient.js';
+import type { ReadonlyBytes } from '../src/util/bytes.js';
 
 const connack = [0x20, 3, 0, 0, 0];
 
@@ -28,8 +29,7 @@ class ScriptedSocket extends EventTarget {
       this.dispatchEvent(new Event('open'));
     });
   }
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The stand-in receives the native send argument.
-  send(bytes: Readonly<Uint8Array>) {
+  send(bytes: ReadonlyBytes) {
     this.sent.push([...bytes]);
     if (bytes[0] === 0x10)
       queueMicrotask(() => {

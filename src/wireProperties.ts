@@ -1,4 +1,5 @@
 import { ProtocolInputError } from './protocolInputError.js';
+import type { ReadonlyBytes } from './util/bytes.js';
 
 export type UserProperty = readonly [key: string, value: string];
 
@@ -92,8 +93,7 @@ const asciiFastPathBytes = 64;
  * Decode an MQTT UTF-8 string (MQTT 5 section 1.5.4) from `bytes[start..end)`.
  * Returns undefined for ill-formed UTF-8 or U+0000. It never throws.
  */
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
-export function decodeUtf8(bytes: Readonly<Uint8Array>, start: number, end: number): string | undefined {
+export function decodeUtf8(bytes: ReadonlyBytes, start: number, end: number): string | undefined {
   if (end - start <= asciiFastPathBytes) {
     let text = '';
     let index = start;
@@ -126,11 +126,10 @@ export function responseTopic(value: string): string {
 class Section {
   offset: number;
   end: number;
-  private readonly bytes: Uint8Array;
+  private readonly bytes: ReadonlyBytes;
   private readonly name: string;
 
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
-  constructor(bytes: Readonly<Uint8Array>, offset: number, name: string) {
+  constructor(bytes: ReadonlyBytes, offset: number, name: string) {
     this.bytes = bytes;
     this.offset = offset;
     this.end = bytes.length;
@@ -211,8 +210,7 @@ export type PropertySection = Readonly<{ properties: DecodedProperties; end: num
  * `end` is the offset after the section. Every rule of MQTT 5 section 2.2.2 for this profile is checked here, once,
  * for the Node and the browser decoder.
  */
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views retain mutable backing buffers; the codec preserves those input and output types.
-export function readProperties(bytes: Readonly<Uint8Array>, start: number, kind: PropertyKind): PropertySection {
+export function readProperties(bytes: ReadonlyBytes, start: number, kind: PropertyKind): PropertySection {
   const name = kind.toUpperCase();
   const bit = kinds[kind];
   const section = new Section(bytes, start, name);

@@ -6,14 +6,15 @@
  * and writes.
  */
 
+import type { ReadonlyBytes } from './util/bytes.js';
+
 /**
  * What the core hands the transport. After the first `end` or `fail`, or after the core closed the transport, the calls
  * no longer reach the session.
  */
 export interface ByteInbound {
   /** Bytes from the peer, split at any boundary. The core copies what it keeps, so the transport may reuse the chunk. */
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native byte views are mutable; the core copies what it keeps.
-  bytes(this: void, chunk: Readonly<Uint8Array>): void;
+  bytes(this: void, chunk: ReadonlyBytes): void;
   /** The peer finished sending, or the connection closed. */
   end(this: void, reason?: Readonly<Error>): void;
   /** The transport broke. */
@@ -42,7 +43,7 @@ export interface ByteWriter {
    * Hand the chunk to the native layer before returning, so writes keep their call order. Settle when the native layer
    * took it.
    */
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The native layer keeps the encoded bytes by identity.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The writer owns the chunk and may hand it to a native API that keeps it, so the parameter stays a writable `Uint8Array<ArrayBuffer>`. `WriterBytesAreWritable` in test/types/mutable-contracts.ts pins that type, and `ReadonlyBytes` would make every adapter copy or assert before `socket.write`.
   write(chunk: Uint8Array<ArrayBuffer>): Promise<void>;
   /**
    * Close gracefully when `force` is false. When it is true, release the connection promptly and settle every pending
@@ -66,6 +67,6 @@ export interface ByteTransport {
    * Open one connection. Settle only once the connection is usable, or once it is released. When the open rejects, the
    * core reports the first failure the transport delivered to `inbound`, and otherwise the rejection.
    */
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The opener keeps the inbound object and the native abort signal by identity.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `OpenReceivesInbound` and `OpenReceivesContext` in test/types/byte-transport.ts pin these parameters to `ByteInbound` and `OpenContext`, so that a transport author reads the public names in the signature. An opener may still declare `Readonly<ByteInbound>` for its own parameter, as the adapters in src/tcpClient.ts do.
   open(inbound: ByteInbound, context: OpenContext): Promise<ByteWriter>;
 }

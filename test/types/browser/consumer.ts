@@ -4,7 +4,7 @@ import type { BrowserClientOptions, BrowserSession, ClientFactory, ClientSession
 const namedOptions: BrowserClientOptions = {
   url: 'wss://localhost/mqtt',
   clientId: 'named-browser-types',
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The callback contract preserves the original mutable Uint8Array.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler writes into the delivered payload on purpose, to check that the published browser types keep the consumer's bytes writable. A read-only parameter type would be false and would remove that check.
   onMessage(message) {
     const bytes: Uint8Array = message.payload;
     const qualityOfService: 0 = message.qos;
@@ -15,13 +15,12 @@ export const browserFactory: ClientFactory = createBrowserClient(namedOptions);
 type RequireTrue<Value extends true> = Value;
 export type BrowserSessionIsCommon = RequireTrue<BrowserSession extends ClientSession ? true : false>;
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-export async function checkBrowserTypes(signal: AbortSignal) {
+export async function checkBrowserTypes(signal: Readonly<AbortSignal>) {
   const client = await createBrowserClient({
     url: new URL('wss://localhost/mqtt'),
     clientId: 'browser-types',
     signal,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `message` is typed `BrowserMessage`, and `Readonly<BrowserMessage>` still fails the rule, so the accepted type would be a hand-written list of the members used here, which has to change with every new use of `message`. The deep read-only type in `src/util/bytes.ts` is not part of the published package, which is all this file imports. `BrowserMessage` is declared in `src/browserClient.ts`.
     onMessage(message) {
       const payload: Uint8Array = message.payload;
       payload.byteLength.toFixed();

@@ -5,6 +5,7 @@ import type { ClientFactory } from './session.js';
 import { nodePlatform } from './nodePlatform.js';
 import { createByteClient, flushNativeWrites, type ByteClientOptions, type ByteWriterWithFlush } from './transportCore.js';
 import { MqttError } from './mqttError.js';
+import type { ReadonlyBytes, ReadonlyDeep } from './util/bytes.js';
 
 export type TcpTlsOptions = Pick<ConnectionOptions, 'ca' | 'cert' | 'key' | 'servername'>;
 
@@ -14,13 +15,12 @@ export interface TcpClientOptions extends ByteClientOptions<Buffer> {
   tls?: TcpTlsOptions;
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `TcpClientOptions.tls` holds the caller's `ca`, `cert` and `key` as `Buffer` values. `ReadonlyDeep<TcpClientOptions>` turns them into `ReadonlyBytes`, which `tls.connect` in `openTcpSocket` rejects (TS2769), so the adapter would have to copy each TLS buffer before the handshake.
 export function createTcpClient(options: Readonly<TcpClientOptions>): ClientFactory {
   return createByteClient(
     {
       name: 'TCP',
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The opener keeps the inbound object and the native abort signal by identity.
-      async open(inbound, context) {
+      async open(inbound: Readonly<ByteInbound>, context: ReadonlyDeep<OpenContext>) {
         return openTcpSocket(options, inbound, context);
       },
     },
@@ -30,8 +30,12 @@ export function createTcpClient(options: Readonly<TcpClientOptions>): ClientFact
 }
 
 /** Open a TCP or TLS socket and adapt it to the byte transport contract. */
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
-async function openTcpSocket(options: Readonly<TcpClientOptions>, inbound: ByteInbound, context: OpenContext): Promise<ByteWriter> {
+async function openTcpSocket(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `TcpClientOptions.tls` holds the caller's `ca`, `cert` and `key` as `Buffer` values. `ReadonlyDeep<TcpClientOptions>` turns them into `ReadonlyBytes`, which `tls.connect` in `openTcpSocket` rejects (TS2769), so the adapter would have to copy each TLS buffer before the handshake.
+  options: Readonly<TcpClientOptions>,
+  inbound: Readonly<ByteInbound>,
+  context: ReadonlyDeep<OpenContext>,
+): Promise<ByteWriter> {
   const tlsOptions = options.tls;
   const connectionLabel = tlsOptions === undefined ? 'TCP' : 'TLS';
   const connectionEvent = tlsOptions === undefined ? 'connect' : 'secureConnect';
@@ -63,8 +67,7 @@ async function openTcpSocket(options: Readonly<TcpClientOptions>, inbound: ByteI
   socket.once('end', () => {
     inbound.end(new MqttError('ERR_MQTT_TRANSPORT', connectionLabel + ' socket closed'));
   });
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The TCP adapter uses native signals, sockets and shared packet buffers.
-  socket.on('data', (chunk) => {
+  socket.on('data', (chunk: string | Readonly<Buffer<Readonly<ArrayBufferLike>>>) => {
     inbound.bytes(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
   });
 
@@ -79,8 +82,7 @@ async function openTcpSocket(options: Readonly<TcpClientOptions>, inbound: ByteI
     get bufferedBytes() {
       return socket.writableLength;
     },
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The socket keeps the encoded bytes by identity.
-    async write(bytes) {
+    async write(bytes: ReadonlyBytes) {
       // Node's TLS writer already coalesces these writes before they reach the socket.
       if (tlsOptions === undefined && writeBatch === 'idle') {
         writeBatch = 'first';

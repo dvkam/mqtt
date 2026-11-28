@@ -5,16 +5,16 @@ import { generate, parser, type Packet } from 'mqtt-packet';
 import { expect, test, vi } from 'vitest';
 import { createTcpClient } from '../src/index.js';
 import { PacketIdentifiers } from '../src/packetIdentifiers.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 const connack: Packet = { cmd: 'connack', reasonCode: 0, sessionPresent: false };
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-async function broker(reply: (packet: Packet) => Packet | undefined) {
+async function broker(reply: (packet: ReadonlyDeep<Packet>) => Packet | undefined) {
   const sockets = new Set<Socket>();
   const commands: string[] = [];
   const events = new EventEmitter();
   let opened = 0;
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler writes its replies to `socket` and adds it to `sockets`, whose sockets the peer destroys when it closes. The rule accepts only a read-only type, and that would be false for this parameter.
   const server = createServer((socket) => {
     sockets.add(socket);
     socket.on('error', () => {});
@@ -25,12 +25,10 @@ async function broker(reply: (packet: Packet) => Packet | undefined) {
     opened++;
     const codec = { protocolVersion: 5 };
     const decoder = parser(codec);
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    socket.on('data', (chunk) => {
+    socket.on('data', (chunk: string | Readonly<Buffer<Readonly<ArrayBufferLike>>>) => {
       decoder.parse(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
     });
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-    decoder.on('packet', (packet) => {
+    decoder.on('packet', (packet: ReadonlyDeep<Packet>) => {
       commands.push(packet.cmd);
       events.emit(packet.cmd, socket);
       const response = reply(packet);
@@ -164,8 +162,7 @@ test('sends PINGREQ and waits for PINGRESP', async () => {
 });
 
 test('preserves a CONNACK refusal code and closes without DISCONNECT', async () => {
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
-  const peer = await broker((packet) =>
+  const peer = await broker((packet: ReadonlyDeep<Packet>) =>
     packet.cmd === 'connect' ? { cmd: 'connack', reasonCode: 0x87, sessionPresent: false } : undefined,
   );
   try {
@@ -339,8 +336,7 @@ test.each([
   { defect: 'reserved reason with a coalesced suffix', bytes: [0x90, 4, 0, 1, 0, 17, 0x30, 4, 0, 1, 97, 0] },
 ])('reports a SUBACK protocol error over TCP for $defect', async ({ bytes }: Readonly<{ bytes: readonly number[] }>) => {
   const notices: number[] = [];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Capture the broker parser's original MQTT packet.
-  const peer = await broker((packet) => {
+  const peer = await broker((packet: ReadonlyDeep<Packet>) => {
     if (packet.cmd === 'connect') return connack;
     if (packet.cmd === 'disconnect' && packet.reasonCode !== undefined) notices.push(packet.reasonCode);
     return undefined;

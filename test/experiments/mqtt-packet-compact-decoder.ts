@@ -1,6 +1,7 @@
 import { isUtf8 } from 'node:buffer';
 import { parser, type Packet } from 'mqtt-packet';
 import { ProtocolInputError } from '../../src/protocolInputError.ts';
+import type { ReadonlyBytes, ReadonlyDeep } from '../../src/util/bytes.js';
 
 type PropertyShape = 'byte' | 'two' | 'four' | 'variable' | 'string' | 'pair' | 'binary';
 const connackProperties: Readonly<Record<number, PropertyShape>> = {
@@ -77,10 +78,7 @@ export class MqttPacketCompactDecoder {
   private ended = false;
   private pushing = false;
 
-  constructor(
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The retained parser delivers mutable packets and Buffer payloads.
-    options: Readonly<{ maxPacketBytes?: number; onPacket: (packet: Packet) => void }>,
-  ) {
+  constructor(options: Readonly<{ maxPacketBytes?: number; onPacket: (packet: ReadonlyDeep<Packet>) => void }>) {
     const { maxPacketBytes: capacity = 1024 * 1024 } = options;
     if (!Number.isInteger(capacity) || capacity < 2 || capacity > 268_435_460) {
       throw new RangeError('MQTT packet capacity must be an integer from 2 to 268435460');
@@ -98,8 +96,7 @@ export class MqttPacketCompactDecoder {
     });
   }
 
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Native views keep mutable backing storage; admitted data is copied before decoding.
-  push(bytes: Readonly<Uint8Array>): void {
+  push(bytes: ReadonlyBytes): void {
     this.assertOpen();
     if (this.ended) throw new Error('MQTT decoder has ended');
     if (this.pushing) throw this.reject(new Error('MQTT decoder input is reentrant'));
@@ -290,8 +287,7 @@ export class MqttPacketCompactDecoder {
     }
   }
 
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The retained parser consumes native Buffer objects.
-  private parse(bytes: Buffer): void {
+  private parse(bytes: Readonly<Buffer<Readonly<ArrayBufferLike>>>): void {
     if (!this.decoder) throw this.failure ?? new Error('MQTT decoder has ended');
     this.decoder.parse(bytes);
     this.assertOpen();

@@ -1,6 +1,6 @@
 import type { MessageProperties } from './messageProperties.js';
 import type { UserProperty } from './wireProperties.js';
-import { copyBinaryData, maxBinaryBytes, type ReadonlyBytes } from './util/bytes.js';
+import { copyBinaryData, maxBinaryBytes, type ReadonlyBytes, type ReadonlyDeep } from './util/bytes.js';
 import { validateMqttString, validateTopicName } from './util/validateTopic.js';
 
 export interface WillMessage<Payload extends string | Uint8Array = Uint8Array> extends Omit<
@@ -54,8 +54,7 @@ export function validateWillPayload(payload: ReadonlyBytes, format: 0 | 1 | unde
 type RuntimeWill = Readonly<Partial<Record<keyof WillOptions, unknown>>>;
 
 /** Read each user-owned field once before validating and copying the values used on the wire. */
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The caller's byte views are mutable. The snapshot owns its copies.
-export function captureWill(options: Readonly<WillOptions> | undefined, textPayload = true): WillMessage | undefined {
+export function captureWill(options: ReadonlyDeep<WillOptions> | undefined, textPayload = true): WillMessage | undefined {
   if (options === undefined) return undefined;
   const input: RuntimeWill = options;
   const {

@@ -228,7 +228,7 @@ test.each([
     await once(server, 'listening');
     const address = server.address();
     if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The scripted peer uses its native mutable WebSocket object.
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler calls `close` and `send` on `socket`, which is how this scripted peer answers, stalls or cuts off the client under test. The rule accepts only a read-only type, and that would be false for this parameter.
     server.on('connection', (socket) => {
       socket.once('message', () => {
         socket.send(Uint8Array.from(bytes));

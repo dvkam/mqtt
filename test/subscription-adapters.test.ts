@@ -1,11 +1,12 @@
 import { once } from 'node:events';
 import { createServer, type Socket } from 'node:net';
-import { generate, parser, type ISubscribePacket } from 'mqtt-packet';
-import { WebSocketServer } from 'ws';
+import { generate, parser, type ISubscribePacket, type Packet } from 'mqtt-packet';
+import { WebSocketServer, type RawData } from 'ws';
 import { expect, test, vi } from 'vitest';
 import { createTcpClient } from '../src/tcpClient.js';
 import { createWebSocketClient } from '../src/websocketClient.js';
 import { createBrowserClient } from '../src/browserClient.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 test.each(['tcp', 'websocket', 'browser'] as const)(
   'rejects invalid %s subscription limits before resource acquisition',
@@ -53,23 +54,21 @@ test.each([
     const tcp = createServer();
 
     const peers = new Set<Socket>();
-    const subscriptions: ISubscribePacket[] = [];
+    const subscriptions: ReadonlyDeep<ISubscribePacket>[] = [];
     let acceptConnect!: () => void;
     const connected = new Promise<void>((resolve) => {
       acceptConnect = resolve;
     });
     let reply!: () => void;
     if (kind === 'tcp') {
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The wire fixture retains mutable native sockets and decoder-owned byte views.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler writes its replies to `socket` and adds it to `peers`, whose sockets the peer destroys when it closes. The rule accepts only a read-only type, and that would be false for this parameter.
       tcp.on('connection', (socket) => {
         peers.add(socket);
         const decoder = parser({ protocolVersion: 5 });
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The wire fixture retains mutable native sockets and decoder-owned byte views.
-        socket.on('data', (bytes) => {
+        socket.on('data', (bytes: string | Readonly<Buffer<Readonly<ArrayBufferLike>>>) => {
           decoder.parse(typeof bytes === 'string' ? Buffer.from(bytes) : bytes);
         });
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The native parser owns mutable packets in this wire fixture.
-        decoder.on('packet', (packet) => {
+        decoder.on('packet', (packet: ReadonlyDeep<Packet>) => {
           if (packet.cmd === 'connect') {
             reply = () => {
               socket.write(Buffer.from([0x20, 3, 0, 0, 0]));
@@ -85,15 +84,13 @@ test.each([
     }
     const server = kind === 'tcp' ? undefined : new WebSocketServer({ host: '127.0.0.1', port: 0 });
     if (server) {
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The wire fixture retains mutable native sockets and decoder-owned byte views.
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler calls `send` on `socket`, which is how this scripted peer answers, stalls or cuts off the client under test. The rule accepts only a read-only type, and that would be false for this parameter.
       server.on('connection', (socket) => {
         const decoder = parser({ protocolVersion: 5 });
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The wire fixture retains mutable native sockets and decoder-owned byte views.
-        socket.on('message', (bytes) => {
+        socket.on('message', (bytes: ReadonlyDeep<RawData>) => {
           if (Buffer.isBuffer(bytes)) decoder.parse(bytes);
         });
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The native parser owns mutable packets in this wire fixture.
-        decoder.on('packet', (packet) => {
+        decoder.on('packet', (packet: ReadonlyDeep<Packet>) => {
           if (packet.cmd === 'connect') {
             reply = () => {
               socket.send(Buffer.from([0x20, 3, 0, 0, 0]));

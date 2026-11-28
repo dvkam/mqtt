@@ -10,6 +10,9 @@ import {
 } from '../src/portableClient.js';
 import { createReconnectingClient, type ReconnectEvent, type ReconnectOptions } from '../src/reconnect.js';
 import { bindSessionState } from '../src/sessionState.js';
+import type { PublishMessage } from '../src/messageProperties.js';
+import type { QosOneMessage } from '../src/session.js';
+import type { ReadonlyBytes, ReadonlyDeep } from '../src/util/bytes.js';
 
 type Connack = Extract<BrokerPacket, { cmd: 'connack' }>;
 type Publish = Extract<ClientPacket, { cmd: 'publish' }>;
@@ -18,8 +21,7 @@ interface Connection {
   readonly packets: ClientPacket[];
   /** The size of each PUBLISH the broker read, in bytes. */
   readonly publishBytes: number[];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- encodePacket in src/wireCodec.ts takes the codec's BrokerPacket, whose PUBLISH payload is a native Uint8Array.
-  deliver(packet: BrokerPacket): void;
+  deliver(packet: ReadonlyDeep<BrokerPacket>): void;
   /** Sends bytes the codec cannot encode, such as a PUBLISH with a Topic Alias. */
   deliverBytes(bytes: readonly number[]): void;
   end(): void;
@@ -52,12 +54,10 @@ function broker(script: Readonly<Script> = {}) {
   const connections: Connection[] = [];
   const transport: ByteTransport = {
     name: 'Session broker',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- ByteTransport.open in src/byteTransport.ts takes the mutable ByteInbound and returns a promise, and promise-function-async requires an async function for that. This opener settles without waiting for anything.
-    async open(inbound: ByteInbound) {
+    async open(inbound: Readonly<ByteInbound>) {
       const decoder = new PacketDecoder();
       const index = connections.length + 1;
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- encodePacket in src/wireCodec.ts takes the codec's BrokerPacket, whose PUBLISH payload is a native Uint8Array.
-      const reply = (packet: BrokerPacket): void => {
+      const reply = (packet: ReadonlyDeep<BrokerPacket>): void => {
         queueMicrotask(() => {
           inbound.bytes(encodePacket(packet));
         });
@@ -65,8 +65,7 @@ function broker(script: Readonly<Script> = {}) {
       const connection: Connection = {
         packets: [],
         publishBytes: [],
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- encodePacket in src/wireCodec.ts takes the codec's BrokerPacket, whose PUBLISH payload is a native Uint8Array.
-        deliver(packet: BrokerPacket) {
+        deliver(packet: ReadonlyDeep<BrokerPacket>) {
           inbound.bytes(encodePacket(packet));
         },
         deliverBytes(bytes) {
@@ -78,14 +77,13 @@ function broker(script: Readonly<Script> = {}) {
       };
       connections.push(connection);
       let pending = 0;
-      return {
+      return Promise.resolve({
         get bufferedBytes() {
           let written = 0;
           for (const bytes of connection.publishBytes) written += bytes;
           return script.buffered?.(index, written, pending) ?? 0;
         },
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteWriter.write in src/byteTransport.ts takes the encoded Uint8Array by identity.
-        async write(bytes: Uint8Array) {
+        async write(bytes: ReadonlyBytes) {
           if (script.hold?.(index, bytes.byteLength) === true) await new Promise<void>(() => {});
           pending += bytes.byteLength;
           for (const packet of decoder.push(bytes)) {
@@ -116,7 +114,7 @@ function broker(script: Readonly<Script> = {}) {
           pending -= bytes.byteLength;
         },
         async close() {},
-      };
+      });
     },
   };
   const publishes = (index: number): Publish[] => {
@@ -190,16 +188,15 @@ test.each([
   const factory = createTransportClient(
     {
       name: 'Raw broker',
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- ByteTransport.open in src/byteTransport.ts takes the mutable ByteInbound and returns a promise, and promise-function-async requires an async function for that. The codec cannot encode a refused CONNACK with Session Present, so this opener writes its bytes.
-      async open(inbound: ByteInbound) {
-        return {
+      async open(inbound: Readonly<ByteInbound>) {
+        return Promise.resolve({
           bufferedBytes: 0,
           async write() {
             await Promise.resolve();
             inbound.bytes(Uint8Array.of(0x20, 3, 1, reasonCode, 0));
           },
           async close() {},
-        };
+        });
       },
     },
     { clientId: 'resume', cleanStart, sessionState: createSessionState() },
@@ -365,9 +362,8 @@ test('a failed open releases the session state', async () => {
   const sessionState = createSessionState();
   const refused: ByteTransport = {
     name: 'Refusing transport',
-    // oxlint-disable-next-line typescript/require-await -- ByteTransport.open in src/byteTransport.ts returns a promise, and promise-function-async requires an async function for that. This opener rejects at once.
     async open() {
-      throw new Error('connect ECONNREFUSED');
+      return Promise.reject(new Error('connect ECONNREFUSED'));
     },
   };
   await expect(createTransportClient(refused, { clientId: 'resume', sessionState }).connect()).rejects.toThrow(
@@ -780,12 +776,10 @@ function supervise(
   const events: ReconnectEvent[] = [];
   const messages: { topic: string; dup: boolean }[] = [];
   const reconnecting = createReconnectingClient<ByteClientOptions>(
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteClientOptions in src/transportCore.ts holds a native AbortSignal and Uint8Array callbacks, which createTransportClient keeps by identity.
-    (options) => createTransportClient(transport, options),
+    (options: ReadonlyDeep<ByteClientOptions>) => createTransportClient(transport, options),
     {
       clientId: 'resume',
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- PortableOptions.onQosOneMessage in src/portable.ts passes the message with the adapter's mutable Uint8Array payload.
-      onQosOneMessage(message) {
+      onQosOneMessage(message: ReadonlyDeep<QosOneMessage<PublishMessage>>) {
         messages.push({ topic: message.topic, dup: message.dup });
       },
       ...factory,

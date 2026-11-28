@@ -7,6 +7,8 @@ import { nodePlatform } from './nodePlatform.js';
 import { createByteClient, type ByteClientOptions } from './transportCore.js';
 import { resolveWebSocketMessageLimit } from './websocketLimits.js';
 import { MqttError } from './mqttError.js';
+import type { RawData } from 'ws';
+import type { ReadonlyBytes, ReadonlyDeep } from './util/bytes.js';
 
 export interface WebSocketClientOptions extends ByteClientOptions<Buffer>, Pick<SecureContextOptions, 'ca' | 'cert' | 'key'> {
   url: string | URL;
@@ -15,13 +17,12 @@ export interface WebSocketClientOptions extends ByteClientOptions<Buffer>, Pick<
   maxWebSocketMessageBytes?: number;
 }
 
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `WebSocketClientOptions` holds the caller's `agent` and its `ca`, `cert` and `key` buffers. `ReadonlyDeep<WebSocketClientOptions>` turns the agent into a read-only structure and the buffers into `ReadonlyBytes`, which the `ws` constructor in `openSocket` rejects (TS2322), so the adapter would have to copy each of them before it connects.
 export function createWebSocketClient(options: Readonly<WebSocketClientOptions>): ClientFactory {
   return createByteClient(
     {
       name: 'WebSocket',
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The opener keeps the inbound object and the native abort signal by identity.
-      async open(inbound, context) {
+      async open(inbound: Readonly<ByteInbound>, context: ReadonlyDeep<OpenContext>) {
         return openSocket(options, inbound, context);
       },
     },
@@ -39,8 +40,12 @@ function frameOverhead(length: number): number {
 }
 
 /** Open a `ws` WebSocket with the `mqtt` subprotocol and adapt it to the byte transport contract. */
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
-async function openSocket(options: Options, inbound: ByteInbound, context: OpenContext): Promise<ByteWriter> {
+async function openSocket(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `WebSocketClientOptions` holds the caller's `agent` and its `ca`, `cert` and `key` buffers. `ReadonlyDeep<WebSocketClientOptions>` turns the agent into a read-only structure and the buffers into `ReadonlyBytes`, which the `ws` constructor in `openSocket` rejects (TS2322), so the adapter would have to copy each of them before it connects.
+  options: Options,
+  inbound: Readonly<ByteInbound>,
+  context: ReadonlyDeep<OpenContext>,
+): Promise<ByteWriter> {
   const { agent, ca, cert, key, headers } = options;
   const { timeoutMs } = context;
   const maxWebSocketMessageBytes = resolveWebSocketMessageLimit(context.maxPacketBytes, options.maxWebSocketMessageBytes);
@@ -69,8 +74,7 @@ async function openSocket(options: Options, inbound: ByteInbound, context: OpenC
   socket.on('error', (error: Readonly<Error>) => {
     inbound.fail(error);
   });
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The Node WebSocket adapter uses native agents, signals and shared packet buffers.
-  socket.on('message', (data, binary) => {
+  socket.on('message', (data: ReadonlyDeep<RawData>, binary) => {
     if (!binary || !Buffer.isBuffer(data)) {
       inbound.fail(new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket requires binary messages'));
       return;
@@ -83,8 +87,7 @@ async function openSocket(options: Options, inbound: ByteInbound, context: OpenC
       return socket.bufferedAmount;
     },
     frameOverhead,
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The socket keeps the encoded bytes by identity.
-    async write(bytes) {
+    async write(bytes: ReadonlyBytes) {
       if (socket.readyState !== WebSocket.OPEN) throw new MqttError('ERR_MQTT_TRANSPORT', 'MQTT WebSocket closed');
       return new Promise((resolve, reject) => {
         socket.send(bytes, (error?: Readonly<Error> | null) => {

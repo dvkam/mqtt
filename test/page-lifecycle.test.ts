@@ -3,6 +3,7 @@ import { watchPageLifecycle, type PageLifecycleOptions, type PageReturn } from '
 import { createTransportClient, type ByteClientOptions } from '../src/portableClient.js';
 import { createReconnectingClient, type ReconnectEvent, type ReconnectOptions } from '../src/reconnect.js';
 import { broker } from './experiments/scripted-broker.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 function page() {
   const window = new EventTarget();
@@ -59,8 +60,7 @@ function watched(
   const events: ReconnectEvent[] = [];
   const returns: PageReturn[] = [];
   const client = createReconnectingClient<ByteClientOptions>(
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteClientOptions in src/transportCore.ts holds a native AbortSignal and Uint8Array callbacks, which createTransportClient keeps by identity.
-    (options) => createTransportClient(peer.transport, options),
+    (options: ReadonlyDeep<ByteClientOptions>) => createTransportClient(peer.transport, options),
     { clientId: 'lifecycle', onQosOneMessage() {}, ...factory },
     {
       initialDelayMs: 1000,
@@ -305,8 +305,7 @@ test('a return while an attempt opens reports connecting at once and sends no pi
   const peer = broker({ connack: (connection) => (connection === 2 ? undefined : 0) });
   const returns: PageReturn[] = [];
   const client = createReconnectingClient<ByteClientOptions>(
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteClientOptions in src/transportCore.ts holds a native AbortSignal and Uint8Array callbacks, which createTransportClient keeps by identity.
-    (options) => createTransportClient(peer.transport, options),
+    (options: ReadonlyDeep<ByteClientOptions>) => createTransportClient(peer.transport, options),
     { clientId: 'lifecycle' },
     { random: () => 0 },
   );
@@ -333,8 +332,7 @@ test('a client that stopped while the page was away reports stopped', async () =
   const peer = broker({ connack: (connection) => (connection === 1 ? 0 : 0x88) });
   const returns: PageReturn[] = [];
   const client = createReconnectingClient<ByteClientOptions>(
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteClientOptions in src/transportCore.ts holds a native AbortSignal and Uint8Array callbacks, which createTransportClient keeps by identity.
-    (options) => createTransportClient(peer.transport, options),
+    (options: ReadonlyDeep<ByteClientOptions>) => createTransportClient(peer.transport, options),
     { clientId: 'lifecycle' },
     { random: () => 0, maxAttempts: 2 },
   );
@@ -418,10 +416,12 @@ test('an absence shorter than checkAfterMs runs no check', async () => {
 
 test.each([-1, Number.NaN, Number.POSITIVE_INFINITY])('rejects checkAfterMs %s at once', (checkAfterMs) => {
   const peer = broker();
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteClientOptions in src/transportCore.ts holds a native AbortSignal and Uint8Array callbacks, which createTransportClient keeps by identity.
-  const client = createReconnectingClient<ByteClientOptions>((options) => createTransportClient(peer.transport, options), {
-    clientId: 'invalid',
-  });
+  const client = createReconnectingClient<ByteClientOptions>(
+    (options: ReadonlyDeep<ByteClientOptions>) => createTransportClient(peer.transport, options),
+    {
+      clientId: 'invalid',
+    },
+  );
   expect(() => watchPageLifecycle(client, { checkAfterMs })).toThrow(RangeError);
   void client.disconnect();
 });
@@ -446,8 +446,7 @@ test('the stop function removes every listener and ends the reports', async () =
 test('a page that starts hidden counts its first return', async () => {
   const peer = broker();
   const client = createReconnectingClient<ByteClientOptions>(
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteClientOptions in src/transportCore.ts holds a native AbortSignal and Uint8Array callbacks, which createTransportClient keeps by identity.
-    (options) => createTransportClient(peer.transport, options),
+    (options: ReadonlyDeep<ByteClientOptions>) => createTransportClient(peer.transport, options),
     { clientId: 'lifecycle' },
   );
   const view = page();
@@ -468,10 +467,12 @@ test('a page that starts hidden counts its first return', async () => {
 
 test('without window and document the adapter listens for nothing', async () => {
   const peer = broker();
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteClientOptions in src/transportCore.ts holds a native AbortSignal and Uint8Array callbacks, which createTransportClient keeps by identity.
-  const client = createReconnectingClient<ByteClientOptions>((options) => createTransportClient(peer.transport, options), {
-    clientId: 'server',
-  });
+  const client = createReconnectingClient<ByteClientOptions>(
+    (options: ReadonlyDeep<ByteClientOptions>) => createTransportClient(peer.transport, options),
+    {
+      clientId: 'server',
+    },
+  );
   expect(typeof globalThis.document).toBe('undefined');
   const stop = watchPageLifecycle(client);
   expect(stop).not.toThrow();

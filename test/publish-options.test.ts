@@ -2,17 +2,18 @@ import { expect, test } from 'vitest';
 import { encodePacket, PacketDecoder, type ClientPacket } from '../src/codec.js';
 import { connectPortable, type PacketTransport } from '../src/portable.js';
 import { capturePublication, type PublishProperties } from '../src/publication.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 // Accepts CONNECT and answers every QoS 1 PUBLISH with a successful PUBACK. Records the packets the session sends.
 async function connected(limits: Readonly<{ maxPendingPublishBytes?: number }> = {}, retainAvailable = true) {
   let deliver: Parameters<PacketTransport['listen']>[0] | undefined;
-  const sent: ClientPacket[] = [];
+  const sent: ReadonlyDeep<ClientPacket>[] = [];
   const transport: PacketTransport = {
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- PacketTransport.send in src/portable.ts receives the session's ClientPacket, whose PUBLISH payload is a native Uint8Array. send must return a promise, and promise-function-async requires an async function for that, so this fixture, which replies synchronously, has no await.
-    async send(packet) {
+    async send(packet: ReadonlyDeep<ClientPacket>) {
       sent.push(packet);
       if (packet.cmd === 'connect') deliver?.({ cmd: 'connack', sessionPresent: false, reasonCode: 0, retainAvailable });
       if (packet.cmd === 'publish' && packet.qos === 1) deliver?.({ cmd: 'puback', messageId: packet.messageId, reasonCode: 0 });
+      return Promise.resolve();
     },
     listen(onPacket) {
       deliver = onPacket;

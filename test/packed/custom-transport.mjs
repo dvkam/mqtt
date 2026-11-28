@@ -10,12 +10,14 @@ assert.equal(BrowserMqttError, MqttError, 'mqtt/browser must export the same Mqt
 assert.equal(PortableMqttError, MqttError, 'mqtt/portable must export the same MqttError class');
 
 /** @param {import('node:stream').Duplex} stream @returns {import('mqtt').ByteTransport} */
-// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- A Node Duplex has mutable stream state, and the adapter calls write, end and destroy on it.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. This code calls `destroy`, `end` and `write` on `stream`, which is how it answers or ends the connection it scripts. The rule accepts only a read-only type, and that would be false for this parameter.
 function useDuplex(stream) {
   return {
     name: 'Duplex',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteTransport.open in src/byteTransport.ts declares this ByteInbound and OpenContext, and OpenContext holds a native AbortSignal.
-    async open(inbound, { timeoutMs }) {
+    async open(
+      /** @type {Readonly<import('mqtt').ByteInbound>} */ inbound,
+      /** @type {Readonly<{ timeoutMs: number }>} */ { timeoutMs },
+    ) {
       stream.on('data', inbound.bytes).on('end', inbound.end).on('error', inbound.fail);
       const closed = new Promise((resolve) => {
         stream.once('close', () => {
@@ -28,8 +30,7 @@ function useDuplex(stream) {
           return stream.writableLength;
         },
         write: promisify(
-          // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Writable.write in @types/node passes its callback a mutable Error.
-          (/** @type {Readonly<Uint8Array>} */ bytes, /** @type {(error?: Readonly<Error> | null) => void} */ done) => {
+          (/** @type {import('mqtt').ReadonlyBytes} */ bytes, /** @type {(error?: Readonly<Error> | null) => void} */ done) => {
             stream.write(bytes, done);
           },
         ),

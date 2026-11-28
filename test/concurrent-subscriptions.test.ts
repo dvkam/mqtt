@@ -2,26 +2,24 @@ import { setImmediate } from 'node:timers/promises';
 import type { ClientPacket } from '../src/codec.js';
 import { expect, test, vi } from 'vitest';
 import { connectPortable, type PacketTransport } from '../src/portable.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
+
+/** The scripted transport. Its `send` only reads the packet, so an override may forward the read-only view to it. */
+type ReadingTransport = Omit<PacketTransport, 'send'> & { send: (packet: ReadonlyDeep<ClientPacket>) => Promise<void> };
 
 function deferred() {
-  let resolve!: () => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<void>((accept, refuse) => {
-    resolve = accept;
-    reject = refuse;
-  });
-  return { promise, resolve, reject };
+  return Promise.withResolvers<void>();
 }
 
 async function peer(options = {}) {
   let receive!: Parameters<PacketTransport['listen']>[0];
   let retire!: Parameters<PacketTransport['listen']>[1];
-  const packets: ClientPacket[] = [];
-  const transport: PacketTransport = {
-    // oxlint-disable-next-line typescript/require-await, typescript/prefer-readonly-parameter-types -- The scripted transport delivers mutable packets synchronously before its send promise settles.
-    async send(packet) {
+  const packets: ReadonlyDeep<ClientPacket>[] = [];
+  const transport: ReadingTransport = {
+    async send(packet: ReadonlyDeep<ClientPacket>) {
       packets.push(packet);
       if (packet.cmd === 'connect') receive({ cmd: 'connack', sessionPresent: false, reasonCode: 0 });
+      return Promise.resolve();
     },
     listen(onPacket, onClose) {
       receive = onPacket;
@@ -112,8 +110,8 @@ test('retains count and byte capacity after SUBACK until actual send settlement'
   const broker = await peer({ maxPendingSubscriptions: 1, maxPendingSubscriptionBytes: 9 });
   const sent = deferred();
   const original = broker.transport.send.bind(broker.transport);
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The held-send fixture preserves mutable protocol packets.
-  broker.transport.send = async (packet) => (packet.cmd === 'subscribe' ? sent.promise : original(packet));
+  broker.transport.send = async (packet: ReadonlyDeep<ClientPacket>) =>
+    packet.cmd === 'subscribe' ? sent.promise : original(packet);
   const first = broker.client.subscribe('a');
   const outcome = Promise.allSettled([first]);
   try {
@@ -192,8 +190,8 @@ test('a legal SUBACK refusal waits for send settlement and ignores a later malfo
   const broker = await peer({ maxPendingSubscriptions: 1 });
   const sent = deferred();
   const original = broker.transport.send.bind(broker.transport);
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The held-send fixture preserves mutable protocol packets.
-  broker.transport.send = async (packet) => (packet.cmd === 'subscribe' ? sent.promise : original(packet));
+  broker.transport.send = async (packet: ReadonlyDeep<ClientPacket>) =>
+    packet.cmd === 'subscribe' ? sent.promise : original(packet);
   let settled = false;
   const first = broker.client.subscribe('a').catch((reason: unknown) => {
     settled = true;
@@ -294,8 +292,7 @@ test.each([
   const write = deferred();
   const original = broker.transport.send.bind(broker.transport);
   const close = vi.spyOn(broker.transport, 'close');
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture retains the original mutable subscription packet.
-  broker.transport.send = async (packet) => {
+  broker.transport.send = async (packet: ReadonlyDeep<ClientPacket>) => {
     await original(packet);
     if (packet.cmd === 'subscribe' || packet.cmd === 'unsubscribe') await write.promise;
   };
@@ -332,8 +329,7 @@ test('retires a malformed subscription reply during closing without sending anot
   const write = deferred();
   const original = broker.transport.send.bind(broker.transport);
   const close = vi.spyOn(broker.transport, 'close');
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Hold the original DISCONNECT write after recording it.
-  broker.transport.send = async (packet) => {
+  broker.transport.send = async (packet: ReadonlyDeep<ClientPacket>) => {
     await original(packet);
     if (packet.cmd === 'disconnect') await write.promise;
   };

@@ -6,6 +6,8 @@ import { connectPortable, type PacketTransport } from '../src/portable.js';
 import { createTcpClient } from '../src/tcpClient.js';
 import { createWebSocketClient } from '../src/websocketClient.js';
 import { startCancellationPeer } from './experiments/node-cancellation-peer.js';
+import type { ClientPacket } from '../src/wireCodec.js';
+import type { ReadonlyDeep } from '../src/util/bytes.js';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -14,8 +16,7 @@ afterEach(() => {
 function stalledPeer(closeMode: 'resolve' | 'reject' | 'pending' = 'resolve', throwUnlisten = false, holdConnect = false) {
   const commands: string[] = [];
   const writes: { resolve: () => void; reject: (reason: Readonly<Error>) => void }[] = [];
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The transport retains the mutable packet callback contract.
-  let receive: (packet: ReceivedPacket) => void;
+  let receive: (packet: ReadonlyDeep<ReceivedPacket>) => void;
   const close = vi.fn<PacketTransport['close']>(async () => {
     if (closeMode === 'reject') throw new Error('close rejected');
     if (closeMode === 'pending') await new Promise(() => {});
@@ -27,8 +28,7 @@ function stalledPeer(closeMode: 'resolve' | 'reject' | 'pending' = 'resolve', th
         if (throwUnlisten) throw new Error('unlisten threw');
       };
     },
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture accepts the packet transport's mutable packet union.
-    async send(packet) {
+    async send(packet: ReadonlyDeep<ClientPacket>) {
       commands.push(packet.cmd);
       if (packet.cmd === 'connect' && !holdConnect) {
         receive({ cmd: 'connack', reasonCode: 0, sessionPresent: false });

@@ -1,14 +1,14 @@
 import type { ByteInbound, ByteTransport } from '../../src/byteTransport.js';
 import { encodePacket, PacketDecoder, type BrokerPacket, type ClientPacket } from '../../src/codec.js';
 import { MqttError } from '../../src/mqttError.js';
+import type { ReadonlyBytes, ReadonlyDeep } from '../../src/util/bytes.js';
 
 export interface Connection {
   readonly packets: ClientPacket[];
   /** Records each packet and answers none while true, as a connection that died without a close does. */
   silent: boolean;
   /** Sends a broker packet on this connection at once, even after it ended. */
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- encodePacket in src/wireCodec.ts takes the codec's BrokerPacket, whose PUBLISH payload is a native Uint8Array.
-  deliver(packet: BrokerPacket): void;
+  deliver(packet: ReadonlyDeep<BrokerPacket>): void;
   end(): void;
 }
 
@@ -33,16 +33,13 @@ export function broker(script: Readonly<Script> = {}) {
   const connections: Connection[] = [];
   const transport: ByteTransport = {
     name: 'Scripted broker',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- ByteTransport.open in src/byteTransport.ts takes the mutable ByteInbound and returns a promise, and promise-function-async requires an async function for that. This opener settles without waiting for anything.
-    async open(inbound: ByteInbound) {
+    async open(inbound: Readonly<ByteInbound>) {
       const decoder = new PacketDecoder();
       const index = connections.length + 1;
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- encodePacket in src/wireCodec.ts takes the codec's BrokerPacket, whose PUBLISH payload is a native Uint8Array.
-      const deliver = (packet: BrokerPacket): void => {
+      const deliver = (packet: ReadonlyDeep<BrokerPacket>): void => {
         inbound.bytes(encodePacket(packet));
       };
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- deliver takes the codec's BrokerPacket for encodePacket in src/wireCodec.ts, whose PUBLISH payload is a native Uint8Array.
-      const reply = (packet: BrokerPacket): void => {
+      const reply = (packet: ReadonlyDeep<BrokerPacket>): void => {
         // Deliver after the write that caused the reply has returned, as a socket would.
         queueMicrotask(() => {
           deliver(packet);
@@ -58,10 +55,9 @@ export function broker(script: Readonly<Script> = {}) {
       };
       connections.push(connection);
       if (script.refuse === true) throw new MqttError('ERR_MQTT_TRANSPORT', 'connect ECONNREFUSED');
-      return {
+      return Promise.resolve({
         bufferedBytes: 0,
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- ByteWriter.write in src/byteTransport.ts takes the encoded Uint8Array by identity.
-        async write(bytes: Uint8Array) {
+        async write(bytes: ReadonlyBytes) {
           for (const packet of decoder.push(bytes)) {
             if (packet.cmd === 'connack' || packet.cmd === 'suback' || packet.cmd === 'unsuback' || packet.cmd === 'pingresp')
               continue;
@@ -88,7 +84,7 @@ export function broker(script: Readonly<Script> = {}) {
           }
         },
         async close() {},
-      };
+      });
     },
   };
   /** The commands, and the filters of each SUBSCRIBE, that the broker read on the nth connection, counted from 0. */

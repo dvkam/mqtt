@@ -1,9 +1,9 @@
 # TypeScript and lint policy
 
 - Never introduce TypeScript's `any` type in repository-owned code. Use specific types or narrow `unknown` at the seam where data enters.
-- Keep Oxlint rules active. Add a suppression only when it is necessary to preserve a verified contract and a type or code change cannot express that contract. Scope the exception to the smallest location and rule. Explain the concrete behavior or type that would break and point to its evidence.
-- A comment that repeats what the code does does not justify a suppression. Avoid moving the exception into a helper, a compiler directive or a broader lint setting.
-- Preserve promise identity, writable consumer fields and native buffer ownership when changing declarations or removing suppressions. Run strict type checks, lint and the relevant behavior tests before proposing a merge.
+- Keep Oxlint rules active. Ideally the code is clean and has no lint or compiler exceptions. Add a suppression, with an explaining comment, only when removing it would sacrifice performance and speed, or cause a really big developer-experience regression. That is the case only when every type or code change that removes the suppression would cost performance or developer experience. Scope the suppression to the smallest location and rule. Its comment says which of the two removing it would cost, what the cost is, as a measured number or as the code a consumer or contributor would have to write instead, and where the evidence is.
+- A type assertion, a non-null `!` and a definite assignment `!:` count as suppressions, so one cannot be traded for another. A read-only annotation on a parameter that the function writes, or hands to code that writes it, counts as a suppression without a comment. A `@ts-expect-error` that is the assertion of a negative type test and an `as const` do not count, because the first is what the test checks and the second narrows a value without overriding the checker. A comment that repeats what the code does does not justify a suppression. Avoid moving a suppression into a helper, a compiler directive or a broader lint setting.
+- Breaking a documented public contract counts as a developer-experience regression. The contracts are promise identity, writable consumer fields and native buffer ownership. Preserve them when changing declarations or removing suppressions. Run strict type checks, lint and the relevant behavior tests before proposing a merge.
 
 # Commits, branches and pull requests
 
