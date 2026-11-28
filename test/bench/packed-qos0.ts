@@ -73,7 +73,7 @@ try {
     globalThis.setTimeout = new Proxy(originalTimer, {
       // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. `ProxyHandler.apply` passes the proxied `setTimeout` as `schedule`. `Readonly<typeof setTimeout>` loses the call signature, so `Reflect.apply` below rejects it (TS2769), and the accepted type would be a hand-written call signature that drops the overloads.
       apply(schedule, receiver: unknown, args: readonly unknown[]) {
-        timerCalls++; -- Removing it would cost developer experience. `ProxyHandler.apply` passes the proxied `setTimeout` as `schedule`. `Readonly<typeof setTimeout>` loses the call signature, so `Reflect.apply` below rejects it (TS2769), and the accepted type would be a hand-written call signature that drops the overloads.
+        timerCalls++;
         const result: unknown = Reflect.apply(schedule, receiver, args);
         return result;
       },
