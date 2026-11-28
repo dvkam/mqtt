@@ -20,10 +20,7 @@ export async function startMixedTrafficPeer(options: Readonly<PeerOptions>) {
   let stopped = false;
   let faultApplied = false;
   let subscribed = false;
-  let resolveClosed!: () => void;
-  const closed = new Promise<void>((resolve) => {
-    resolveClosed = resolve;
-  });
+  const { promise: closed, resolve: resolveClosed } = Promise.withResolvers<void>();
   const stats = {
     connects: 0,
     subscriptions: 0,
@@ -143,12 +140,13 @@ export async function startMixedTrafficPeer(options: Readonly<PeerOptions>) {
         if (stopped) return;
         if (options.readPauseMs > 0 && resumeTimer === undefined) {
           pause();
-          resumeTimer = setTimeout(() => {
-            resumes.delete(resumeTimer!);
+          const timer = setTimeout(() => {
+            resumes.delete(timer);
             resumeTimer = undefined;
             if (!stopped) resume();
           }, options.readPauseMs);
-          resumes.add(resumeTimer);
+          resumeTimer = timer;
+          resumes.add(timer);
         }
         try {
           decoder.parse(bytes);

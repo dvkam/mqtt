@@ -48,8 +48,13 @@ test.each([
 );
 
 async function peer(limits: Readonly<Pick<PortableOptions, 'maxPendingSubscriptions' | 'maxPendingSubscriptionBytes'>> = {}) {
-  let receive!: Parameters<PacketTransport['listen']>[0];
-  let retire!: Parameters<PacketTransport['listen']>[1];
+  // The session replaces both when it listens. A fixture that used one earlier would fail here.
+  let receive: Parameters<PacketTransport['listen']>[0] = () => {
+    throw new Error('The session has not listened yet');
+  };
+  let retire: Parameters<PacketTransport['listen']>[1] = () => {
+    throw new Error('The session has not listened yet');
+  };
   const packets: ReadonlyDeep<ClientPacket>[] = [];
   const transport: ReadingTransport = {
     async send(packet: ReadonlyDeep<ClientPacket>) {

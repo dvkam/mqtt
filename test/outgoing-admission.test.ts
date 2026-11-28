@@ -12,6 +12,7 @@ import { connectPortable, type PacketTransport } from '../src/portable.js';
 import { PublicationAdmission } from '../src/publicationAdmission.js';
 import type { ClientPacket } from '../src/wireCodec.js';
 import type { ReadonlyDeep } from '../src/util/bytes.js';
+import { entryAt } from './experiments/entry.js';
 
 /** The scripted transport. Its `send` only reads the packet, so an override may forward the read-only view to it. */
 type ReadingTransport = Omit<PacketTransport, 'send'> & { send: (packet: ReadonlyDeep<ClientPacket>) => Promise<void> };
@@ -50,10 +51,10 @@ test('rejects excess items before sending and preserves control capacity and reu
   await expect(excess).resolves.toMatchObject({ message: 'MQTT publication capacity exceeded' });
   await client.ping();
   await client.subscribe('a');
-  broker.writes[0]!.resolve();
+  entryAt(broker.writes, 0).resolve();
   await first;
   const next = client.publish('a', 'one');
-  broker.writes[1]!.resolve();
+  entryAt(broker.writes, 1).resolve();
   await next;
   await client.disconnect();
   expect(broker.sent).toEqual(['connect', 'publish', 'pingreq', 'subscribe', 'publish', 'disconnect']);
@@ -71,7 +72,7 @@ test.each([
   const excess = client.publish('a', '').catch((reason: unknown) => reason);
   expect(broker.writes).toHaveLength(1);
   await expect(excess).resolves.toMatchObject({ message: 'MQTT publication capacity exceeded' });
-  broker.writes[0]!.resolve();
+  entryAt(broker.writes, 0).resolve();
   await first;
   await client.disconnect();
 });
@@ -90,12 +91,12 @@ test.each(['resolve', 'reject', 'throw'] as const)('releases reservations when s
       throw failure;
     };
   const first = client.publish('a', 'one').catch((reason: unknown) => reason);
-  if (outcome === 'resolve') broker.writes[0]!.resolve();
-  if (outcome === 'reject') broker.writes[0]!.reject(failure);
+  if (outcome === 'resolve') entryAt(broker.writes, 0).resolve();
+  if (outcome === 'reject') entryAt(broker.writes, 0).reject(failure);
   expect(await first).toBe(outcome === 'resolve' ? undefined : failure);
   broker.transport.send = original;
   const next = client.publish('a', 'one');
-  broker.writes[broker.writes.length - 1]!.resolve();
+  entryAt(broker.writes, -1).resolve();
   await next;
   await client.disconnect();
 });
@@ -119,7 +120,7 @@ test.each(['😀', 'é', 'a'.repeat(16_380)])('matches encoded wire size for pay
   const client = await connectPortable(broker.transport, { clientId: 'utf8', maxPendingPublishBytes: 1 + length + body });
   const first = client.publish('a', payload);
   await expect(client.publish('a', '')).rejects.toThrow('MQTT publication capacity exceeded');
-  broker.writes[0]!.resolve();
+  entryAt(broker.writes, 0).resolve();
   await first;
   await client.disconnect();
 });
@@ -138,7 +139,7 @@ test('reserves before reentrant transport work and snapshots configuration', asy
   const pending = client.publish('a', 'first');
   await expect(nested).resolves.toMatchObject({ message: 'MQTT publication capacity exceeded' });
   expect(broker.writes).toHaveLength(1);
-  broker.writes[0]!.resolve();
+  entryAt(broker.writes, 0).resolve();
   await pending;
   await client.disconnect();
 });
@@ -167,7 +168,7 @@ test('timeout keeps the reservation until the actual send settles', async () => 
   vi.advanceTimersByTime(100);
   expect(await pending).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
   expect(released).not.toHaveBeenCalled();
-  broker.writes[0]!.resolve();
+  entryAt(broker.writes, 0).resolve();
   await vi.advanceTimersByTimeAsync(0);
   expect(released).toHaveBeenCalledTimes(1);
 });

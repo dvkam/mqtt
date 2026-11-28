@@ -7,6 +7,7 @@ import { PublicationAdmission } from '../src/publicationAdmission.js';
 import { PacketIdentifiers } from '../src/packetIdentifiers.js';
 import { MqttError } from '../src/mqttError.js';
 import type { ReadonlyDeep } from '../src/util/bytes.js';
+import { entryAt } from './experiments/entry.js';
 
 /** The scripted transport. Its `send` only reads the packet, so an override may forward the read-only view to it. */
 type ReadingTransport = Omit<PacketTransport, 'send'> & { send: (packet: ReadonlyDeep<ClientPacket>) => Promise<void> };
@@ -14,12 +15,7 @@ type ReadingTransport = Omit<PacketTransport, 'send'> & { send: (packet: Readonl
 const qosOne = { qos: 1 } as const;
 
 function gate() {
-  let release!: () => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<void>((resolve, refuse) => {
-    release = resolve;
-    reject = refuse;
-  });
+  const { promise, resolve: release, reject } = Promise.withResolvers<void>();
   return { promise, release, reject };
 }
 
@@ -29,8 +25,13 @@ async function peer(
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. This function writes to `reply` (Cannot assign to 'receiveMaximum' because it is a read-only property), and the rule accepts no parameter that is written, so the code would have to copy the value first.
   afterConnack?: (reply: { receiveMaximum?: number; maximumQoS?: number }) => void,
 ) {
-  let receive!: Parameters<PacketTransport['listen']>[0];
-  let retire!: Parameters<PacketTransport['listen']>[1];
+  // The session replaces both when it listens. A fixture that used one earlier would fail here.
+  let receive: Parameters<PacketTransport['listen']>[0] = () => {
+    throw new Error('The session has not listened yet');
+  };
+  let retire: Parameters<PacketTransport['listen']>[1] = () => {
+    throw new Error('The session has not listened yet');
+  };
   const packets: ReadonlyDeep<ClientPacket>[] = [];
   const transport: ReadingTransport = {
     async send(packet: ReadonlyDeep<ClientPacket>) {
@@ -534,7 +535,7 @@ test('rejects a local publication when all shared IDs are held and can retry aft
     await expect(broker.client.publish('a', 'x', qosOne)).rejects.toThrow('MQTT packet identifiers exhausted');
     expect(broker.published()).toEqual([]);
     allocator.mockRestore();
-    held[1]!.release();
+    entryAt(held, 1).release();
     const retried = broker.client.publish('a', 'x', qosOne);
     const outcome = Promise.allSettled([retried]);
     try {

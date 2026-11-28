@@ -8,6 +8,7 @@ import { createWebSocketClient } from '../src/websocketClient.js';
 import { startCancellationPeer } from './experiments/node-cancellation-peer.js';
 import type { ClientPacket } from '../src/wireCodec.js';
 import type { ReadonlyDeep } from '../src/util/bytes.js';
+import { entryAt } from './experiments/entry.js';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -70,9 +71,9 @@ test.each(['resolve', 'reject', 'pending'] as const)(
     await expect(subscription).resolves.toBe(reason);
     await expect(retry).resolves.toBe(reason);
     expect(peer.close).toHaveBeenCalledExactlyOnceWith(true);
-    peer.writes[0]!.resolve();
-    peer.writes[1]!.reject(new Error('late write failure'));
-    peer.writes[2]!.resolve();
+    entryAt(peer.writes, 0).resolve();
+    entryAt(peer.writes, 1).reject(new Error('late write failure'));
+    entryAt(peer.writes, 2).resolve();
     peer.acknowledge();
     await expect(client.ping()).rejects.toBe(reason);
     expect(peer.close).toHaveBeenCalledTimes(1);
@@ -106,12 +107,12 @@ test('a completed publication stays successful and clears its timeout', async ()
   const peer = stalledPeer();
   const client = await connectPortable(peer.transport, { clientId: 'completed', timeoutMs: 100 });
   const pending = client.publish('a', 'one');
-  peer.writes[0]!.resolve();
+  entryAt(peer.writes, 0).resolve();
   await pending;
   vi.advanceTimersByTime(100);
   expect(peer.close).not.toHaveBeenCalled();
   const next = client.publish('a', 'two');
-  peer.writes[1]!.resolve();
+  entryAt(peer.writes, 1).resolve();
   await next;
 });
 
@@ -123,7 +124,7 @@ test('sequential QoS 0 writes share a timer and a later stalled write keeps its 
   try {
     for (let index = 0; index < 1000; index++) {
       const published = client.publish('a', 'ready');
-      peer.writes[peer.writes.length - 1]!.resolve();
+      entryAt(peer.writes, -1).resolve();
       await published;
     }
     expect(schedule.mock.calls.length).toBeLessThanOrEqual(1);
@@ -149,7 +150,7 @@ test('an expired QoS 0 write retires a later write that completes before the sha
   const now = vi.spyOn(performance, 'now').mockReturnValue(0);
   try {
     const first = client.publish('a', 'ready');
-    peer.writes[0]!.resolve();
+    entryAt(peer.writes, 0).resolve();
     await first;
     await vi.advanceTimersByTimeAsync(60);
     now.mockReturnValue(60.25);
@@ -158,7 +159,7 @@ test('an expired QoS 0 write retires a later write that completes before the sha
     await vi.advanceTimersByTimeAsync(40);
     const later = client.publish('a', 'completes').catch((reason: unknown) => reason);
     now.mockReturnValue(160.5);
-    peer.writes[2]!.resolve();
+    entryAt(peer.writes, 2).resolve();
     const reason = await later;
     expect(reason).toMatchObject({ message: 'MQTT operation timed out', code: 'ERR_MQTT_TIMEOUT', fatal: true });
     await expect(stalled).resolves.toBe(reason);

@@ -112,7 +112,8 @@ export class MqttPacketCompactDecoder {
           this.flush();
           continue;
         }
-        const digit = bytes[index++]!;
+        // The loop condition proved that index is inside bytes, so the fallback never applies.
+        const digit = bytes[index++] ?? 0;
         if (this.header === undefined) {
           this.header = digit;
           this.parse(Buffer.of(digit));
@@ -188,7 +189,8 @@ export class MqttPacketCompactDecoder {
   }
 
   private validateProperties(kind: PropertyKind, offset: number): void {
-    const frame = this.remainder!;
+    const frame = this.remainder;
+    if (frame === undefined) throw new Error('Properties are validated only while a frame is held');
     let end = frame.length;
     const shapes = propertyShapes[kind];
     const hasPayload = kind === 'PUBLISH' || kind === 'SUBACK' || kind === 'UNSUBACK';
@@ -201,7 +203,8 @@ export class MqttPacketCompactDecoder {
     const variable = (): number => {
       let value = 0;
       for (let index = 0; index < 4; index++) {
-        const digit = frame[take(1)]!;
+        // take(1) proved that the offset is inside the frame, so the fallback never applies.
+        const digit = frame[take(1)] ?? 0;
         value += (digit & 127) * 128 ** index;
         if ((digit & 128) === 0) {
           if (index > 0 && value < 128 ** index) throw new Error('Non-canonical MQTT ' + kind + ' property integer');
@@ -257,7 +260,8 @@ export class MqttPacketCompactDecoder {
           this.validateScalar(identifier, frame.readUInt16BE(take(2)));
           break;
         case 'byte':
-          this.validateScalar(identifier, frame[take(1)]!);
+          // take(1) proved that the offset is inside the frame, so the fallback never applies.
+          this.validateScalar(identifier, frame[take(1)] ?? 0);
           break;
         case 'variable':
           this.validateScalar(identifier, variable());

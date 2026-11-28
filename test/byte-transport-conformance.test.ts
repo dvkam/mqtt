@@ -15,6 +15,7 @@ import { createTransportClient } from '../src/index.js';
 import type { ClientSession } from '../src/session.js';
 import type { PublishMessage } from '../src/messageProperties.js';
 import type { ReadonlyBytes, ReadonlyDeep } from '../src/util/bytes.js';
+import { entryAt } from './experiments/entry.js';
 
 const codec = { protocolVersion: 5 } as const;
 
@@ -140,7 +141,8 @@ function adaptDuplex(stream: Duplex, inbound: Readonly<ByteInbound>, closes: boo
     async write(chunk: ReadonlyBytes) {
       return new Promise((resolve, reject) => {
         stream.write(chunk, (error?: Readonly<Error> | null) => {
-          error ? reject(error) : resolve();
+          if (error) reject(error);
+          else resolve();
         });
       });
     },
@@ -595,7 +597,7 @@ test('captures Will bytes and user properties before opening the transport', asy
     async open(inbound: Readonly<ByteInbound>, context: ReadonlyDeep<OpenContext>) {
       payload.fill(4);
       correlationData.fill(5);
-      userProperties[0]![1] = 'changed';
+      entryAt(userProperties, 0)[1] = 'changed';
       return peer.transport.open(inbound, context);
     },
   };

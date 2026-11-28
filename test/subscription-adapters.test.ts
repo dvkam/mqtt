@@ -55,11 +55,11 @@ test.each([
 
     const peers = new Set<Socket>();
     const subscriptions: ReadonlyDeep<ISubscribePacket>[] = [];
-    let acceptConnect!: () => void;
-    const connected = new Promise<void>((resolve) => {
-      acceptConnect = resolve;
-    });
-    let reply!: () => void;
+    const { promise: connected, resolve: acceptConnect } = Promise.withResolvers<void>();
+    // The peer replaces this when the subscriptions arrive. A test that replied earlier would fail here.
+    let reply = (): void => {
+      throw new Error('The peer has no subscription to answer yet');
+    };
     if (kind === 'tcp') {
       // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Removing it would cost developer experience. The handler writes its replies to `socket` and adds it to `peers`, whose sockets the peer destroys when it closes. The rule accepts only a read-only type, and that would be false for this parameter.
       tcp.on('connection', (socket) => {
