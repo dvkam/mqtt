@@ -11,6 +11,47 @@ Two terms used below:
 - The inbound rules are what the client does with each packet the broker sends: which packet types it accepts, how it shapes QoS 0 and QoS 1 messages, how it handles AUTH, and how it closes. At 351f172 the Node clients apply them in `src/nodePacketListener.ts` and `src/nodePacketInput.ts`, and the browser client has its own in `src/browserClient.ts` and `src/browserTransport.ts`.
 - A packet-level seam is a public hook for a custom transport that sends and receives decoded MQTT packets instead of bytes.
 
+## QoS 2 in both directions
+
+Written on 28 November 2026 (UTC), for [#13](https://github.com/dvkam/mqtt/issues/13). The owner asked in a working session for QoS 2 on an active process. The request named both exchange directions, duplicate PUBLISH and PUBREL, a failed PUBREC that frees its quota slot, replay by phase after a resume and no second local delivery. The request left the handler shape, the delivery point, the meaning of PUBCOMP reason 0x92 and the content of the public codec to the pull request. The options below were not put to the owner as a question. The pull request author chose among them, and the owner has not accepted them yet. Status: in the pull request for `feat/qos2`, not merged when this entry was written.
+
+Question: how does an application receive QoS 2 messages?
+
+| Option | Trade-off |
+| --- | --- |
+| A new `onQosTwoMessage` handler with a `QosTwoMessage` type (chosen) | It mirrors `onQosOneMessage`, so each handler has one literal `qos` and existing callers change nothing. A QoS 2 subscription also delivers QoS 1 publications at QoS 1, so `subscribe(topic, { qos: 2 })` requires both handlers and rejects otherwise. |
+| One handler for QoS 1 and QoS 2 | One option to set, but `onQosOneMessage` promises `qos: 1` in its type, so widening it breaks callers, and a second combined handler would give QoS 1 two ways in. |
+| Require only `onQosTwoMessage` for a QoS 2 subscription | Fewer options for a caller whose publishers all use QoS 2. A QoS 1 publication on that subscription would then get no PUBACK, and with Receive Maximum 1 it would block every later QoS 1 and QoS 2 delivery. |
+
+Reason given by the pull request author: the separate handler keeps the public types exact and adds no break, and the two-handler rule fails at `subscribe` instead of stalling the broker later.
+
+Question: what does a session end report for a QoS 2 publication in flight?
+
+| Option | Trade-off |
+| --- | --- |
+| `UncertainPublication` gains `qos`, and `acknowledged` is true once a PUBREC below 0x80 arrived (chosen) | One flag keeps one meaning at both QoS levels, which is that the broker accepted the publication. With `qos: 2` it also tells the phase, because an accepted QoS 2 publication continues with PUBREL and any other with PUBLISH. Existing readers of `acknowledged` keep working. |
+| A separate `phase` field | It names the phase directly, but it repeats what `qos` and `acknowledged` say, and QoS 1 entries would need a value that means nothing for them. |
+
+Reason given by the pull request author: the existing flag already answered whether the broker has the message.
+
+Consequences, added by the pull request author:
+
+- The client records the Packet Identifier of an inbound QoS 2 PUBLISH before the handler runs and sends PUBREC after the handler fulfills. MQTT 5 section 4.3.3 also allows storing the message and delivering it at PUBREL. That costs memory per message and delays delivery until the second round trip. Recording after the handler would let a duplicate PUBLISH on a later connection start a second handler call while the first still runs. A handler that fails removes its own delivery, so a resumed session delivers the message again with `dup: true`. Each delivery has a token, so a handler that settles after its connection ended cannot change a later message that got the same Packet Identifier. One case stays open. A handler that fails after a later connection already answered the duplicate does not get the message again.
+- The publish promise resolves on PUBCOMP with reason 0 or 0x92. Reason 0x92 says the broker no longer knows the identifier, which happens when it released the message and its first PUBCOMP was lost. The PUBREC had accepted the message by then, so the client does not report a failure.
+- A PUBREC with a reason of 0x80 or above rejects the publish with `ERR_MQTT_REFUSED` and `fatal: false`, as a refused PUBACK does. No new error code was added.
+- A second PUBREC for an exchange and a PUBCOMP without an exchange are ignored, as an unmatched PUBACK is. A PUBREC below 0x80 for an identifier without an exchange gets PUBREL with reason 0x92, and a PUBREL for an unknown identifier gets PUBCOMP with reason 0x92, because MQTT 5 defines that reason for both packets. A PUBREL that arrives while the handler still runs is a protocol error with reason 0x82.
+- The reconnecting client reports a continued QoS 2 exchange through two new event kinds, `pubrec` and `pubcomp`, with the fields of the `puback` event. A `switch` over `event.kind` without a `default` branch no longer compiles as exhaustive.
+- `SubscribeOptions.qos`, `SubscribeResult.grantedQos` and `SubscriptionIntent.qos` widen to `0 | 1 | 2`. A SUBACK that grants less than the request resolves with the granted QoS. Before, a QoS 1 request resolved only with a grant of 0 or 1, which is the same rule.
+- The public `mqtt/codec` entry now encodes and decodes QoS 2 PUBLISH, PUBREC, PUBREL and PUBCOMP, so `ClientPacket` and `BrokerPacket` gain three commands. The session needs the encoder, and a codec that decodes four packets it cannot encode would give a custom broker test double no way to answer. The codec still tracks no exchange.
+- QoS 2 is not an opt-in import. `publish(topic, payload, { qos: 2 })` is a runtime option, so a bundler cannot drop the exchange code, and every client carries it. [QoS 2](qos2.md#cost) has the measured size.
+- The drain deadline message changed from `MQTT QoS 1 drain expired. Delivery outcome is unknown` to `MQTT publish drain expired. Delivery outcome is unknown`, because one error now rejects QoS 1 and QoS 2 publications. The code stays `ERR_MQTT_TIMEOUT`.
+- The session state keeps the phase of each outbound QoS 2 exchange and the inbound identifiers that wait for PUBREL. It drops the payload of a publication when its PUBREC arrives.
+- A resumed session sends every stored PUBREL whatever the broker's Receive Maximum is, because MQTT 5 section 4.9 lets the quota hold back only PUBLISH packets. The exchanges still fill quota slots, so a PUBLISH waits for their PUBCOMPs.
+- A PUBCOMP ends an exchange only once the client handed its PUBREL to the transport. An earlier one is ignored, so the exchange stays stored and a later connection finishes it.
+- The client answers no PUBREC and no PUBREL once `disconnect()` was called, also during the drain. MQTT-4.3.3-4 and MQTT-4.3.3-11 ask for those answers, so [QoS 2](qos2.md#known-limit) lists this as a known limit.
+
+What follows: [QoS 2](qos2.md) is the guide. The journal that survives a process restart is #14, and it has to store the same phases and inbound identifiers. The session binding reports each step of an inbound delivery, so a journal can store a Packet Identifier when the handler fulfilled and not before.
+
 ## Target ES2025 and support Node 26 only
 
 Decided on 26 November 2026 (UTC), for [#55](https://github.com/dvkam/mqtt/issues/55) and the compile target item of [#159](https://github.com/dvkam/mqtt/issues/159). The owner gave this instruction in a working session, and no question with options preceded it, so the table marks no recommended option. Earlier that day the owner had asked for a newer ECMAScript version so that library code can call `findLast`, and [#189](https://github.com/dvkam/mqtt/pull/189) raised the target from ES2020 to ES2023. The owner then wrote: "why not use es2025? ... set to supported node version only stable lts v26 and consumer checks ... move to es2025". [#192](https://github.com/dvkam/mqtt/pull/192) made that change. Status: #189 and #192 merged on 26 November 2026.

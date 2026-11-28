@@ -108,7 +108,7 @@ test('rejects invalid identifiers, topics, budgets and unsupported packet profil
   expect(() => encodePacket({ cmd: 'subscribe', messageId: 0, topics: ['a'] })).toThrow('MQTT integer out of range');
   expect(() => encodePacket({ cmd: 'publish', topic: 'a/#', payload: new Uint8Array() })).toThrow('Invalid MQTT topic');
   expect(() => new PacketDecoder({ maxPacketBytes: 0 })).toThrow('MQTT integer out of range');
-  expect(() => new PacketDecoder().push(Uint8Array.of(0x34, 0))).toThrow('Unsupported');
+  expect(() => new PacketDecoder().push(Uint8Array.of(0xf0, 0))).toThrow('Unsupported');
   expect(() => new PacketDecoder().push(Uint8Array.of(0x20, 4, 0, 0, 1, 0x7f))).toThrow('Invalid MQTT CONNACK property identifier');
 });
 

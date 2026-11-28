@@ -262,9 +262,9 @@ test('a resumed session sends the stored publications again with DUP and their i
   peer.connections[0]?.end();
   for (const publication of lost) await expect(publication).rejects.toMatchObject({ code: 'ERR_MQTT_TRANSPORT' });
   expect(sessionState.inFlight).toEqual([
-    { topic: 'a', messageId: 1, acknowledged: false },
-    { topic: 'b', messageId: 2, acknowledged: false },
-    { topic: 'c', messageId: 3, acknowledged: false },
+    { topic: 'a', messageId: 1, qos: 1, acknowledged: false },
+    { topic: 'b', messageId: 2, qos: 1, acknowledged: false },
+    { topic: 'c', messageId: 3, qos: 1, acknowledged: false },
   ]);
 
   const second = await client(peer.transport, options).connect();
@@ -350,7 +350,7 @@ test('a stored publication larger than the new Maximum Packet Size ends the conn
   });
   expect(peer.commands(1)).toEqual(['connect', 'disconnect']);
   expect(peer.connections[1]?.packets[1]).toEqual({ cmd: 'disconnect' });
-  expect(sessionState.inFlight).toEqual([{ topic: 'large', messageId: 1, acknowledged: false }]);
+  expect(sessionState.inFlight).toEqual([{ topic: 'large', messageId: 1, qos: 1, acknowledged: false }]);
   const third = await client(peer.transport, options).connect();
   await vi.advanceTimersByTimeAsync(0);
   expect(peer.sent(2)).toEqual([['large', 1, true]]);
@@ -430,7 +430,7 @@ test('a resend that the write budget refuses ends the connection with a conflict
   await expect(second.publish('b', 'b', { qos: 1 })).rejects.toMatchObject(budgetConflict);
   expect(peer.commands(1)).toEqual(['connect', 'disconnect']);
   expect(ends).toMatchObject([{ kind: 'error', error: budgetConflict, uncertain: [{ topic: 'a', messageId: 1 }] }]);
-  expect(sessionState.inFlight).toEqual([{ topic: 'a', messageId: 1, acknowledged: false }]);
+  expect(sessionState.inFlight).toEqual([{ topic: 'a', messageId: 1, qos: 1, acknowledged: false }]);
   const third = await client(peer.transport, options).connect();
   await third.publish('c', 'c', { qos: 1 });
   expect(peer.sent(2)).toEqual([
@@ -498,9 +498,9 @@ test('a resend refused by a writer that never drains ends with a conflict before
     ['b', 2, true],
   ]);
   expect(sessionState.inFlight).toEqual([
-    { topic: 'a', messageId: 1, acknowledged: false },
-    { topic: 'b', messageId: 2, acknowledged: false },
-    { topic: 'c', messageId: 3, acknowledged: false },
+    { topic: 'a', messageId: 1, qos: 1, acknowledged: false },
+    { topic: 'b', messageId: 2, qos: 1, acknowledged: false },
+    { topic: 'c', messageId: 3, qos: 1, acknowledged: false },
   ]);
 });
 
@@ -742,7 +742,7 @@ test('the store refuses a new publication whose Packet Identifier a stored publi
   expect(() => {
     binding.record({ ...stored, topic: 'b' }, 1);
   }).toThrow('MQTT session state already stores Packet Identifier 1');
-  expect(binding.state.inFlight).toEqual([{ topic: 'a', messageId: 1, acknowledged: false }]);
+  expect(binding.state.inFlight).toEqual([{ topic: 'a', messageId: 1, qos: 1, acknowledged: false }]);
 });
 
 test('a resumed session whose broker no longer allows QoS 1 ends before any PUBLISH', async () => {
@@ -813,7 +813,7 @@ test('the reconnecting client resumes the session, keeps the subscriptions and r
   expect(peer.connect(1)).toMatchObject({ cleanStart: false, sessionExpiryInterval: 600 });
   expect(peer.sent(1)).toEqual([['sensor/1', 2, true]]);
   expect(peer.commands(1)).toEqual(['connect', 'publish']);
-  const uncertain = [{ topic: 'sensor/1', messageId: 2, acknowledged: false }];
+  const uncertain = [{ topic: 'sensor/1', messageId: 2, qos: 1, acknowledged: false }];
   expect(events.slice(1)).toMatchObject([
     { kind: 'retrying', attempt: 2 },
     {
@@ -847,7 +847,7 @@ test('the reconnecting client makes the subscriptions again and reports dropped 
     kind: 'connected',
     resumed: false,
     subscriptions: [{ topic: 'commands/#', qos: 1, result: { reasonCode: 0 } }],
-    dropped: [{ topic: 'sensor/1', messageId: 2, acknowledged: false }],
+    dropped: [{ topic: 'sensor/1', messageId: 2, qos: 1, acknowledged: false }],
   });
   expect(events.at(-1)).not.toHaveProperty('resent');
   await reconnecting.disconnect();
@@ -898,7 +898,7 @@ test('resetSession() after a packet limit conflict starts a clean session and re
     kind: 'connected',
     generation: 2,
     resumed: false,
-    dropped: [{ topic: 'large', messageId: 2, acknowledged: false }],
+    dropped: [{ topic: 'large', messageId: 2, qos: 1, acknowledged: false }],
   });
   await third.publish('small', 's', { qos: 1 });
   for (const index of [1, 2]) {

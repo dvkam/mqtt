@@ -53,12 +53,13 @@ export class PacketInput<Bytes extends Uint8Array> {
     onClose: FailureSink<Bytes>,
     receiveQosOne = false,
     protocolError?: ProtocolErrorSink<Bytes>,
+    receiveQosTwo = false,
   ): () => void {
     if (this.registered) throw new Error('MQTT packet input already registered');
     if (this.terminal?.owner === 'core') throw new Error('MQTT packet input has retired');
     this.registered = true;
     const registration: Registration<Bytes> = {
-      received: inboundPacketListener(onPacket, receiveQosOne, this.toBytes),
+      received: inboundPacketListener(onPacket, receiveQosOne, this.toBytes, receiveQosTwo),
       failed: onClose,
       protocolError,
     };

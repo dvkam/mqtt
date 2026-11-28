@@ -116,6 +116,17 @@ MQTT_QOS0_HEAP_PROFILE=/path/to/qos0.heapprofile node bench/packed-qos0.ts
 
 Set `MQTT_QOS0_WORKLOAD` to `bytes` to publish the payload as a Uint8Array, or to `properties` to add a Content Type, Correlation Data and a User Property. The default is `text`. The [PUBLISH encoding comparison](publish-encoding-measurements.md) records these workloads for the single-allocation encoder.
 
+`test/bench/packed-qos1-qos2.ts` is the counterpart for QoS 1 and QoS 2. Its writer answers each PUBLISH with PUBACK or PUBREC and each PUBREL with PUBCOMP from inside the write call, so the numbers show the client's cost for a whole exchange without a broker. Copy it into the same `bench` subdirectory and run it from both consumers in alternating order.
+
+```sh
+MQTT_TEST_QOS=1 node bench/packed-qos1-qos2.ts
+MQTT_TEST_QOS=2 node bench/packed-qos1-qos2.ts
+MQTT_TEST_QOS=2 MQTT_TEST_SESSION_STATE=1 node bench/packed-qos1-qos2.ts
+MQTT_TEST_QOS=1 MQTT_QOS0_HEAP_PROFILE=/path/to/qos1.heapprofile node bench/packed-qos1-qos2.ts
+```
+
+`MQTT_TEST_QOS` selects the level and defaults to 1. `MQTT_TEST_SESSION_STATE=1` adds a session state, so the client also stores each publication and drops it when its exchange ends. `MQTT_TEST_ITERATIONS` defaults to 200,000 measured publishes after 10,000 warmup publishes. A run prints publications per second with the p50, p90, p95 and p99 latency. With `MQTT_QOS0_HEAP_PROFILE` it prints the sampled bytes per publish and no timings. A base without QoS 2 runs only `MQTT_TEST_QOS=1`.
+
 The full lifecycle replay passed 43 positive models and found all 152 expected faults. The packed Chromium retirement probe observed no remaining timers or listeners after close. [Operation tests](../test/operation-timeout.test.ts) · [Deadline model](../verification/QosZeroDeadline.tla) · [#156](https://github.com/dvkam/mqtt/issues/156)
 
 ### Forwarded and async promises

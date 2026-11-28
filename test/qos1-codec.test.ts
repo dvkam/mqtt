@@ -76,7 +76,7 @@ test.each([
   { bytes: [0x32, 6, 0, 1, 97, 0, 0, 0], message: 'MQTT integer out of range' },
   { bytes: [0x32, 4, 0, 1, 97, 1], message: 'Truncated MQTT field' },
   { bytes: [0x38, 0], message: 'invalid fixed-header flags' },
-  { bytes: [0x34, 0], message: 'invalid fixed-header flags' },
+  { bytes: [0x36, 0], message: 'invalid fixed-header flags' },
   { bytes: [0x41, 0], message: 'invalid fixed-header flags' },
   { bytes: [0x40, 2, 0, 0], message: 'MQTT integer out of range' },
   { bytes: [0x40, 3, 0, 1, 0x81], message: 'Invalid PUBACK reason code' },
@@ -96,7 +96,7 @@ test('rejects invalid QoS, packet identifiers and unsupported encoder fields', (
   expect(() => encodePacket({ ...publication, messageId: 0 })).toThrow('MQTT integer out of range');
   expect(() => encodePacket({ ...acknowledgment, reasonCode: 0x81 })).toThrow('Invalid PUBACK reason code');
   expect(() => {
-    Reflect.apply(encodePacket, undefined, [{ ...publication, qos: 2 }]);
+    Reflect.apply(encodePacket, undefined, [{ ...publication, qos: 3 }]);
   }).toThrow('MQTT integer out of range');
   for (const qos of [0, undefined]) {
     expect(() => {

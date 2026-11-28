@@ -6,28 +6,29 @@ Use `import type` for the named contracts. TypeScript 7.0.2 is the supported com
 | --------------------------------------------------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `TcpClientOptions`                                                                | `mqtt`                                  | Host, optional port, session options and cancellation signal                                                                                 |
 | `WebSocketClientOptions`                                                          | `mqtt/ws`                               | URL, TLS and agent options, session options and local write budget                                                                           |
-| `NodeMessage`, `NodeQosOneMessage`                                                | `mqtt`                                  | Received QoS 0 and 1 PUBLISH as a flat object with a mutable Buffer payload                                                                  |
+| `NodeMessage`, `NodeQosOneMessage`, `NodeQosTwoMessage` | `mqtt` | Received QoS 0, 1 and 2 PUBLISH as a flat object with a mutable Buffer payload |
 | `BrowserClientOptions`                                                            | `mqtt/browser`                          | URL, session options, cancellation and independent byte and packet budgets                                                                   |
-| `BrowserMessage`, `BrowserQosOneMessage`                                          | `mqtt/browser`                          | Received QoS 0 and 1 PUBLISH as a flat object with a mutable Uint8Array payload                                                              |
+| `BrowserMessage`, `BrowserQosOneMessage`, `BrowserQosTwoMessage` | `mqtt/browser` | Received QoS 0, 1 and 2 PUBLISH as a flat object with a mutable Uint8Array payload |
+| `QosOneMessage`, `QosTwoMessage` | Both client entries and `mqtt/portable` | A received message type with `qos` 1 or 2, a `messageId` and a `dup` flag |
 | `ClientDiagnostic`, `DiagnosticObserver`                                          | Both client entries and `mqtt/portable` | Optional packet command and connection state metadata                                                                                        |
-| `SessionEnd`, `SessionEndObserver`, `UncertainPublication` | Both client entries and `mqtt/portable` | First logical retirement, the QoS 1 publications in flight at that point, and its optional observer |
+| `SessionEnd`, `SessionEndObserver`, `UncertainPublication` | Both client entries and `mqtt/portable` | First logical retirement, the QoS 1 and QoS 2 publications in flight at that point with their `qos` and `acknowledged` flag, and its optional observer |
 | `createReconnectingClient`, `ReconnectOptions`, `ReconnectEvent`, `ReconnectingClient`, `Reconnectable`, `SubscriptionIntent`, `SubscriptionRestore` | Both client entries and `mqtt/portable` | A client that opens a new session after each failure. See [reconnecting](reconnect.md). |
 | `watchPageLifecycle`, `PageLifecycleOptions`, `PageReturn` | `mqtt/browser` | Checks a reconnecting client each time the page comes back. See [page lifecycle](page-lifecycle.md). |
 | `ClientFactory`                                                                   | Both client entries                     | One cached connection attempt through `connect()`                                                                                            |
 | `ClientSession`                                                                   | Both client entries                     | Subscribe, unsubscribe, text and byte publish, ping and disconnect promises |
 | `BrowserSession`                                                                  | `mqtt/browser`                          | Alias for `ClientSession`                                                                                                                    |
 | `PublishOptions`, `PublishProperties`, `SubscribeOptions` | Both client entries and `mqtt/portable` | QoS, cancellation, retain and the MQTT 5 PUBLISH properties. See [publishing](publishing.md). |
-| `DisconnectOptions` | `mqtt`, `mqtt/browser`, `mqtt/portable` | QoS 1 drain, drain timeout, and normal or Will disconnection reason |
+| `DisconnectOptions` | `mqtt`, `mqtt/browser`, `mqtt/portable` | QoS 1 and QoS 2 drain, drain timeout, and normal or Will disconnection reason |
 | `WillOptions` | `mqtt`, `mqtt/ws`, `mqtt/browser`, `mqtt/portable` | Will topic, string or byte payload, QoS 0, 1, or 2, retain, and Will properties |
 | `ConnectionInfo`, `SubscribeResult`, `UnsubscribeResult` | `mqtt`, `mqtt/ws`, `mqtt/browser`, `mqtt/portable` | Negotiated connection snapshot and successful subscription outcomes |
-| `SessionOptions`, `SessionState`, `createSessionState` | Both client entries and `mqtt/portable` | Clean Start, Session Expiry Interval and the state, held in memory, that keeps unacknowledged QoS 1 publications for the next connection. Only `createSessionState` makes a `SessionState`. See [resuming the session](reconnect.md#resuming-the-session). |
+| `SessionOptions`, `SessionState`, `createSessionState` | Both client entries and `mqtt/portable` | Clean Start, Session Expiry Interval and the state, held in memory, that keeps unfinished QoS 1 and QoS 2 exchanges for the next connection. Only `createSessionState` makes a `SessionState`. See [resuming the session](reconnect.md#resuming-the-session). |
 | `WebSocketOptions`                                                                | `mqtt/websocket`                        | Type for native WebSocket timeout and cancellation options                                                                                 |
 | `ByteClientOptions`, `ByteTransport`, `ByteInbound`, `ByteWriter`, `OpenContext` | `mqtt`, `mqtt/portable` | Session options and the [custom transport contract](#custom-transport-contract) |
 | `ReadonlyBytes` | `mqtt`, `mqtt/portable` | The parameter of `ByteInbound.bytes`: a `Uint8Array` that the receiver only reads. Every `Uint8Array` is assignable to it. |
 | `MqttError`, `isMqttError`, `MqttErrorCode`, `MqttErrorDetails` | `mqtt`, `mqtt/browser`, `mqtt/portable` | Session rejection with a stable `code`, a `fatal` flag and the MQTT `reasonCode`. See [error codes](errors.md). |
 | `ProtocolInputError`, `ProtocolInputCode`                                         | `mqtt/portable`                         | Decoder rejection. An `MqttError` with code `ERR_MQTT_PROTOCOL` and `reasonCode` 0x81, 0x82 or 0x94 |
 
-`onMessage` handles QoS 0. Register `onQosOneMessage` before requesting a QoS 1 subscription. Its message adds a packet identifier and a DUP flag, with the same platform-specific payload type. The client acknowledges the delivery after that handler succeeds. See [inbound QoS 1 delivery](qos1-receive.md).
+`onMessage` handles QoS 0. Register `onQosOneMessage` before requesting a QoS 1 subscription. Its message adds a packet identifier and a DUP flag, with the same platform-specific payload type. The client acknowledges the delivery after that handler succeeds. See [inbound QoS 1 delivery](qos1-receive.md). A QoS 2 subscription needs `onQosTwoMessage` and `onQosOneMessage`. The client calls `onQosTwoMessage` for each QoS 2 publication and sends PUBREC after the handler succeeds. A duplicate PUBLISH of the same exchange calls it again only when the earlier call failed. See [QoS 2](qos2.md#receive-at-qos-2).
 
 Node and browser factories share a session interface. Repeated `connect()` calls return the same promise. Browser declarations compile using DOM libraries with no Node ambient types. Factory options hold the requested client identifier. `session.connection.clientId` exposes the identifier accepted for that connection. `createReconnectingClient` builds a new factory for each attempt, so this promise identity holds for each factory. A one-shot factory resumes a session when it gets `cleanStart: false` and the `SessionState` an earlier factory used. A session state that survives a process restart remains under #14, and identity continuity under #19.
 
@@ -35,23 +36,23 @@ Node and browser factories share a session interface. Repeated `connect()` calls
 
 `session.connection` is the frozen snapshot of the successful CONNACK. It contains the assigned client identifier when CONNECT requested an empty one. A missing Receive Maximum defaults to 65,535, Maximum QoS defaults to 2, and Topic Alias Maximum and Server Keep Alive default to 0. The broker capability flags default to true when absent. `sessionPresent` is the CONNACK flag, true only after `cleanStart: false`. `sessionExpiryInterval` is the broker's CONNACK value, or else the value CONNECT sent, or else 0. Maximum Packet Size, Response Information, Server Reference, and User Properties remain optional. The client rejects a PUBLISH, SUBSCRIBE or UNSUBSCRIBE larger than Maximum Packet Size with `ERR_MQTT_CAPACITY` before it writes the packet. [Outgoing admission](outgoing-admission.md#maximum-packet-size) The object's User Property tuples and array are also frozen. These are broker capabilities. The preview still has its own supported operations. [Codec profile](codec.md#supported-profile)
 
-`subscribe()` returns the granted QoS and reason code, with Reason String and ordered User Properties when supplied. A QoS 1 request can succeed with `grantedQos: 0`. `unsubscribe()` returns reason `0` for success or `17` for no subscription, with an optional Reason String. Both results wait for the matching broker acknowledgment and native write settlement. A refusal rejects with `ERR_MQTT_REFUSED` and carries the broker's numeric `reasonCode`. [Error codes](errors.md)
+`subscribe()` returns the granted QoS and reason code, with Reason String and ordered User Properties when supplied. The broker can grant less than the request, so a QoS 2 request can succeed with `grantedQos` 0, 1 or 2. `unsubscribe()` returns reason `0` for success or `17` for no subscription, with an optional Reason String. Both results wait for the matching broker acknowledgment and native write settlement. A refusal rejects with `ERR_MQTT_REFUSED` and carries the broker's numeric `reasonCode`. [Error codes](errors.md)
 
 The Promise types change from `Promise<void>` to `Promise<SubscribeResult>` and `Promise<UnsubscribeResult>`. Calls that await and ignore the result keep working. A callback that requires `Promise<void>` can await the operation without returning its value. Code that constructs a `ClientSession` test double supplies `connection` and the result objects.
 
 ## Received message fields
 
-`onMessage` and `onQosOneMessage` receive one flat object on every platform. The Node and browser messages differ only in their byte types.
+`onMessage`, `onQosOneMessage` and `onQosTwoMessage` receive one flat object on every platform. The Node and browser messages differ only in their byte types.
 
 | Field                     | Type                                          | Notes                                                 |
 | ------------------------- | --------------------------------------------- | ----------------------------------------------------- |
 | `cmd`                     | `'publish'`                                   |                                                       |
 | `topic`                   | `string`                                      |                                                       |
 | `payload`                 | `Buffer` on Node, `Uint8Array` in the browser |                                                       |
-| `qos`                     | `0`, or `1` in `onQosOneMessage`              |                                                       |
-| `dup`                     | `false`, or `boolean` in `onQosOneMessage`    |                                                       |
+| `qos` | `0`, `1` in `onQosOneMessage`, or `2` in `onQosTwoMessage` | |
+| `dup` | `false`, or `boolean` in `onQosOneMessage` and `onQosTwoMessage` | |
 | `retain`                  | `boolean`                                     |                                                       |
-| `messageId`               | `number`                                      | Only in `onQosOneMessage`                             |
+| `messageId` | `number` | Only in `onQosOneMessage` and `onQosTwoMessage` |
 | `payloadFormatIndicator`  | `0` or `1`                                    |                                                       |
 | `messageExpiryInterval`   | `number`                                      | Seconds                                               |
 | `contentType`             | `string`                                      |                                                       |
@@ -81,7 +82,7 @@ The client does not check a received payload as UTF-8 when `payloadFormatIndicat
 | `message.properties?.userProperties`, a map of `string` or `string[]` values | `message.userProperties`, ordered `[key, value]` pairs |
 | `message.length`                                                             | Removed                                                |
 | `message.messageId` and `message.properties?.topicAlias` on a QoS 0 message | Removed. Neither was ever set |
-| `message.dup`, a `boolean` | `false` on a QoS 0 message, `boolean` on a QoS 1 message |
+| `message.dup`, a `boolean` | `false` on a QoS 0 message, `boolean` on a QoS 1 or QoS 2 message |
 
 The old map kept the order of values under one key but lost the order between keys. The pairs keep the order the broker sent, which MQTT 5 requires a forwarder to keep (MQTT-3.3.2-18).
 

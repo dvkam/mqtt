@@ -43,6 +43,8 @@ export interface OutgoingPublication {
   readonly properties: PublicationProperties | undefined;
   /** Encoded property section, including its variable byte integer length. An empty section is one byte. */
   readonly propertyBytes: number;
+  /** Present on a QoS 2 publication only, so QoS 0 and QoS 1 publications share one object shape. */
+  readonly qos?: 2;
 }
 
 type RuntimeOptions = Readonly<Partial<Record<keyof PublishProperties, unknown>>>;
@@ -64,7 +66,7 @@ function oversizedText(
   text: string,
   options: RuntimeOptions | undefined,
   packetLimit: number,
-  qos: 0 | 1,
+  qos: 0 | 1 | 2,
 ): MqttError {
   const topicBytes = utf8Length(topic);
   const propertyBytes = options === undefined ? 1 : capturedProperties(options).propertyBytes;
@@ -162,7 +164,7 @@ export function capturePublication(
   retainAvailable: boolean,
   maxBytes: number,
   packetLimit: number,
-  qos: 0 | 1,
+  qos: 0 | 1 | 2,
 ): OutgoingPublication {
   let bytes: Uint8Array;
   if (typeof payload === 'string') {

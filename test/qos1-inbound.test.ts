@@ -31,7 +31,7 @@ test.each([
     bytes: [0x10, 20, 0, 4, 77, 81, 84, 84, 5, 2, 0, 0, 6, 0x21, 0, 1, 0x21, 0, 1, 0, 1, 97],
     reason: 'Duplicate MQTT CONNECT property',
   },
-  { bytes: [0x82, 7, 0, 1, 0, 0, 1, 97, 2], reason: 'Unsupported subscription options' },
+  { bytes: [0x82, 7, 0, 1, 0, 0, 1, 97, 3], reason: 'Unsupported subscription options' },
   {
     bytes: [0x82, 11, 0, 1, 0, 0, 1, 97, 0, 0, 1, 98, 1],
     reason: 'Unsupported subscription options',

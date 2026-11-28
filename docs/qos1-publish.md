@@ -4,7 +4,7 @@
 
 `disconnect()` rejects queued publications and stops admitting new work. It waits for active QoS 1 writes and their PUBACKs before it sends DISCONNECT. A successful PUBACK settles the publication normally. A refused PUBACK keeps its broker reason.
 
-Set `disconnect({ drainTimeoutMs: 1000 })` to give the drain its own deadline. The default is the connection's operation timeout. After expiry, the client preserves any matching PUBACK it already received. Publications whose PUBACK is still missing reject with `MQTT QoS 1 drain expired. Delivery outcome is unknown`. The session then tries to send DISCONNECT under its ordinary write deadline. Check your application's delivery record before retrying those publications.
+Set `disconnect({ drainTimeoutMs: 1000 })` to give the drain its own deadline. The default is the connection's operation timeout. After expiry, the client preserves any matching PUBACK it already received. Publications whose PUBACK is still missing reject with `MQTT publish drain expired. Delivery outcome is unknown`. The session then tries to send DISCONNECT under its ordinary write deadline. Check your application's delivery record before retrying those publications.
 
 Keep Alive continues during the drain. Use `disconnect({ drain: false })` to start the DISCONNECT write without waiting. This can leave earlier publications unacknowledged. A transport failure during either form of shutdown keeps its original error. Only the first valid `disconnect()` call chooses the options. `reasonCode: 4` asks the broker to publish its configured Will. The default reason is normal disconnection. [#147](https://github.com/dvkam/mqtt/issues/147)
 
@@ -34,7 +34,7 @@ Cancellation removes a queued request and returns its budget. After dispatch it 
 
 If a built-in transport refuses a QoS 1 publication at its native write budget before submitting it, the call rejects with the budget error, returns its quota, ID and publication capacity, and leaves the session usable. Other send errors retire the session because the amount that reached the peer is unknown. A connection failure or timeout rejects pending callers. The actual send can continue to hold its byte reservation until it settles. Disconnect stops queued dispatch before starting its DISCONNECT write and retires unfinished exchanges on closure.
 
-The QoS 1 promise covers the broker acknowledgment for the current connection. [Inbound QoS 1](qos1-receive.md) has a separate receive window. After a session ends, a [reconnecting client](reconnect.md) lists the QoS 1 publications that were in flight in its next `connected` event, even after failed attempts. A publication counts as acknowledged there only when its PUBACK reason was below 0x80. Without a session state, the client does not send them again.
+The QoS 1 promise covers the broker acknowledgment for the current connection. [Inbound QoS 1](qos1-receive.md) has a separate receive window. [QoS 2](qos2.md) publications share the queue, the Receive Maximum and the Packet Identifiers described here. After a session ends, a [reconnecting client](reconnect.md) lists the QoS 1 publications that were in flight in its next `connected` event, even after failed attempts. A publication counts as acknowledged there only when its PUBACK reason was below 0x80. Without a session state, the client does not send them again.
 
 ## Resumed sessions
 
