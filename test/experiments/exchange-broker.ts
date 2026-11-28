@@ -1,4 +1,5 @@
 import type { ByteInbound, ByteTransport } from '../../src/byteTransport.js';
+import type { ReadonlyBytes } from '../../src/util/bytes.js';
 import { encodePacket, PacketDecoder, type BrokerPacket, type ClientPacket } from '../../src/codec.js';
 
 type Connack = Extract<BrokerPacket, { cmd: 'connack' }>;
@@ -92,8 +93,8 @@ export function exchangeBroker(script: Readonly<ExchangeScript> = {}) {
   const held: (() => void)[] = [];
   const transport: ByteTransport = {
     name: 'Exchange broker',
-    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- Developer experience: ByteTransport.open in src/byteTransport.ts hands an adapter a writable ByteInbound and returns a promise, so that adapters need no casts and may open asynchronously. A test double of that interface takes the same parameter, and promise-function-async wants it async although it awaits nothing.
-    async open(inbound: ByteInbound) {
+    // oxlint-disable-next-line typescript/require-await -- Developer experience: ByteTransport.open in src/byteTransport.ts returns a promise, and promise-function-async requires an async function for that. This opener has nothing to wait for, and an await added for the rule would put every scripted connection one microtask later than the tests state.
+    async open(inbound: Readonly<ByteInbound>) {
       const decoder = new PacketDecoder();
       const index = connections.length + 1;
       const seen: ReadPacket[] = [];
@@ -123,8 +124,7 @@ export function exchangeBroker(script: Readonly<ExchangeScript> = {}) {
         get bufferedBytes() {
           return script.buffered?.() ?? 0;
         },
-        // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Developer experience: ByteWriter.write in src/byteTransport.ts hands an adapter the encoded Uint8Array by identity, so that it can pass the bytes to a native API without a copy. A test double of that interface takes the same parameter.
-        async write(bytes: Uint8Array) {
+        async write(bytes: ReadonlyBytes) {
           if (bytes[0] !== 0x10) connection.frames.push([...bytes]);
           let pending = false;
           for (const packet of decoder.push(bytes)) {

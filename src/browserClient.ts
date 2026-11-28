@@ -2,6 +2,7 @@ import type { ByteInbound, ByteWriter, OpenContext } from './byteTransport.js';
 import type { DiagnosticObserver } from './diagnostics.js';
 import type { PublishMessage } from './messageProperties.js';
 import type { NativeWriteLimits } from './nativeWriteBudget.js';
+import type { PortableOptions } from './portable.js';
 import { portablePlatform } from './portablePlatform.js';
 import type { PublicationLimits } from './publicationAdmission.js';
 import type { ClientFactory, ClientSession, QosOneMessage, QosTwoMessage, SessionEndObserver } from './session.js';
@@ -42,8 +43,7 @@ export interface BrowserClientOptions extends PublicationLimits, SubscriptionLim
    * Receives each inbound QoS 2 publication once. The client sends PUBREC after the handler returns or its promise
    * fulfills. A handler that throws or rejects ends the session without PUBREC.
    */
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Developer experience: a deeply readonly BrowserQosTwoMessage would type `payload` as a read-only view, so a handler that passes it to an API that takes a Uint8Array would need a copy or a type assertion. The onQosTwoMessage handler in test/types/mutable-contracts.ts assigns the payload.
-  onQosTwoMessage?: (message: BrowserQosTwoMessage) => void | Promise<void>;
+  onQosTwoMessage?: NonNullable<PortableOptions['onQosTwoMessage']>;
 }
 
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser adapter preserves native signals and mutable packet payloads.

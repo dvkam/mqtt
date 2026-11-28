@@ -77,8 +77,9 @@ export type ReconnectEvent =
       /** The session that connected. */
       session: Readonly<ClientSession>;
       /**
-       * How the session of the previous `connected` event ended. Its `uncertain` field lists the QoS 1 publications whose
-       * outcome is unknown. Failed attempts since then do not replace it. Absent on the first `connected` event.
+       * How the session of the previous `connected` event ended. Its `uncertain` field lists the QoS 1 and QoS 2
+       * publications whose outcome is unknown. Failed attempts since then do not replace it. Absent on the first
+       * `connected` event.
        */
       previous?: SessionEnd;
       /**
@@ -89,14 +90,16 @@ export type ReconnectEvent =
       /** The CONNACK Session Present flag. True when the broker resumed the session that an earlier CONNECT started. */
       resumed: boolean;
       /**
-       * With `resume`, the stored QoS 1 publications that this session sends again with DUP set and their Packet
-       * Identifiers, in the order they were first sent, within the broker's Receive Maximum. Absent when there are none. A
-       * `puback` event reports the broker's answer to each. A publication that the session does not write before it
-       * ends stays stored, so a later `connected` event lists it in `resent` or `dropped` again.
+       * With `resume`, the stored QoS 1 and QoS 2 publications that this session continues with their Packet Identifiers.
+       * First come the QoS 2 publications that have their PUBREC, with `acknowledged` true. The session sends only their
+       * PUBREL, and the broker's Receive Maximum does not hold a PUBREL back. The others follow in the order they were
+       * first sent. The session sends each PUBLISH again with DUP set, within the Receive Maximum. Absent when there are
+       * none. `puback`, `pubrec` and `pubcomp` events report the broker's answers. A publication that the session does
+       * not finish before it ends stays stored, so a later `connected` event lists it in `resent` or `dropped` again.
        */
       resent?: readonly UncertainPublication[];
       /**
-       * With `resume`, the stored QoS 1 publications the client dropped since the last `connected` event, because the
+       * With `resume`, the stored QoS 1 and QoS 2 publications the client dropped since the last `connected` event, because the
        * broker answered with Session Present false or `resetSession()` was called. The client does not send them again,
        * and their outcome is unknown. Absent when there are none.
        */
@@ -151,7 +154,7 @@ export interface ReconnectOptions {
   readonly subscriptions?: readonly SubscriptionIntent[];
   /**
    * Resume the MQTT session on later attempts. Every attempt after a connected session sends Clean Start false and shares
-   * one session state, so a session the broker resumed sends the unacknowledged QoS 1 publications again and keeps its
+   * one session state, so a session the broker resumed continues the unfinished QoS 1 and QoS 2 exchanges and keeps its
    * subscriptions. Needs `sessionExpiryInterval` from 1 to 4,294,967,295 in the factory options. Defaults to false.
    */
   readonly resume?: boolean;
@@ -199,7 +202,7 @@ export interface ReconnectingClient {
   /** Stops reconnecting, then disconnects the current session with `options`. */
   disconnect(options?: Readonly<DisconnectOptions>): Promise<void>;
   /**
-   * With `resume`, start a new session on the next attempt. That attempt drops the stored QoS 1 publications, lists them in
+   * With `resume`, start a new session on the next attempt. That attempt drops the stored QoS 1 and QoS 2 publications, lists them in
    * `dropped` of the next `connected` event and sends Clean Start true until a session connects. A connected session
    * keeps running. Has no effect without `resume`.
    */
@@ -261,9 +264,9 @@ function waiter(): Waiter {
 /**
  * Keep a connection to the broker. `create` builds a fresh one-shot factory for each attempt, such as
  * `(options) => createTcpClient(options)`. After a CONNACK with Session Present false, the client makes `subscriptions`
- * again. A QoS 1 publication that was in flight when a session ended is reported in the next `connected` event. Without
- * `resume`, the client never sends it again. With `resume`, a session the broker resumed sends it again with its Packet
- * Identifier. Throws a RangeError at once when an option in `reconnect` is invalid, or when `resume` is set and
+ * again. A QoS 1 or QoS 2 publication that was in flight when a session ended is reported in the next `connected` event.
+ * Without `resume`, the client never sends it again. With `resume`, a session the broker resumed continues its exchange
+ * with its Packet Identifier. Throws a RangeError at once when an option in `reconnect` is invalid, or when `resume` is set and
  * `options` has no `sessionExpiryInterval` from 1 to 4,294,967,295.
  */
 export function createReconnectingClient<Options extends Reconnectable>(

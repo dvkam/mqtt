@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { Session } from 'node:inspector/promises';
-import { createSessionState, createTransportClient, type ByteTransport } from 'mqtt';
+import { createSessionState, createTransportClient, type ByteInbound, type ByteTransport } from 'mqtt';
 import { summarizeLatencies } from '../experiments/latencies.ts';
 
 // An in-memory QoS 1 or QoS 2 publish loop. The writer answers each PUBLISH and PUBREL at once, so the numbers show the
@@ -22,12 +22,12 @@ let publications = 0;
 let releases = 0;
 const transport: ByteTransport = {
   name: 'benchmark writer',
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/require-await -- Developer experience: ByteTransport.open in the installed package hands an adapter a writable ByteInbound and returns a promise. This writer takes that parameter, and promise-function-async wants it async although it awaits nothing.
-  async open(inbound) {
+  // oxlint-disable-next-line typescript/require-await -- Developer experience: ByteTransport.open in the installed package returns a promise, and promise-function-async requires an async function for that. This opener has nothing to wait for, and an await added for the rule would be code that serves no reader.
+  async open(inbound: Readonly<ByteInbound>) {
     return {
       bufferedBytes: 0,
-      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types, typescript/promise-function-async -- Performance: an async write would allocate a promise per packet inside the measured loop, so this writer returns one settled promise. ByteWriter.write hands it the encoded Uint8Array by identity.
-      write(bytes) {
+      // oxlint-disable-next-line typescript/promise-function-async -- Performance: an async write would allocate a promise per packet inside the measured loop, so this writer returns one settled promise.
+      write(bytes: Readonly<Uint8Array<Readonly<ArrayBufferLike>>>) {
         const header = bytes[0];
         if (header === 0x10) inbound.bytes(Uint8Array.of(0x20, 3, 0, 0, 0));
         else if (header === 0x32 || header === 0x34) {
@@ -41,8 +41,9 @@ const transport: ByteTransport = {
         } else if (header !== 0xe0) throw new Error('Unexpected packet');
         return completed;
       },
-      // oxlint-disable-next-line typescript/promise-function-async -- Performance: close returns the settled promise of the writes, as the write above does, so the fixture allocates nothing per call.
-      close: () => completed,
+      close: async () => {
+        await completed;
+      },
     };
   },
 };

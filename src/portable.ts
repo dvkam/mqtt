@@ -790,7 +790,7 @@ class PortableClient<Bytes extends Uint8Array> {
     if (phase === undefined) return;
     this.resendPhase = undefined;
     this.resending = undefined;
-    // The QoS 0 publications that waited go out first, then the queued QoS 1 publications in their call order.
+    // The QoS 0 publications that waited go out first, then the queued QoS 1 and QoS 2 publications in their call order.
     for (const { write } of phase.waiting) write();
     this.outbound?.releaseQueued();
   }
@@ -1079,7 +1079,7 @@ class PortableClient<Bytes extends Uint8Array> {
     if (this.failure) return;
     this.failure = error;
     this.releaseSession?.();
-    // Held QoS 1 publications stay queued until retire rejects them.
+    // Held QoS 1 and QoS 2 publications stay queued until retire rejects them.
     this.endWrites(error);
     this.drainingPublications = false;
     this.stopKeepAlive();
