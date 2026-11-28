@@ -7,20 +7,26 @@ import {
 } from 'mqtt/browser';
 
 const log: string[] = [];
+const times: number[] = [];
 let client: ReconnectingClient | undefined;
 let visibility: 'hidden' | 'visible' | undefined;
 let connected = 0;
 
+function record(entry: string): void {
+  log.push(entry);
+  times.push(performance.now());
+}
+
 export async function start(url: string, clientId: string): Promise<void> {
   window.addEventListener('pagehide', (event: Readonly<{ persisted: boolean }>) => {
-    log.push(`pagehide persisted=${String(event.persisted)}`);
+    record(`pagehide persisted=${String(event.persisted)}`);
   });
   window.addEventListener('pageshow', (event: Readonly<{ persisted: boolean }>) => {
-    log.push(`pageshow persisted=${String(event.persisted)}`);
+    record(`pageshow persisted=${String(event.persisted)}`);
   });
   for (const type of ['freeze', 'resume', 'visibilitychange'])
     document.addEventListener(type, () => {
-      log.push(`${type} ${document.visibilityState}`);
+      record(`${type} ${document.visibilityState}`);
     });
   const reconnecting = createReconnectingClient(
     createBrowserClient,
@@ -34,16 +40,16 @@ export async function start(url: string, clientId: string): Promise<void> {
           connected = event.generation;
           const previous = event.previous?.kind === 'error' ? event.previous : undefined;
           const code = isMqttError(previous?.error) ? previous.error.code : '';
-          log.push(`connected ${String(event.generation)} ${code} uncertain=${String(previous?.uncertain?.length ?? 0)}`);
-        } else if (event.kind === 'retrying') log.push(`retrying ${String(Math.round(event.delayMs))} ${event.error.message}`);
-        else if (event.kind === 'stopped') log.push(`stopped ${event.reason}`);
+          record(`connected ${String(event.generation)} ${code} uncertain=${String(previous?.uncertain?.length ?? 0)}`);
+        } else if (event.kind === 'retrying') record(`retrying ${String(Math.round(event.delayMs))} ${event.error.message}`);
+        else if (event.kind === 'stopped') record(`stopped ${event.reason}`);
       },
     },
   );
   client = reconnecting;
   watchPageLifecycle(reconnecting, {
     onReturn(event) {
-      log.push(`return ${event.trigger} ${event.outcome}`);
+      record(`return ${event.trigger} ${event.outcome}`);
     },
   });
   await reconnecting.session();
@@ -59,6 +65,10 @@ export function generation(): number {
 
 export function entries(): string[] {
   return [...log];
+}
+
+export function timeline(): string[] {
+  return log.map((entry, index) => `${String(Math.round(times[index] ?? 0))} ${entry}`);
 }
 
 export async function until(prefix: string, timeoutMs = 5000): Promise<number> {

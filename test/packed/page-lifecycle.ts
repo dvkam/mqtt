@@ -38,6 +38,7 @@ interface Pair {
 }
 const pairs = new Set<Pair>();
 let opened = 0;
+let lastClosedAt = 0;
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The connection listener of createServer in node:net receives a native net.Socket, and the proxy calls its write and destroy methods.
 const proxy = createTcpServer((client) => {
   opened++;
@@ -47,7 +48,7 @@ const proxy = createTcpServer((client) => {
   const close = () => {
     client.destroy();
     upstream.destroy();
-    pairs.delete(pair);
+    if (pairs.delete(pair)) lastClosedAt = performance.now();
   };
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- A net.Socket data event passes a native Buffer, which the proxy writes on unchanged.
   client.on('data', (bytes: Buffer) => {
@@ -127,6 +128,10 @@ async function entries(): Promise<string[]> {
   return tab().evaluate(async () => (await import('/lifecycle.js')).entries());
 }
 
+async function timeline(): Promise<string[]> {
+  return tab().evaluate(async () => (await import('/lifecycle.js')).timeline());
+}
+
 async function until(prefix: string, timeoutMs = 5000): Promise<number> {
   return tab().evaluate(
     async ({ prefix, timeoutMs }: Readonly<{ prefix: string; timeoutMs: number }>) =>
@@ -156,19 +161,30 @@ const returns = (log: readonly string[]) => log.filter((entry) => entry.startsWi
 async function navigate(engine: string, notCached: readonly unknown[]): Promise<void> {
   const page = tab();
   const before = opened;
+  const left = performance.now();
   await page.goto(origin + '/b');
   await sleep(2000);
   const openInCache = pairs.size;
+  const closedAfterMs = openInCache === 0 ? Math.round(lastClosedAt - left) : undefined;
   await page.goBack({ waitUntil: 'commit' });
   await page.waitForFunction(() => document.readyState === 'complete');
   if (engine !== 'chromium') {
-    const log = await entries();
-    const restored = log.includes('pageshow persisted=true');
-    console.log(JSON.stringify({ engine, restoredFromCache: restored, connectionsOpenInCache: openInCache, entries: log }));
+    const restored = (await entries()).includes('pageshow persisted=true');
     if (restored) await until('return ', 10_000);
     else await start();
     // A return can be logged before its reconnect connects, so the next step reads the generation of a connected session.
     await ready();
+    console.log(
+      JSON.stringify({
+        engine,
+        version: browser().version(),
+        restoredFromCache: restored,
+        connectionsOpenInCache: openInCache,
+        closedAfterMs,
+        connectionsOpened: opened - before,
+        timeline: await timeline(),
+      }),
+    );
     return;
   }
   assert.equal(openInCache, 1, 'The connection of the cached page stays open');
@@ -262,6 +278,10 @@ try {
     try {
       active = await current.newPage();
       await check(engine);
+    } catch (error) {
+      console.log(`${engine} ${current.version()} failed with this page log`);
+      console.log(JSON.stringify(await timeline().catch(() => 'The page was gone')));
+      throw error;
     } finally {
       active = undefined;
       await current.close();
