@@ -19,26 +19,34 @@ export async function openMqttWebSocket(
   const socket = new WebSocket(url, 'mqtt');
   socket.binaryType = 'arraybuffer';
   const outcome = await new Promise<Opening>((resolve) => {
-    const settle = (result: Opening) => {
+    const cleanup = () => {
       clearTimeout(timer);
       signal?.removeEventListener('abort', aborted);
       socket.removeEventListener('open', opened);
       socket.removeEventListener('close', failed);
       socket.removeEventListener('error', failed);
-      if (result !== 'open' && socket.readyState < WebSocket.CLOSING) socket.close();
+    };
+    const fail = (result: Exclude<Opening, 'open'>) => {
+      cleanup();
+      if (socket.readyState < WebSocket.CLOSING) socket.close();
       resolve(result);
     };
     const failed = () => {
-      settle('handshake failed');
+      fail('handshake failed');
     };
     const aborted = () => {
-      settle('aborted');
+      fail('aborted');
     };
     const opened = () => {
-      settle(socket.protocol === 'mqtt' ? 'open' : 'subprotocol was not negotiated');
+      if (socket.protocol !== 'mqtt') {
+        fail('subprotocol was not negotiated');
+        return;
+      }
+      cleanup();
+      resolve('open');
     };
     const timer = setTimeout(() => {
-      settle('handshake timed out');
+      fail('handshake timed out');
     }, timeoutMs);
     socket.addEventListener('open', opened);
     socket.addEventListener('close', failed);
