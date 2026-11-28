@@ -92,7 +92,7 @@ export interface PortableOptions<Bytes extends Uint8Array = Uint8Array> extends 
    * Receives each inbound QoS 2 publication once. The client sends PUBREC after the handler returns or its promise
    * fulfills. A handler that throws or rejects ends the session without PUBREC.
    */
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Delivery preserves the adapter's mutable byte buffer type.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- QosTwoMessage in src/session.ts keeps `payload` as the adapter's writable byte type. The onQosTwoMessage handler in test/types/mutable-contracts.ts assigns it.
   onQosTwoMessage?: (packet: QosTwoMessage<PublishMessage<Bytes>>) => void | Promise<void>;
 }
 
@@ -544,7 +544,7 @@ class PortableClient<Bytes extends Uint8Array> {
    * duplicate PUBLISH never starts a second delivery. A handler that fails removes it again, so the next PUBLISH with that
    * Packet Identifier is delivered.
    */
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Preserve the mutable application payload while keeping the PUBREC identifier private.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The handler gets this packet by identity, and PortableOptions.onQosTwoMessage declares its fields writable. 'a handler that changes messageId does not change the PUBREC' in test/qos2-inbound.test.ts covers the identifier.
   private async deliverQosTwo(packet: QosTwoMessage<PublishMessage<Bytes>>): Promise<void> {
     const { messageId } = packet;
     const delivered = (this.delivered ??= new Set());

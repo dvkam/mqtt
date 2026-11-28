@@ -153,6 +153,27 @@ test('PUBREC follows the handler, and a duplicate PUBLISH while it runs starts n
   await session.disconnect();
 });
 
+test('a handler that changes messageId does not change the PUBREC', async () => {
+  const { session, connection } = await receiver(
+    {},
+    {
+      // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The handler writes the delivered message, which PortableOptions.onQosTwoMessage in src/portable.ts declares writable.
+      onQosTwoMessage(message) {
+        message.messageId = 99;
+      },
+    },
+  );
+  connection.deliver(publication(7));
+  await settle();
+  connection.deliver({ cmd: 'pubrel', messageId: 7, reasonCode: 0 });
+  await settle();
+  expect(answers(connection.frames)).toEqual([
+    [0x50, 2, 0, 7],
+    [0x70, 2, 0, 7],
+  ]);
+  await session.disconnect();
+});
+
 test('a handler that throws ends the session without PUBREC', async () => {
   const failure = new Error('store failed');
   const { session, connection, ends } = await receiver(

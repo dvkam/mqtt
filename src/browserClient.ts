@@ -42,7 +42,7 @@ export interface BrowserClientOptions extends PublicationLimits, SubscriptionLim
    * Receives each inbound QoS 2 publication once. The client sends PUBREC after the handler returns or its promise
    * fulfills. A handler that throws or rejects ends the session without PUBREC.
    */
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The browser message retains its mutable Uint8Array payload.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- BrowserQosTwoMessage keeps a writable Uint8Array `payload`. The onQosTwoMessage handler in test/types/mutable-contracts.ts assigns it.
   onQosTwoMessage?: (message: BrowserQosTwoMessage) => void | Promise<void>;
 }
 

@@ -40,4 +40,9 @@ export const browserFactory = createBrowserClient({
     message.topic = 'consumer-normalized';
     message.payload = new Uint8Array();
   },
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The fixture exercises native mutable objects and packet buffers with their declared API types.
+  onQosTwoMessage(message) {
+    message.payload = new Uint8Array();
+    message.messageId = 0;
+  },
 });
