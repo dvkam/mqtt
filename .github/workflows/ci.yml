@@ -140,6 +140,8 @@ jobs:
           pnpm pack --pack-destination playground
           npm install --prefix playground --no-save --ignore-scripts --no-audit --no-fund ./playground/mqtt-*.tgz
           pnpm exec tsc -p playground/tsconfig.json
+          pnpm lint:playground
+          node --test playground/test/scripted.test.mjs
       - run: pnpm exec playwright install --with-deps chromium
       - name: Drive the playground in Chromium, scripted and against Mosquitto over WebSocket
         run: |
