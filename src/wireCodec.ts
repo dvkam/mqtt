@@ -3,7 +3,7 @@ import { ProtocolInputError } from './protocolInputError.js';
 import { isSubscriptionReason } from './subscriptionReason.js';
 import { isPubackReason } from './pubackReason.js';
 import { captureWill, validateWillPayload, type WillMessage } from './will.js';
-import { isBytes, ownByteLength, variableByteIntegerSize } from './util/bytes.js';
+import { isBytes, ownByteLength, variableByteIntegerSize, type ReadonlyBytes } from './util/bytes.js';
 import { loneSurrogate, utf8Length } from './util/utf8.js';
 import {
   decodeUtf8,
@@ -211,13 +211,6 @@ function uint32(value: number, minimum = 0): Uint8Array<ArrayBuffer> {
   return Uint8Array.of(value >>> 24, (value >>> 16) & 255, (value >>> 8) & 255, value & 255);
 }
 
-/** The members the encoder reads from a byte view. The `buffer` member is left out because prefer-readonly-parameter-types rejects it. */
-interface ReadonlyBytes {
-  readonly [index: number]: number;
-  readonly length: number;
-  readonly byteLength: number;
-}
-
 function binary(value: ReadonlyBytes): Uint8Array<ArrayBuffer> {
   return join([uint16(value.byteLength), value]);
 }
@@ -351,7 +344,7 @@ function propertySection(parts: readonly ReadonlyBytes[]): Uint8Array<ArrayBuffe
   return join([variable(body.length), body]);
 }
 
-/** The Will fields that `encodeWill` reads. `WillMessage` in src/will.ts declares the two byte fields as `Uint8Array`, whose `buffer` member prefer-readonly-parameter-types rejects. */
+/** The Will fields that `encodeWill` reads. `WillMessage` in src/will.ts declares the two byte fields as `Uint8Array`, which prefer-readonly-parameter-types rejects. */
 interface EncodableWill extends Readonly<Omit<WillMessage, 'payload' | 'correlationData'>> {
   readonly payload: ReadonlyBytes;
   readonly correlationData?: ReadonlyBytes;
