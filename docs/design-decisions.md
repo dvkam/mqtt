@@ -11,6 +11,30 @@ Two terms used below:
 - The inbound rules are what the client does with each packet the broker sends: which packet types it accepts, how it shapes QoS 0 and QoS 1 messages, how it handles AUTH, and how it closes. At 351f172 the Node clients apply them in `src/nodePacketListener.ts` and `src/nodePacketInput.ts`, and the browser client has its own in `src/browserClient.ts` and `src/browserTransport.ts`.
 - A packet-level seam is a public hook for a custom transport that sends and receives decoded MQTT packets instead of bytes.
 
+## Target ES2025 and support Node 26 only
+
+Decided on 26 November 2026 (UTC), for [#55](https://github.com/dvkam/mqtt/issues/55) and the compile target item of [#159](https://github.com/dvkam/mqtt/issues/159). The owner gave this instruction in a working session, and no question with options preceded it, so the table marks no recommended option. Earlier that day the owner had asked for a newer ECMAScript version so that library code can call `findLast`, and [#189](https://github.com/dvkam/mqtt/pull/189) raised the target from ES2020 to ES2023. The owner then wrote: "why not use es2025? ... set to supported node version only stable lts v26 and consumer checks ... move to es2025". [#192](https://github.com/dvkam/mqtt/pull/192) made that change. Status: #189 and #192 merged on 26 November 2026.
+
+Question: which ECMAScript version does the build target, and which Node versions does the package support?
+
+| Option | Trade-off |
+| --- | --- |
+| ES2020 output and Node 22.12, 24 and 26, as before | The widest reach. Library code cannot call a method newer than ES2020, and CI keeps a consumer job for Node 22 and 24. |
+| ES2023 output and the same Node range, as #189 left it | Node 22.12 runs all of ES2023, so `findLast` is usable. ES2024 and ES2025 methods are not. |
+| ES2025 output and Node 26 only (chosen) | Library code may call Set methods, iterator helpers and `Promise.try`. An install on Node 22 or 24 fails under `engine-strict` and warns without it. A browser needs Chrome 136, Firefox 138 or Safari 26 for every ES2025 feature. |
+
+Reason given by the owner: the library should be modern and fast, and it has no consumers yet, so the baseline can still change.
+
+Consequences, added by the pull request authors:
+
+- `tsconfig.json`, the consumer type fixtures and the packed consumer use ES2025. The browser fixtures use ES2025 with DOM. [Toolchain verification](toolchain-baseline.md#toolchain-verification) records the browser versions.
+- The `lts-consumers` CI job for Node 22 and 24 is gone, and the packed-consumer job installs the tarball with `--engine-strict`.
+- At 8398718 the 52 emitted JavaScript files are byte for byte the same with `target` ES2023 and with ES2025, so the higher target adds no syntax to the output yet.
+- ES2022 and later output keeps class fields as native fields. The optional `MqttError` fields use `declare`, so an error without a reason code has no `reasonCode` key.
+- #192 set `engines.node` to `^26.0.0`. Every CI job runs the Node version in `.node-version`, 26.13.0, and #55 asks that the declared minimum minor is a tested one. [#198](https://github.com/dvkam/mqtt/pull/198) therefore narrows `engines.node` to `^26.13.0`. The pull request author recommended the narrowing. On 28 November 2026 the owner answered "go with all your recommendations" to a question that named the `^26.13.0` range. A CI job on an earlier Node 26 minor would let the range widen again.
+
+What follows: the scheduled browser job has not run since the target left ES2020, so CI has not yet loaded this output in Chromium, Firefox and WebKit, which #159 asks for.
+
 ## Resume a session with an in-memory session state
 
 Decided on 26 November 2026 (UTC), for [#12](https://github.com/dvkam/mqtt/issues/12) and the first part of [#14](https://github.com/dvkam/mqtt/issues/14). The owner asked in a working session for in-process session resumption to be built: the Clean Start and Session Expiry options, a session state with a small interface, both Session Present mismatches, the smaller packet limit on resume and an explicit session reset. The request proposed that a resent publication does not settle its original publish promise and that the reconnect events report its outcome. The options below were not put to the owner as a question. The pull request author chose among them, and the owner has not accepted them yet. Status: in the pull request for `feat/session-resume`, not merged when this entry was written.
@@ -38,6 +62,8 @@ Consequences, added by the pull request author:
 
 What follows: the fenced journal that survives a process restart is #14, which waits for QoS 2 in #13. The finite models in `verification/` still assume Clean Start true.
 
+Update, 28 November 2026: [#196](https://github.com/dvkam/mqtt/pull/196) merged this work on 27 November 2026. In the working session of 26 November the owner had asked for it to follow the same flow as the reconnect work, which merges once review and CI pass. The options above were still not put to the owner as a question.
+
 ## Check a reconnecting client from an optional page lifecycle adapter
 
 Decided on 26 November 2026 (UTC), for [#32](https://github.com/dvkam/mqtt/issues/32). The options below were not put to the owner as a question, and the owner did not choose among them. The pull request author chose the API. The owner accepted the choice by asking for the reviewed work to be merged. This entry and the next were decided together. Status: in the pull request for `feat/page-lifecycle`, not merged when this entry was written.
@@ -56,6 +82,8 @@ Consequences: `retryNow()` counts its attempt toward `maxAttempts` and does noth
 
 What follows: Firefox and WebKit lifecycle tests, and the playground panel in #191.
 
+Update, 28 November 2026: [#195](https://github.com/dvkam/mqtt/pull/195) merged this work on 26 November 2026.
+
 ## Leave the connection open when the page enters the back-forward cache
 
 Decided on 26 November 2026 (UTC), for [#32](https://github.com/dvkam/mqtt/issues/32), together with the previous entry and accepted the same way. Status: in the pull request for `feat/page-lifecycle`, not merged when this entry was written.
@@ -71,6 +99,8 @@ Question: what does the adapter do on a `pagehide` whose `persisted` is true?
 Reason given by the pull request author: in Chromium, the only engine the author could run, an open WebSocket did not keep the page out of the cache, so a disconnect would gain no cache eligibility there. An application that needs DISCONNECT can disconnect in its own `pagehide` handler.
 
 What follows: the same check in Firefox and WebKit, where an open WebSocket may block the cache or close at another time.
+
+Update, 28 November 2026: [#195](https://github.com/dvkam/mqtt/pull/195) merged this work on 26 November 2026.
 
 ## Reconnect with a supervisor that builds a factory per attempt
 
@@ -92,6 +122,8 @@ What follows: resuming a session with Clean Start false is #14. Page lifecycle e
 
 Update, 26 November 2026: the pull request for `feat/session-resume` adds the `resume` option, so later attempts can send Clean Start false and share one session state. [Resume a session with an in-memory session state](#resume-a-session-with-an-in-memory-session-state)
 
+Update, 28 November 2026: [#190](https://github.com/dvkam/mqtt/pull/190) merged this work on 26 November 2026, and [#196](https://github.com/dvkam/mqtt/pull/196) merged the `resume` option on 27 November 2026.
+
 ## Publish takes bytes, retain and the MQTT 5 PUBLISH properties
 
 Decided on 26 November 2026 (UTC), for [#151](https://github.com/dvkam/mqtt/issues/151). The owner proposed the design in the "Proposed fix" section of #151. On 26 November, in a working session, the owner asked for the work to be merged once review and CI passed. Status: in the pull request for `feat/publish-bytes-properties`, not merged when this entry was written.
@@ -111,6 +143,8 @@ What follows: the client does not yet check a PUBLISH against the broker's Maxim
 
 Update, 26 November 2026: the pull request for `fix/maximum-packet-size` checks each PUBLISH, SUBSCRIBE and UNSUBSCRIBE against the broker's Maximum Packet Size. A larger packet rejects with `ERR_MQTT_CAPACITY` and `fatal: false` before the publication or subscription takes a slot, and before anything is written. [Outgoing admission](outgoing-admission.md#maximum-packet-size)
 
+Update, 28 November 2026: [#188](https://github.com/dvkam/mqtt/pull/188) merged this work on 26 November 2026, and [#194](https://github.com/dvkam/mqtt/pull/194) merged the Maximum Packet Size check on 27 November 2026.
+
 ## Every client accepts a text or byte password
 
 Decided on 26 November 2026 (UTC), for [#146](https://github.com/dvkam/mqtt/issues/146). The owner's comment on #146 described the browser change only. Widening the Node and custom transport types goes further than that comment and was not put to the owner as a separate question. On 26 November, in a working session, the owner asked for the work to be merged once review and CI passed. Status: in the pull request for `feat/browser-password`, not merged when this entry was written.
@@ -127,6 +161,8 @@ Reason given by the pull request author: the core already owns the other option 
 Consequences: a password over 65,535 bytes or of another type rejects `connect()` with `ERR_MQTT_INVALID_ARGUMENT` before the transport opens. The core copies the bytes, so a later change to the caller's array does not reach the wire. MQTT 5 allows a password without a username, and the client sends it that way.
 
 What follows: nothing for this decision.
+
+Update, 28 November 2026: [#187](https://github.com/dvkam/mqtt/pull/187) merged this work on 26 November 2026.
 
 ## Drain active QoS 1 exchanges before disconnect
 
@@ -146,6 +182,8 @@ Consequences: `disconnect()` takes `drain`, `drainTimeoutMs` and `reasonCode`. A
 
 What follows: inbound PUBLISH packets that arrive during the drain are dropped without a diagnostic, which #149 asks for.
 
+Update, 28 November 2026: [#185](https://github.com/dvkam/mqtt/pull/185) merged this work on 26 November 2026.
+
 ## Derive the default WebSocket message limit from the packet limit
 
 Decided on 26 November 2026 (UTC), for [#150](https://github.com/dvkam/mqtt/issues/150). The proposal was written on 25 November. On 26 November, in a working session, the owner asked for the reviewed work to be merged once review and CI passed. Status: in the pull request for `feat/verified-mqtt-session-updates`, not merged when this entry was written.
@@ -162,6 +200,8 @@ Reason given: a broker can split one MQTT packet across several WebSocket messag
 Consequences: this departs from the #150 acceptance item that asks to reject a message limit below the packet limit.
 
 What follows: nothing for this decision.
+
+Update, 28 November 2026: [#185](https://github.com/dvkam/mqtt/pull/185) merged this work on 26 November 2026.
 
 ## Register a Will in CONNECT
 
@@ -180,6 +220,8 @@ Consequences: the broker owns delivery of the Will, including Will QoS 2, while 
 
 What follows: nothing for this decision.
 
+Update, 28 November 2026: [#185](https://github.com/dvkam/mqtt/pull/185) merged this work on 26 November 2026.
+
 ## Return the connection and subscription acknowledgment results
 
 Decided on 26 November 2026 (UTC), for [#152](https://github.com/dvkam/mqtt/issues/152). The proposal was written on 25 November. On 26 November, in a working session, the owner asked for the reviewed work to be merged once review and CI passed. Status: in the pull request for `feat/verified-mqtt-session-updates`, not merged when this entry was written.
@@ -196,6 +238,8 @@ Reason given: #152 asks `subscribe()` to return the SUBACK result and the sessio
 Consequences: the snapshot fills in MQTT defaults for properties the broker left out. The subscription registry keeps ownership of each acknowledgment, and the result resolves only after the write settles. [Public types](public-types.md#broker-acknowledgment-results)
 
 What follows: refused SUBACK, UNSUBACK and PUBACK errors still carry no Reason String or User Properties, as docs/errors.md lists.
+
+Update, 28 November 2026: [#185](https://github.com/dvkam/mqtt/pull/185) merged this work on 26 November 2026.
 
 ## Errors carry stable codes
 
@@ -222,6 +266,8 @@ The implementation departs from the #155 proposal in the places below. They were
 - `ProtocolInputError` stays a subclass of `MqttError`, exported from `mqtt/portable`, instead of becoming an alias. A caller's `instanceof ProtocolInputError` check keeps working.
 
 What follows: the errors listed in [docs/errors.md](errors.md#gaps). One #155 acceptance item is also open. Some tests still assert only the message of a rejection that now has a code, and no check fails when `src/` adds an uncoded error.
+
+Update, 28 November 2026: [#183](https://github.com/dvkam/mqtt/pull/183) merged the first part on 26 November 2026. The gaps and the open #155 acceptance item listed above remain.
 
 ## Browser client takes on the Node inbound rules
 

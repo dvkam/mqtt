@@ -25,13 +25,15 @@ Use descriptive local, callback and type-parameter names. Preserve MQTT wire fie
 
 Use scripted peers for exact packet assertions and deliberate faults. Use the packed Mosquitto checks for an independent broker exchange. The packed-consumer CI job installs the tarball in a clean project and checks public declarations, browser imports and supported broker sessions. A source build alone does not prove the installed package works.
 
-For lifecycle changes, follow the [verification guide](../.agents/skills/verify-mqtt-lifecycle/SKILL.md). Compare the implementation with each model's scope, run positive and deliberately broken cases, and report limitations. A model check does not establish conformance for unmodeled protocol behavior.
+[AGENTS.md](../AGENTS.md) holds the rules for commits, branch names, pull request bodies, prose, lint suppressions and performance. This section adds what those rules leave out.
 
-Keep commits focused. Describe the problem, resulting behavior, tests and remaining limits in the PR. Run separate standards and specification reviews, challenge the conclusions, address findings and rerun affected checks. Report unavailable checks and review limitations. Merge only after required CI checks pass.
+For every pull request, compare the diff with the model coverage in the [verification guide](../.agents/skills/verify-mqtt-lifecycle/SKILL.md), run `node verification/check.ts` and state the result in the body. When a covered transition changes, compare the implementation with each model's scope, run positive and deliberately broken cases, and report limitations. A model check does not establish conformance for unmodeled protocol behavior.
+
+Keep commits focused. The pull request body has the three sections that AGENTS.md defines: Summary, Evidence and Merge danger. Put the tests and the remaining limits under Evidence. Run separate standards and specification reviews, challenge the conclusions, address findings and rerun affected checks. Report unavailable checks and review limitations. Merge only after required CI checks pass.
 
 Changes to package exports or dependencies also need a packed consumer check. Browser changes need evidence that Node-only dependencies stay out of the browser graph. Record repeatable performance measurements before claiming an improvement.
 
-For changes to framing, encoding, delivery, scheduling or native writes, compare installed baseline and candidate packages with the same workload. Start with the [packed echo probe](../docs/measurements.md#packed-echo-and-v8-profiles) for TCP. Add a browser or burst workload when it exercises the change more directly. Run CPU, allocation and deoptimization diagnostics separately from timings. Track profiling and measured bottlenecks under [#178](https://github.com/dvkam/mqtt/issues/178).
+AGENTS.md lists the functions of the message path and the numbers that a pull request reports when it changes one of them. Compare installed baseline and candidate packages with the same workload, as [Packed echo and V8 profiles](../docs/measurements.md#packed-echo-and-v8-profiles) describes. Add a browser or burst workload when it exercises the change more directly. Run CPU, allocation and deoptimization diagnostics separately from timings. Track profiling and measured bottlenecks under [#178](https://github.com/dvkam/mqtt/issues/178).
 
 ## Releases and governance
 
