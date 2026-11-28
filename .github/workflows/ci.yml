@@ -24,7 +24,7 @@ jobs:
   verify-ubuntu:
     name: checks (ubuntu-26.04)
     runs-on: ubuntu-26.04
-    timeout-minutes: 1
+    timeout-minutes: 10
     outputs: &outcomes
       test: ${{ steps.test.outcome }}
       test-types: ${{ steps.test-types.outcome }}
@@ -46,7 +46,7 @@ jobs:
       - name: test:types
         id: test-types
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: sleep 120 && git clean -ffdxq -e /node_modules && pnpm test:types
+        run: git clean -ffdxq -e /node_modules && pnpm test:types
       # Lint reads emitted declarations. Emitting them without a type check lets lint report when the sources have a
       # type error. The type error fails test:types, and build when it is in src.
       - name: lint
@@ -65,7 +65,7 @@ jobs:
   verify-windows:
     name: checks (windows-latest)
     runs-on: windows-latest
-    timeout-minutes: 1
+    timeout-minutes: 10
     outputs: *outcomes
     steps: *checks
 
