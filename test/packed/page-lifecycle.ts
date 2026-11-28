@@ -262,10 +262,11 @@ try {
     await waitFor(() => fixture.open() === 0, 'the connections of ' + engine + ' to close');
     if (engine === 'firefox') {
       // PROBE: does Firefox restore from the cache once the session history may keep viewers?
-      for (const prefs of [
+      const probes: Record<string, number | boolean>[] = [
         { 'browser.sessionhistory.max_total_viewers': 8 },
         { 'browser.sessionhistory.max_total_viewers': 8, 'fission.bfcacheInParent': true },
-      ]) {
+      ];
+      for (const prefs of probes) {
         current = await firefox.launch({ firefoxUserPrefs: prefs });
         try {
           active = await current.newPage();
