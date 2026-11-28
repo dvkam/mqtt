@@ -459,35 +459,41 @@ test.each(['fulfills', 'fails'] as const)(
   },
 );
 
-test('each of two handlers that earlier connections started answers only the duplicate of its own publication', async () => {
-  const { peer, calls, ends, connect, interrupted, fulfill } = setup();
-  await interrupted();
-  // This broker starts message B without sending A again, so two handlers of two connections run.
-  await connect();
-  peer.connection(1).deliver(message('B', 2));
-  await settle();
-  peer.connection(1).end();
-  await settle();
-  const session = await connect();
-  const third = peer.connection(2);
-  third.deliver(message('B', 2, true));
-  await settle();
-  fulfill('A');
-  await settle();
-  expect(third.frames).toEqual([]);
-  fulfill('B');
-  await settle();
-  expect(third.frames).toEqual([pubrecTwo]);
-  third.deliver(pubrel(2));
-  await settle();
-  // The handler of A fulfilled while the connection waited for B, so its duplicate gets PUBREC at once.
-  third.deliver(message('A', 1, true));
-  await settle();
-  expect(third.frames).toEqual([pubrecTwo, [0x70, 2, 0, 2], pubrecOne]);
-  expect(calls).toEqual(['A', 'B']);
-  expect(ends[2]).toEqual([]);
-  await session.disconnect();
-});
+test.each(['fulfills', 'fails'] as const)(
+  'a connection that waits for one handler does nothing when the handler of another publication %s',
+  async (outcome) => {
+    const { peer, calls, ends, connect, interrupted, fulfill, fail } = setup();
+    await interrupted();
+    // This broker starts message B without sending A again, so two handlers of two connections run.
+    await connect();
+    peer.connection(1).deliver(message('B', 2));
+    await settle();
+    peer.connection(1).end();
+    await settle();
+    const session = await connect();
+    const third = peer.connection(2);
+    third.deliver(message('B', 2, true));
+    await settle();
+    if (outcome === 'fulfills') fulfill('A');
+    else fail('A');
+    await settle();
+    expect(third.frames).toEqual([]);
+    expect(calls).toEqual(['A', 'B']);
+    fulfill('B');
+    await settle();
+    expect(third.frames).toEqual([pubrecTwo]);
+    third.deliver(pubrel(2));
+    await settle();
+    // The handler of A settled while the connection waited for B. Its duplicate gets PUBREC at once when it fulfilled,
+    // and reaches the handler again when it failed.
+    third.deliver(message('A', 1, true));
+    await settle();
+    expect(calls).toEqual(outcome === 'fulfills' ? ['A', 'B'] : ['A', 'B', 'A dup']);
+    expect(third.frames).toEqual(outcome === 'fulfills' ? [pubrecTwo, [0x70, 2, 0, 2], pubrecOne] : [pubrecTwo, [0x70, 2, 0, 2]]);
+    expect(ends[2]).toEqual([]);
+    await session.disconnect();
+  },
+);
 
 // The PUBLISH arrives a given number of microtask turns after the earlier handler failed, so one of the cases meets every
 // step between the failure and the second handler call.

@@ -48,6 +48,8 @@ The models check safety in small finite instances. Callbacks run to completion. 
 
 No module covers these rules. Only tests check them.
 
+- The highest QoS a client acknowledges. `acknowledgedQos` in `src/portable.ts` derives it from the handlers, the packet listener in the `PortableClient` constructor ends the session on a PUBLISH above it, and `captureSessionOptions` in `src/transportCore.ts` compares it with the granted QoS in the session state.
+- A packet other than CONNACK before CONNACK, which `rejectBeforeConnack` in `src/portable.ts` ends the attempt for. `DuplicateConnack` and `ConnackAgreement` start at the CONNACK.
 - Session Present after Clean Start false. `SessionPresentAgreement` assumes Clean Start true. When `cleanStart` is false, `receiveConnack` in `src/portable.ts` accepts Session Present true with reason code 0 only, and `open` then resumes the stored publications through `src/sessionState.ts`. A refused CONNACK with Session Present true stays a protocol error.
 - The resend phase in `src/portable.ts` and `src/outboundQosOne.ts`: resends in stored order with DUP set, the QoS 0 and QoS 1 publications that wait for them, and no write after DISCONNECT. `QosOneOutbound` leaves out `resume` and `releaseQueued`. `QosTwoOutbound` covers which packet a resumed QoS 2 exchange continues with and that a stored PUBREL does not wait for the quota, not the order of the resends.
 - The reconnect loop in `src/reconnect.ts`: the retry timer and `retryNow()`, the attempt count, the subscriptions made again after CONNACK, and `disconnect()` during an attempt or a wait.

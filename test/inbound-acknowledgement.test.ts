@@ -286,6 +286,22 @@ test('Session Present false drops what the session state was granted', async () 
   expect(peer.connections).toHaveLength(3);
 });
 
+test('a later grant of a lower QoS does not lower what the session state was granted', async () => {
+  const peer = exchangeBroker({
+    connack: (index) => ({ sessionPresent: index > 1 }),
+    suback: (topic) => (topic === 'a' ? 2 : 0),
+  });
+  const options = { clientId: 'resume', sessionExpiryInterval: 60, sessionState: createSessionState() };
+  const first = await createTransportClient(peer.transport, { ...options, ...both }).connect();
+  await first.subscribe('a', { qos: 2 });
+  await first.subscribe('b', { qos: 2 });
+  await first.disconnect();
+  await expect(createTransportClient(peer.transport, { ...options, cleanStart: false }).connect()).rejects.toMatchObject({
+    code: 'ERR_MQTT_INVALID_ARGUMENT',
+    message: 'MQTT session state holds a subscription with QoS 2, which needs onQosTwoMessage and onQosOneMessage',
+  });
+});
+
 test('an unsubscribe does not lower what the session state was granted', async () => {
   const sessionState = createSessionState();
   const peer = exchangeBroker({

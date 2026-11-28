@@ -11,6 +11,58 @@ Two terms used below:
 - The inbound rules are what the client does with each packet the broker sends: which packet types it accepts, how it shapes QoS 0 and QoS 1 messages, how it handles AUTH, and how it closes. At 351f172 the Node clients apply them in `src/nodePacketListener.ts` and `src/nodePacketInput.ts`, and the browser client has its own in `src/browserClient.ts` and `src/browserTransport.ts`.
 - A packet-level seam is a public hook for a custom transport that sends and receives decoded MQTT packets instead of bytes.
 
+## End the session on a PUBLISH the client cannot acknowledge, and hold the PUBREC of a duplicate
+
+Written on 28 November 2026 (UTC), for [#148](https://github.com/dvkam/mqtt/issues/148) and for the open case of the QoS 2 entry below. Two reviews of the QoS 2 pull request found that a client without the handler for a QoS dropped a PUBLISH of that QoS without an acknowledgment, and that a resumed session could lose a QoS 2 message. The owner asked in a working session for both to be fixed and named the target behavior: a protocol error with DISCONNECT 0x82 for a PUBLISH above the handlers, the same end for every packet before CONNACK, and a PUBREC that waits for a handler of an earlier connection. The rule that `onQosTwoMessage` needs `onQosOneMessage` was proposed to the owner in that session, and the owner did not object. The owner has not explicitly accepted it. The other options below were not put to the owner as a question. The pull request author chose among them, and the owner has not accepted them yet. Status: in the pull request for `fix/inbound-acknowledgements`, not merged when this entry was written.
+
+Question: what does a client do with a QoS 1 or QoS 2 PUBLISH that it has no handler for?
+
+| Option | Trade-off |
+| --- | --- |
+| End the session with `ERR_MQTT_PROTOCOL` and DISCONNECT 0x82 (chosen) | The application learns at once that messages arrive which it cannot take. MQTT-4.5.0-2 requires an acknowledgment for every PUBLISH, and the broker is told why the connection ends. A session that used to stall without an error now ends. |
+| Acknowledge the PUBLISH and discard the message | MQTT-4.5.0-2 allows an acknowledgment "regardless of whether it elects to process the Application Message". The session would go on, and every such message would be lost without a trace, at a QoS that promises delivery. |
+| Drop the PUBLISH without an acknowledgment, as before | The broker's send quota fills, delivery of every QoS 1 and QoS 2 message stops, and nothing reports it. It breaks MQTT-4.5.0-2. |
+
+Reason given by the pull request author: a QoS 1 or QoS 2 message that no code receives must not look delivered, and a stalled session is worse than an ended one. Reason code 0x82, Protocol Error, is one that MQTT 5 section 3.14.2.1 lets a client send, and 0x9B, QoS not supported, is for the server only. 0x83, Implementation specific error, was the other candidate. 0x82 fits the case the client can prove, which is a broker that delivers above the granted QoS against MQTT-3.8.4-8.
+
+Question: may a client set `onQosTwoMessage` without `onQosOneMessage`?
+
+| Option | Trade-off |
+| --- | --- |
+| No. `connect()` rejects with `ERR_MQTT_INVALID_ARGUMENT` before the transport opens (chosen, proposed to the owner and not objected to) | The handlers then give one number, the highest QoS the client acknowledges, and `subscribe` already required both handlers for `qos: 2`. A caller that set only `onQosTwoMessage` must add a handler. |
+| Yes, and a QoS 1 PUBLISH ends the session | It keeps existing callers working until a publisher uses QoS 1 on a topic they subscribed to at QoS 2. That is a failure in production that the options could have shown at start. |
+
+Question: how does a resumed session learn that its subscriptions need a handler the new client lacks?
+
+| Option | Trade-off |
+| --- | --- |
+| The session state records the highest QoS that a SUBACK granted, and `connect()` with Clean Start false rejects with `ERR_MQTT_INVALID_ARGUMENT` before the transport opens (chosen) | One number in the state and one comparison per connection. The mistake shows before any packet, as the other session options do. The record does not fall when a subscription ends, so a client that unsubscribed from its only QoS 2 filter still needs both handlers to resume. |
+| Reject after CONNACK with `ERR_MQTT_SESSION_CONFLICT` | It rejects only when the broker really resumed the session. That code tells a reconnecting client to retry, and a retry cannot add a handler, so the client would retry until its attempts run out. |
+| Record each filter with its granted QoS | Exact for the subscriptions the state has seen, and it falls after an unsubscribe. It costs memory per subscription and still misses the subscriptions below. |
+| No record. The first PUBLISH above the handlers ends the session | Nothing to store. The error then blames the broker for a mistake in the client's options. |
+
+Reason given by the pull request author: the chosen record is the smallest one that turns the common mistake into an argument error. No record in the client is complete. The state does not know a subscription of another process under the same Client Identifier, of an earlier process whose state is gone, one whose SUBACK never arrived, or one the broker assigned. For those the first PUBLISH above the handlers still ends the session with DISCONNECT 0x82, and [Error codes](errors.md#gaps) lists the case.
+
+Question: what does a resumed session do with the duplicate of a QoS 2 PUBLISH whose handler an earlier connection started and that still runs?
+
+| Option | Trade-off |
+| --- | --- |
+| Hold the PUBREC until that handler settles, in the one receive slot (chosen, as the owner asked) | The broker cannot finish the exchange before the handler fulfilled, so a handler that fails gets the message again, and no second message arrives beside a running handler. A handler that never settles ends each connection that waits for it at the operation deadline. |
+| Send PUBREC at once, as before | The session moves on while the old handler runs. A handler that fails afterwards loses the message, and nothing reports it. In a fuzz run of the review, every lost message came through this path. |
+| Call the handler again at once | No wait, and two calls for one delivery run at the same time. |
+
+Consequences, added by the pull request author:
+
+- A session that stalled now ends. A client without `onQosOneMessage` that received a QoS 1 PUBLISH kept running and got no further QoS 1 or QoS 2 message. It now ends with `ERR_MQTT_PROTOCOL`, and a reconnecting client stops with the reason `fatal`.
+- A packet other than CONNACK before CONNACK ends the attempt for every QoS and handler set. Before, a QoS 0 PUBLISH, an acknowledgment or a PINGRESP before CONNACK was ignored and `connect()` succeeded. The error of a QoS 1 or QoS 2 PUBLISH before CONNACK is now a `ProtocolInputError` with reason 0x82. Its message changed to `MQTT PUBLISH arrived before CONNACK`.
+- The client still sends no DISCONNECT before CONNACK. MQTT 5 section 4.13.1 says a client SHOULD send one with the reason code and section 3.1.4 lets a client send packets before CONNACK, so the text allows the DISCONNECT and does not require it. The documented behavior stays, as for every other protocol error in that phase.
+- A DISCONNECT before CONNACK keeps its own outcome, `ERR_MQTT_BROKER_DISCONNECT` with the broker's reason code, although MQTT-3.2.0-1 forbids the packet. The reason code tells a reconnecting client whether to retry.
+- A PUBREL for a publication whose handler still runs is a protocol error with reason 0x82 on every connection of the session. Before, that held only for a handler of the current connection, and the PUBREL for a handler of an earlier connection got PUBCOMP.
+- The duplicate that waits takes the receive slot of its connection. A broker that sends a second QoS 1 or QoS 2 PUBLISH beside it gets DISCONNECT 0x93. Before, identifiers of earlier connections never held the slot.
+- The packet listener of a transport no longer filters by handler. It forwards a PUBLISH of every QoS, and the session decides.
+
+What follows: [Inbound QoS 1](qos1-receive.md#a-publish-the-client-cannot-acknowledge) states the rule for a PUBLISH above the handlers, and [QoS 2](qos2.md#handler-failures) the held PUBREC. A journal for #14 has to store the granted QoS with the session.
+
 ## QoS 2 in both directions
 
 Written on 28 November 2026 (UTC), for [#13](https://github.com/dvkam/mqtt/issues/13). The owner asked in a working session for QoS 2 on an active process. The request named both exchange directions, duplicate PUBLISH and PUBREL, a failed PUBREC that frees its quota slot, replay by phase after a resume and no second local delivery. The request left the handler shape, the delivery point, the meaning of PUBCOMP reason 0x92 and the content of the public codec to the pull request. The options below were not put to the owner as a question. The pull request author chose among them, and the owner has not accepted them yet. Status: in the pull request for `feat/qos2`, not merged when this entry was written.
@@ -51,6 +103,8 @@ Consequences, added by the pull request author:
 - The client answers no PUBREC and no PUBREL once `disconnect()` was called, also during the drain. MQTT-4.3.3-4 and MQTT-4.3.3-11 ask for those answers, so [QoS 2](qos2.md#known-limit) lists this as a known limit.
 
 What follows: [QoS 2](qos2.md) is the guide. The journal that survives a process restart is #14, and it has to store the same phases and inbound identifiers. The session binding reports each step of an inbound delivery, so a journal can store a Packet Identifier when the handler fulfilled and not before.
+
+Update, 28 November 2026: the entry above this one closes the open case of the first consequence. A resumed session now holds the PUBREC of the duplicate until the handler of the earlier connection settles. It also makes `onQosTwoMessage` without `onQosOneMessage` an argument error, where this entry required both handlers only at `subscribe`.
 
 ## Target ES2025 and support Node 26 only
 

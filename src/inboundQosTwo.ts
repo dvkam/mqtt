@@ -29,7 +29,8 @@ export interface InboundQosTwo {
   /**
    * The outcome of the delivery that runs under `messageId`: true once its handler fulfilled, false once it failed. The
    * connection that got the PUBLISH again waits for it when an earlier connection started the handler. One connection
-   * uses the record at a time, so a later call replaces the wait of a connection that ended, and that wait never settles.
+   * uses the record at a time, so a later call replaces the wait of a connection that ended. That wait never settles,
+   * and neither does one whose delivery `clear` removed.
    */
   readonly outcome: (messageId: number) => Promise<boolean>;
   /** The broker started a new session, which knows none of the publications. */
@@ -41,13 +42,10 @@ export function inboundQosTwo(): InboundQosTwo {
   const handling = new Map<number, number>();
   const waiting = new Set<number>();
   let deliveries = 0;
-  // The token of the delivery whose outcome a connection waits for. A token is never 0.
+  // The token of the delivery whose outcome a connection waits for, and the function that tells it. A token is never 0
+  // and names one delivery, which settles once.
   let awaited = 0;
   let settle: (fulfilled: boolean) => void = () => {};
-  const report = (fulfilled: boolean): void => {
-    awaited = 0;
-    settle(fulfilled);
-  };
   return {
     begin(messageId) {
       deliveries += 1;
@@ -59,12 +57,12 @@ export function inboundQosTwo(): InboundQosTwo {
       if (handling.get(messageId) !== token) return;
       handling.delete(messageId);
       waiting.add(messageId);
-      if (awaited === token) report(true);
+      if (awaited === token) settle(true);
     },
     failed(messageId, token) {
       if (handling.get(messageId) !== token) return;
       handling.delete(messageId);
-      if (awaited === token) report(false);
+      if (awaited === token) settle(false);
     },
     release(messageId) {
       if (waiting.delete(messageId)) return 'released';
@@ -83,7 +81,6 @@ export function inboundQosTwo(): InboundQosTwo {
     clear() {
       handling.clear();
       waiting.clear();
-      awaited = 0;
     },
   };
 }

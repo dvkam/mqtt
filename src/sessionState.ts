@@ -11,13 +11,13 @@ const sessionStateBrand: unique symbol = Symbol('SessionState');
  * The client side of an MQTT session that outlives one connection. It holds each QoS 1 and QoS 2 publication that was
  * written and whose exchange has not ended, with its Packet Identifier. It also holds the Packet Identifier of each
  * inbound QoS 2 publication that the application received and that the broker has not released with PUBREL, and the
- * highest QoS that a subscription of the session was granted. Pass the same object as `sessionState` to every connection
- * of the session. A connection with Clean Start false needs the handlers for that QoS, and `connect()` rejects with
- * `ERR_MQTT_INVALID_ARGUMENT` without them. When a connection sends Clean Start false and the broker
- * answers with Session Present true, the client continues each stored exchange with its Packet Identifier. It sends
- * PUBREL for a QoS 2 publication that has its PUBREC, and the PUBLISH with DUP set for any other. When the broker
- * answers with Session Present false, the client drops everything stored. Only `createSessionState` makes one, and one
- * connection uses it at a time.
+ * highest QoS that the broker granted a subscription of the session. Pass the same object as `sessionState` to every
+ * connection of the session. When a connection sends Clean Start false and the broker answers with Session Present true,
+ * the client continues each stored exchange with its Packet Identifier. It sends PUBREL for a QoS 2 publication that has
+ * its PUBREC, and the PUBLISH with DUP set for any other. The broker also delivers to the subscriptions of the session
+ * again, so a connection with Clean Start false needs the handlers for the granted QoS. Without them `connect()` rejects
+ * with `ERR_MQTT_INVALID_ARGUMENT` before the transport opens. When the broker answers with Session Present false, the
+ * client drops everything stored. Only `createSessionState` makes one, and one connection uses it at a time.
  */
 export interface SessionState {
   /** A key that no caller can name, so only `createSessionState` makes a `SessionState`. */
@@ -79,7 +79,7 @@ export interface SessionBinding {
   readonly granted: (qos: 0 | 1 | 2) => void;
   /**
    * The highest QoS that a SUBACK of this session granted, so the highest QoS at which the broker delivers to the
-   * subscriptions the state knows. An unsubscribe does not lower it. Session Present false and `drop` reset it to 0.
+   * subscriptions the state knows. An unsubscribe does not lower it. Session Present false resets it to 0.
    */
   readonly grantedQos: () => 0 | 1 | 2;
   /** The write budget refused a new publication before writing it, so the broker never saw it. */
@@ -213,7 +213,6 @@ export function bindSessionState(events?: Readonly<SessionEvents>): SessionBindi
       publications.clear();
       releases.clear();
       inbound.clear();
-      grantedQos = 0;
       return dropped;
     },
   };

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { connect, createServer } from 'node:net';
-import { createReconnectingClient, createTcpClient } from 'mqtt';
+import { createReconnectingClient, createSessionState, createTcpClient } from 'mqtt';
 
 const host = '127.0.0.1';
 const brokerPort = Number(process.env['MQTT_TEST_PORT'] ?? 1883);
@@ -35,6 +35,8 @@ let cut;
 // ` dup`, and an acknowledgment with a reason code other than 0 adds the code.
 /** @type {string[]} */
 const forwarded = [];
+// Closes the connection that the proxy accepted last.
+let closeConnection = () => {};
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Developer experience: createServer in node:net hands its connection listener a native net.Socket, and the proxy calls its write and destroy methods. No readonly type of a socket satisfies the rule, so removing this would mean a wrapper object around each socket that hides what the proxy does.
 const proxy = createServer((client) => {
   const upstream = connect(brokerPort, host);
@@ -42,6 +44,7 @@ const proxy = createServer((client) => {
     client.destroy();
     upstream.destroy();
   };
+  closeConnection = close;
   /**
    * Forward each complete MQTT packet that one side sent to the other side.
    * @param {'client' | 'broker'} from
@@ -95,9 +98,17 @@ const events = [];
 const onPeerMessage = (message) => {
   peerReceived.push(message.payload.toString());
 };
+// The handler calls for the payload 'held' stay pending until the check settles them.
+/** @type {{ readonly resolve: () => void, readonly reject: (reason: Readonly<Error>) => void }[]} */
+const held = [];
 /** @param {Readonly<{ payload: Readonly<{ toString(): string }>, dup: boolean }>} message */
-const onClientMessage = (message) => {
-  clientReceived.push({ payload: message.payload.toString(), dup: message.dup });
+const onClientMessage = async (message) => {
+  const payload = message.payload.toString();
+  clientReceived.push({ payload, dup: message.dup });
+  if (payload !== 'held') return;
+  await new Promise((resolve, reject) => {
+    held.push({ resolve: () => resolve(undefined), reject });
+  });
 };
 const unexpectedQosOne = () => {
   throw new Error('The broker delivered a QoS 2 publication at QoS 1');
@@ -260,23 +271,86 @@ try {
   await peer.publish(`${topic}/in/i`, 'after the lost PUBCOMP', { qos: 2 });
   await exchanged(['broker PUBLISH', 'client PUBREC', 'broker PUBREL', 'broker PUBREL', 'client PUBCOMP 0x92', ...inboundExchange]);
 
-  await seventh.publish(`${topic}/out/j`, 'last', { qos: 2 });
+  // The connection ends while the handler still runs, so the broker sends its PUBLISH again. The resumed session holds
+  // the PUBREC while that handler runs. The handler then fails, and the session calls it again with the duplicate.
+  await peer.publish(`${topic}/in/k`, 'held', { qos: 2 });
+  await waitFor(() => held.length === 1);
+  closeConnection();
+  const eighth = await sessionOf(8);
+  assert.equal(eighth.connection.sessionPresent, true);
+  await exchanged(['broker PUBLISH', 'broker PUBLISH dup']);
+  await new Promise((resolve) => {
+    setTimeout(resolve, 200);
+  });
+  assert.deepEqual(forwarded, []);
+  held.shift()?.reject(new Error('The first handler call failed'));
+  await waitFor(() => held.length === 1);
+  assert.deepEqual(forwarded, []);
+  held.shift()?.resolve();
+  await peer.publish(`${topic}/in/l`, 'after the held PUBREC', { qos: 2 });
+  await exchanged(['client PUBREC', 'broker PUBREL', 'client PUBCOMP', ...inboundExchange]);
+
+  await eighth.publish(`${topic}/out/j`, 'last', { qos: 2 });
   await waitFor(() => peerReceived.includes('last'));
 
   assert.deepEqual(peerReceived.slice(batch.length), ['PUBREC lost', 'PUBREL lost', 'PUBCOMP lost', 'last']);
   // The handler saw each message once and never a duplicate, because the broker's second PUBLISH got PUBREC without a
   // delivery.
-  assert.deepEqual(
-    clientReceived.slice(batch.length),
-    [
+  assert.deepEqual(clientReceived.slice(batch.length), [
+    ...[
       'inbound PUBREC lost',
       'after the lost PUBREC',
       'inbound PUBREL lost',
       'after the lost PUBREL',
       'client PUBCOMP lost',
       'after the lost PUBCOMP',
+      'held',
     ].map((payload) => ({ payload, dup: false })),
-  );
+    // Only the call that followed the failed handler saw the duplicate.
+    { payload: 'held', dup: true },
+    { payload: 'after the held PUBREC', dup: false },
+  ]);
+
+  // A broker session that another process left behind holds a QoS 2 subscription. A client without onQosTwoMessage
+  // resumes it with a new session state, which knows nothing of that subscription. The broker delivers at QoS 2, and
+  // the client ends the session instead of leaving the PUBLISH without an answer.
+  const leftBehind = { host, port: brokerPort, clientId: `packed-qos2-left-${process.pid}`, sessionExpiryInterval: 60 };
+  const owner = await createTcpClient({ ...leftBehind, onQosOneMessage() {}, onQosTwoMessage() {} }).connect();
+  assert.deepEqual(await owner.subscribe(`${topic}/left/#`, { qos: 2 }), { grantedQos: 2, reasonCode: 2 });
+  await owner.disconnect();
+  /** @type {import('mqtt').SessionEnd[]} */
+  const ends = [];
+  const successor = await createTcpClient({
+    ...leftBehind,
+    cleanStart: false,
+    sessionState: createSessionState(),
+    onQosOneMessage() {},
+    onSessionEnd(event) {
+      ends.push(event);
+    },
+  }).connect();
+  assert.equal(successor.connection.sessionPresent, true);
+  await peer.publish(`${topic}/left/a`, 'above the handlers', { qos: 2 });
+  await waitFor(() => ends.length === 1);
+  const [end] = ends;
+  assert.ok(end?.kind === 'error' && 'code' in end.error && 'reasonCode' in end.error);
+  assert.equal(end.error.code, 'ERR_MQTT_PROTOCOL');
+  assert.equal(end.error.reasonCode, 0x82);
+  assert.equal(end.error.message, 'Inbound QoS 2 PUBLISH exceeds the QoS this client acknowledges');
+  // A session state that saw the SUBACK knows the subscription, so a client without the handlers fails before it opens
+  // a connection.
+  const known = createSessionState();
+  const subscriber = await createTcpClient({
+    ...leftBehind,
+    sessionState: known,
+    onQosOneMessage() {},
+    onQosTwoMessage() {},
+  }).connect();
+  await subscriber.subscribe(`${topic}/left/#`, { qos: 2 });
+  await subscriber.disconnect();
+  await assert.rejects(createTcpClient({ ...leftBehind, cleanStart: false, sessionState: known }).connect(), {
+    code: 'ERR_MQTT_INVALID_ARGUMENT',
+  });
 } finally {
   await client.disconnect().catch(() => {});
   await peer.disconnect();
@@ -284,5 +358,5 @@ try {
 }
 
 console.log(
-  'Packed TCP clients exchanged QoS 2 publications through Mosquitto, each delivered once, with each of PUBREC, PUBREL and PUBCOMP lost once in either direction',
+  'Packed TCP clients exchanged QoS 2 publications through Mosquitto, each delivered once, with each of PUBREC, PUBREL and PUBCOMP lost once in either direction, a PUBREC held for a handler of an earlier connection, and a session ended on a PUBLISH above the handlers',
 );

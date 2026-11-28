@@ -78,7 +78,7 @@ const client = await createTcpClient({
 const { grantedQos } = await client.subscribe('orders/#', { qos: 2 });
 ```
 
-A QoS 2 subscription needs `onQosTwoMessage` and `onQosOneMessage`. The broker delivers each publication at the lower of its own QoS and the granted QoS, so a QoS 1 publication arrives at QoS 1 and needs its PUBACK. Without both handlers `subscribe` rejects with `ERR_MQTT_INVALID_ARGUMENT` before it writes. A QoS 0 publication goes to `onMessage` when you set it. `grantedQos` is 0, 1 or 2, because the broker may grant less than you asked for.
+A QoS 2 subscription needs `onQosTwoMessage` and `onQosOneMessage`. The broker delivers each publication at the lower of its own QoS and the granted QoS, so a QoS 1 publication arrives at QoS 1 and needs its PUBACK. Without both handlers `subscribe` rejects with `ERR_MQTT_INVALID_ARGUMENT` before it writes. A client that has `onQosTwoMessage` and no `onQosOneMessage` fails earlier, because `connect()` rejects with `ERR_MQTT_INVALID_ARGUMENT` before the transport opens. A QoS 2 PUBLISH to a client without `onQosTwoMessage` ends the session with `ERR_MQTT_PROTOCOL` and DISCONNECT 0x82. [Inbound QoS 1](qos1-receive.md#a-publish-the-client-cannot-acknowledge) A QoS 0 publication goes to `onMessage` when you set it. `grantedQos` is 0, 1 or 2, because the broker may grant less than you asked for.
 
 `onQosTwoMessage` receives the [flat message fields](public-types.md#received-message-fields) with `qos: 2`, a numeric `messageId` and a boolean `dup`. `NodeQosTwoMessage`, `BrowserQosTwoMessage` and `QosTwoMessage` name the type.
 
@@ -86,10 +86,10 @@ For each QoS 2 PUBLISH the client takes these steps.
 
 1. It records the delivery under the Packet Identifier and calls the handler.
 2. When the handler returns or its promise fulfills, it sends PUBREC.
-3. Until PUBREL arrives, a further PUBLISH with that identifier starts no second handler call, with or without the DUP flag (MQTT-4.3.3-10). One that arrives after step 2 gets PUBREC again. One that arrives while the handler still runs on the same connection gets no PUBREC of its own, because the PUBREC of step 2 answers it.
+3. Until PUBREL arrives, a further PUBLISH with that identifier starts no second handler call, with or without the DUP flag (MQTT-4.3.3-10). One that arrives after step 2 gets PUBREC again. One that arrives while the handler still runs gets no PUBREC of its own, because the PUBREC of step 2 answers it. A resumed session holds the PUBREC in the same way while a handler of an earlier connection still runs. [Handler failures](#handler-failures)
 4. PUBREL gets PUBCOMP and frees the identifier. A later PUBLISH with it is a new message.
 
-The operation deadline of `timeoutMs` covers the handler and the PUBREC write, as it covers the handler and the PUBACK write at QoS 1. When it passes, the session ends with `ERR_MQTT_TIMEOUT` and the transport closes without DISCONNECT, so the broker publishes the Will. The client cannot cancel the handler, which may still finish its own work. [Inbound QoS 1](qos1-receive.md#flow-control)
+The operation deadline of `timeoutMs` covers the handler and the PUBREC write, as it covers the handler and the PUBACK write at QoS 1. When it passes, the session ends with `ERR_MQTT_TIMEOUT` and the transport closes without DISCONNECT, so the broker publishes the Will. The client cannot cancel the handler, which may still finish its own work. On a resumed session the deadline also covers the wait for a handler that an earlier connection started. [Inbound QoS 1](qos1-receive.md#flow-control)
 
 A PUBREL for an identifier the client does not know gets PUBCOMP with reason 0x92. When the broker's Maximum Packet Size is 4, that PUBCOMP and the PUBREL with 0x92 above go out in their four-byte form without a reason code, because MQTT-3.2.2-15 forbids a larger packet.
 
@@ -103,15 +103,26 @@ A handler can still run when its connection ends, for example after the deadline
 | --- | --- |
 | Fulfilled before the duplicate arrived | Sends PUBREC and does not call the handler |
 | Rejected before the duplicate arrived | Calls the handler again, with `dup: true` |
-| Still runs when the duplicate arrives | Sends PUBREC at once and does not call the handler. The broker then finishes the exchange, so a handler that rejects afterwards causes no second delivery. |
+| Still runs when the duplicate arrives | Holds the PUBREC until the handler settles. When it fulfills, the client sends PUBREC on the current connection. When it fails, the client calls the handler again on the current connection, with `dup: true`, and continues as for any delivery. |
 
-In the third case the message is lost when the earlier handler rejects afterwards. The broker has finished the exchange and does not send the message again, and the client reports nothing. Two handlers can also run at the same time in that case, because the next message arrives while the earlier handler still runs. A handler that may run longer than `timeoutMs` should retry its own work instead of rejecting.
+In the third case the current connection treats the duplicate as the connection that started the handler would. The broker cannot finish the exchange before the PUBREC, so a handler that fails afterwards does not lose the message, and no second message arrives while the handler of the first still runs. The client sends PUBREC, and later PUBCOMP, only for a publication whose handler fulfilled.
 
-The outcome of a handler changes only its own delivery. When the exchange has ended in the meantime, a late outcome changes nothing. A message that got the same Packet Identifier since then is neither delivered twice nor taken for a duplicate.
+- The publication takes the one receive slot of the current connection. A QoS 0 PUBLISH still flows, a second duplicate changes nothing, and a further QoS 1 or QoS 2 PUBLISH ends the session with DISCONNECT 0x93, as it does while a handler of the current connection runs.
+- The operation deadline of `timeoutMs` covers the wait, counted from the duplicate. When it passes, the session ends with `ERR_MQTT_TIMEOUT` and the transport closes without DISCONNECT. A handler call that follows a failed handler gets a deadline of its own. A handler that runs longer than `timeoutMs` ends each connection that waits for it, so set `timeoutMs` above the longest run of the handler.
+- A PUBREL that arrives before the PUBREC is a protocol error with reason 0x82. That also holds when no duplicate arrived on the current connection.
+
+| While the client holds the PUBREC | What happens |
+| --- | --- |
+| The current connection ends | The client writes nothing for the publication. The handler keeps running, and the next resumed session holds the PUBREC of the next duplicate in the same way. |
+| `disconnect()` is called | The client writes no PUBREC and calls no handler, also while it still waits for outbound exchanges. A handler that fulfills afterwards answers the duplicate of the next resumed session at once. One that fails leaves the publication to a handler call of that session. |
+| A later connection gets Session Present false | The client forgets the publication. A PUBLISH with its Packet Identifier is then a new message, and the outcome of the old handler changes nothing. |
+| No connection follows | The outcome of the handler changes nothing. The client still observes a rejection, so the runtime reports no unhandled rejection. |
+
+The outcome of a handler changes only its own delivery. After Session Present false a message that got the same Packet Identifier in the new session is neither delivered twice nor taken for a duplicate. When the handlers of two earlier connections still run, each answers only the duplicate of its own publication.
 
 ### Flow control
 
-A QoS 1 or QoS 2 handler makes the client advertise Receive Maximum 1. A QoS 2 publication holds that slot from its PUBLISH until the client has submitted its PUBCOMP. Another QoS 1 or QoS 2 PUBLISH before that ends the session with `ERR_MQTT_PROTOCOL` and DISCONNECT 0x93. One next PUBLISH may arrive while the PUBCOMP write is pending, and it is delivered when that write settles. A PUBREL that arrives while the handler of this connection still runs is a protocol error with reason 0x82. Identifiers that a resumed session brought along do not hold the slot, because the Receive Maximum starts over with each connection.
+A QoS 1 or QoS 2 handler makes the client advertise Receive Maximum 1. A QoS 2 publication holds that slot from its PUBLISH until the client has submitted its PUBCOMP. Another QoS 1 or QoS 2 PUBLISH before that ends the session with `ERR_MQTT_PROTOCOL` and DISCONNECT 0x93. One next PUBLISH may arrive while the PUBCOMP write is pending, and it is delivered when that write settles. A PUBREL that arrives while the handler still runs is a protocol error with reason 0x82. An identifier that has waited for PUBREL since an earlier connection does not hold the slot, because the Receive Maximum starts over with each connection. A duplicate whose PUBREC waits for a handler of an earlier connection holds it.
 
 After `disconnect()` the client answers no PUBLISH and no PUBREL. An identifier that waits for PUBREL stays in the session state.
 
@@ -127,7 +138,8 @@ A `sessionState`, or a reconnecting client with `resume: true`, keeps both direc
 | --- | --- |
 | A QoS 2 publication without PUBREC | The client sends the PUBLISH again with DUP and its Packet Identifier. A `pubrec` event and then a `pubcomp` event report the broker's answers. |
 | A QoS 2 publication with a PUBREC below 0x80 | The client sends only PUBREL. A `pubcomp` event reports the answer. The state dropped the payload when the PUBREC arrived. |
-| The identifier of an inbound QoS 2 publication whose handler fulfilled or still runs, and that got no PUBREL | A duplicate PUBLISH gets PUBREC without a handler call, and the PUBREL gets PUBCOMP with reason 0. |
+| The identifier of an inbound QoS 2 publication whose handler fulfilled, and that got no PUBREL | A duplicate PUBLISH gets PUBREC without a handler call, and the PUBREL gets PUBCOMP with reason 0. |
+| The identifier of an inbound QoS 2 publication whose handler still runs | A duplicate PUBLISH waits for the handler. PUBREC follows when it fulfills, and a second handler call when it fails. [Handler failures](#handler-failures) |
 
 The client sends each PUBREL in the order the PUBRECs arrived, and then each PUBLISH in the order of the first writes (MQTT-4.6.0-1 and MQTT-4.6.0-4). The Receive Maximum holds back only PUBLISH packets, so every stored PUBREL goes out, however many there are (MQTT-3.3.4-8 and [section 4.9](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html)). Every continued exchange still holds a quota slot until it ends, so a stored or new PUBLISH waits while the open exchanges fill the Receive Maximum. A CONNACK with Session Present false drops the stored publications and the inbound identifiers, and the `connected` event lists the publications in `dropped`. A stored QoS 2 PUBLISH conflicts with a broker whose Maximum QoS is now below 2, and the connection ends with `ERR_MQTT_SESSION_CONFLICT`. A stored PUBREL has no such conflict.
 
@@ -151,4 +163,4 @@ A QoS 2 publish allocates 1.9 times the bytes of a QoS 1 publish, because it run
 
 ## Verification
 
-`test/qos2-inbound.test.ts`, `test/qos2-publish.test.ts` and `test/qos2-resume.test.ts` drive the public clients over a scripted byte transport and assert the wire bytes. `test/qos2-codec.test.ts` pins the packet bytes against mqtt-packet. The packed `qos2.mjs` check runs both directions between two installed TCP clients and Mosquitto, through a proxy that logs each PUBLISH, PUBREC, PUBREL and PUBCOMP. The proxy then drops each of PUBREC, PUBREL and PUBCOMP once in each direction and closes the connection. For each of the six losses the check asserts the packets that the resumed session and the broker exchange, with the DUP flag and the reason code 0x92. It also asserts the `resent` list, the `pubrec` and `pubcomp` events and one handler call per message. The QosTwoOutbound and QosTwoInbound models in `verification/` check the quota slot, the resume phase and one delivery per exchange on bounded instances.
+`test/qos2-inbound.test.ts`, `test/qos2-publish.test.ts`, `test/qos2-resume.test.ts` and `test/qos2-held-duplicate.test.ts` drive the public clients over a scripted byte transport and assert the wire bytes. `test/qos2-inbound-fuzz.test.ts` runs 400 seeded random walks of a conforming broker against the inbound path, with handlers that settle and connections that end at random steps. It asserts that every PUBREC follows a fulfilled handler call, that no finished exchange lacks one, and that no handler runs again for a message while an earlier call is pending or fulfilled. `test/qos2-codec.test.ts` pins the packet bytes against mqtt-packet. The packed `qos2.mjs` check runs both directions between two installed TCP clients and Mosquitto, through a proxy that logs each PUBLISH, PUBREC, PUBREL and PUBCOMP. The proxy then drops each of PUBREC, PUBREL and PUBCOMP once in each direction and closes the connection. For each of the six losses the check asserts the packets that the resumed session and the broker exchange, with the DUP flag and the reason code 0x92. It also asserts the `resent` list, the `pubrec` and `pubcomp` events and one handler call per message. The QosTwoOutbound and QosTwoInbound models in `verification/` check the quota slot, the resume phase, one delivery per exchange and an acknowledgment only after a fulfilled handler on bounded instances.
