@@ -6,18 +6,30 @@ import {
   type ReconnectingClient,
 } from 'mqtt/browser';
 
+/** The retry policy of the page's client. The defaults keep the retry timer pending for the whole check. */
+export interface Retry {
+  readonly delayMs: number;
+  readonly maxAttempts: number;
+}
+
 const log: string[] = [];
 const times: number[] = [];
 let client: ReconnectingClient | undefined;
 let visibility: 'hidden' | 'visible' | undefined;
 let connected = 0;
+let listening = false;
+let pending: Readonly<{ code: string; elapsedMs: number }> | undefined;
 
 function record(entry: string): void {
   log.push(entry);
   times.push(performance.now());
+  // The console carries each entry to the test, also from a page that the browser unloads.
+  console.info(`lifecycle ${entry}`);
 }
 
-export async function start(url: string, clientId: string): Promise<void> {
+export function listen(): void {
+  if (listening) return;
+  listening = true;
   window.addEventListener('pagehide', (event: Readonly<{ persisted: boolean }>) => {
     record(`pagehide persisted=${String(event.persisted)}`);
   });
@@ -28,13 +40,21 @@ export async function start(url: string, clientId: string): Promise<void> {
     document.addEventListener(type, () => {
       record(`${type} ${document.visibilityState}`);
     });
+}
+
+export async function start(
+  url: string,
+  clientId: string,
+  retry: Readonly<Retry> = { delayMs: 20_000, maxAttempts: 5 },
+): Promise<void> {
+  listen();
   const reconnecting = createReconnectingClient(
     createBrowserClient,
     { url, clientId, timeoutMs: 1000 },
     {
-      initialDelayMs: 20_000,
-      maxDelayMs: 20_000,
-      maxAttempts: 5,
+      initialDelayMs: retry.delayMs,
+      maxDelayMs: retry.delayMs,
+      maxAttempts: retry.maxAttempts,
       onReconnect(event) {
         if (event.kind === 'connected') {
           connected = event.generation;
@@ -94,7 +114,7 @@ export function dispatchRestore(): void {
   window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
 }
 
-export async function publishPending(topic: string): Promise<{ code: string; elapsedMs: number }> {
+export async function publishPending(topic: string): Promise<Readonly<{ code: string; elapsedMs: number }>> {
   const session = await client?.session();
   if (session === undefined) throw new Error('Not started');
   const started = performance.now();
@@ -103,6 +123,20 @@ export async function publishPending(topic: string): Promise<{ code: string; ela
     (error: unknown) => (isMqttError(error) ? error.code : String(error)),
   );
   return { code, elapsedMs: performance.now() - started };
+}
+
+/** Starts a QoS 1 publication and returns at once, so the test can freeze the page while the publication is pending. */
+export async function startPublish(topic: string): Promise<void> {
+  const session = await client?.session();
+  if (session === undefined) throw new Error('Not started');
+  pending = undefined;
+  void publishPending(topic).then((result) => {
+    pending = result;
+  });
+}
+
+export function published(): Readonly<{ code: string; elapsedMs: number }> | undefined {
+  return pending;
 }
 
 export async function stop(): Promise<void> {

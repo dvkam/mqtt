@@ -157,9 +157,10 @@ jobs:
           consumer="$RUNNER_TEMP/mqtt-consumer"
           mkdir -p "$RUNNER_TEMP/mqtt-artifact" "$consumer" "$RUNNER_TEMP/mqtt-broker"
           pnpm pack --pack-destination "$RUNNER_TEMP/mqtt-artifact"
-          cp test/packed/*.mjs "$consumer/"
+          cp test/packed/*.mjs test/packed/consumer.ts test/packed/tsconfig.json "$consumer/"
           printf '{"private":true,"type":"module"}\n' > "$consumer/package.json"
-          npm install --prefix "$consumer" --engine-strict --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/mqtt-artifact/*.tgz "ws@$(node -p "require('./package.json').devDependencies.ws")"
+          npm install --prefix "$consumer" --engine-strict --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/mqtt-artifact/*.tgz \
+            "@types/node@$(node -p "require('./package.json').devDependencies['@types/node']")" "ws@$(node -p "require('./package.json').devDependencies.ws")"
       - run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
       - name: Run the packed browser checks
         run: node test/packed/browser-build.mjs "$RUNNER_TEMP/mqtt-consumer" ${{ matrix.browser }} | tee -a "$GITHUB_STEP_SUMMARY"
